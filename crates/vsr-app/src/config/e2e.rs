@@ -568,6 +568,32 @@ fn window_title_and_separator_apply_live_to_the_window(cx: &mut TestAppContext) 
     assert_eq!(window_title_of(&wb, cx), format!("Settings - {folder}"));
 }
 
+// ---- window.zoomLevel and the zoom commands -------------------------------------------------
+
+#[gpui_kit::test]
+fn zoom_commands_change_the_level_and_scale_the_editor_text(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "zoom", None, &[("a.txt", "a")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    let font = |wb: &Entity<Workbench>, cx: &mut VisualTestContext| wb.read_with(cx, |wb, _| wb.editor_settings.font_size);
+    let base = font(&wb, cx);
+    assert_eq!(base, 12.0);
+
+    cx.dispatch_action(crate::commands::ZoomIn);
+    cx.run_until_parked();
+    assert_eq!(vsr_settings::UserSettings::load(&f.settings).unwrap().get("window.zoomLevel"), Some(&json!(1.0)));
+    assert!((font(&wb, cx) - base * 1.2).abs() < 1e-3, "one step is 20% larger");
+
+    cx.dispatch_action(crate::commands::ZoomOut);
+    cx.dispatch_action(crate::commands::ZoomOut);
+    cx.run_until_parked();
+    assert!((font(&wb, cx) - base / 1.2).abs() < 1e-3, "two steps out");
+
+    cx.dispatch_action(crate::commands::ZoomReset);
+    cx.run_until_parked();
+    assert_eq!(font(&wb, cx), base, "reset returns to the default");
+    assert!(!vsr_settings::UserSettings::load(&f.settings).unwrap().is_modified("window.zoomLevel"));
+}
+
 // ---- window.density.editorTabHeight ----------------------------------------------------------
 
 #[gpui_kit::test]

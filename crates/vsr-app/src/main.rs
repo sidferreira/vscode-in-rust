@@ -291,6 +291,22 @@ impl Workbench {
         }
     }
 
+    // ---- zoom (window.zoomLevel) -------------------------------------------------------------
+
+    /// `workbench.action.zoomIn` / `zoomOut` (`Some(±1)`) change `window.zoomLevel`; reset (`None`)
+    /// removes the user's value. The setting is the state, as upstream, so it is saved and applied
+    /// through the configuration.
+    fn zoom(&mut self, step: Option<f64>, cx: &mut Context<Self>) {
+        let value = step.map(|step| {
+            let level = AppConfig::get(cx).configuration().get_f64("window.zoomLevel").unwrap_or(0.0);
+            let (min, max) = config::settings::ZOOM_LEVEL_RANGE;
+            serde_json::json!((level + step).clamp(min, max))
+        });
+        if let Err(e) = AppConfig::set_value(cx, "window.zoomLevel", value) {
+            self.error = Some(e);
+        }
+    }
+
     // ---- Search view (ADR-0023) ------------------------------------------------------------
 
     fn ensure_search(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Entity<SearchView> {
@@ -1153,6 +1169,9 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::ShowCommands, window, cx| this.show_quick_access(">", window, cx)))
             .on_action(cx.listener(|this, _: &commands::GoToLine, window, cx| this.show_quick_access(":", window, cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
+            .on_action(cx.listener(|this, _: &commands::ZoomIn, _, cx| this.zoom(Some(1.0), cx)))
+            .on_action(cx.listener(|this, _: &commands::ZoomOut, _, cx| this.zoom(Some(-1.0), cx)))
+            .on_action(cx.listener(|this, _: &commands::ZoomReset, _, cx| this.zoom(None, cx)))
             .on_action(cx.listener(|this, _: &commands::ShowExplorer, _, cx| this.show_explorer(cx)))
             .on_action(cx.listener(|this, _: &commands::ClearCommandHistory, _, cx| this.clear_command_history(cx)))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {

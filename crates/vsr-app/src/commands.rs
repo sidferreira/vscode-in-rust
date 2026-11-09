@@ -33,7 +33,7 @@ use crate::Quit;
 
 actions!(
     rscode,
-    [ShowCommands, ToggleSidebar, ShowExplorer, GoToLine, ClearCommandHistory]
+    [ShowCommands, ToggleSidebar, ShowExplorer, GoToLine, ClearCommandHistory, ZoomIn, ZoomOut, ZoomReset]
 );
 
 /// Where a command's action must be dispatched from.
@@ -98,6 +98,9 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-shift-e", ShowExplorer, None),
         KeyBinding::new("ctrl-g", GoToLine, None),
+        KeyBinding::new("cmd-=", ZoomIn, None),
+        KeyBinding::new("cmd--", ZoomOut, None),
+        KeyBinding::new("cmd-0", ZoomReset, None),
     ]);
 }
 
@@ -152,6 +155,9 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
     r.register(D::new("workbench.action.showCommands", "Show All Commands").f1(), action(ShowCommands, Workbench));
     r.register(D::new("workbench.action.quickOpen", "Go to File...").f1(), action(GoToFile, Workbench));
     r.register(D::new("workbench.action.gotoLine", "Go to Line/Column...").f1(), action(GoToLine, Workbench));
+    r.register(D::new("workbench.action.zoomIn", "Zoom In").category("View").f1(), action(ZoomIn, Workbench));
+    r.register(D::new("workbench.action.zoomOut", "Zoom Out").category("View").f1(), action(ZoomOut, Workbench));
+    r.register(D::new("workbench.action.zoomReset", "Reset Zoom").category("View").f1(), action(ZoomReset, Workbench));
     r.register(
         D::new("workbench.action.toggleSidebarVisibility", "Toggle Primary Side Bar Visibility")
             .category("View")

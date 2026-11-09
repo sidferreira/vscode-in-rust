@@ -6,6 +6,10 @@ Not affiliated with Microsoft; not for sale.
 - Upstream reference: `../vscode-original` (pinned in `UPSTREAM.md`)
 - Decisions: [`DECISIONS.md`](DECISIONS.md) · Research: [`docs/research/`](docs/research)
 
+Homebrew's rustup keeps `cargo` outside the default PATH; prefix commands with
+`PATH=/opt/homebrew/opt/rustup/bin:$PATH` (or add that to your shell profile).
+The first build takes a few minutes.
+
 ```sh
 cargo test                       # all crates
 cargo run -p vsr-app -- [folder]  # open the window on a folder (default: cwd)

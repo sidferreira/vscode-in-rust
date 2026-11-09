@@ -58,3 +58,11 @@ upstream = [
 rust = ["crates/vsr-app/src/theme.rs"]   # moves to vsr-platform theme service later
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Workbench colors hard-coded from dark_modern.json in vsr-app. dark_modern includes dark_plus which includes dark_vs, so all three define the result."
+
+[[port]]
+id = "workbench-layout"
+status = "planned"
+upstream = ["src/vs/workbench/browser/layout.ts"]
+rust = ["crates/vsr-app/src/main.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Workbench part layout (title/activity/side/editor/panel/status). vsr-app hand-builds the classic layout; moves to vsr-workbench."

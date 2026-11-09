@@ -1,8 +1,9 @@
 //! vscode-rust: the native workbench window.
 //!
-//! Layout mirrors the VS Code workbench parts
-//! (upstream: src/vs/workbench/browser/layout.ts @ 50e1350fc78d):
-//! title bar, activity bar, side bar (explorer), editor group (tabs + editor), status bar.
+//! Layout mirrors the VS Code workbench parts: title bar, activity bar,
+//! side bar (explorer), editor group (tabs + editor), status bar.
+//!
+//! upstream: src/vs/workbench/browser/layout.ts @ 50e1350fc78d
 
 mod model;
 mod theme;
@@ -55,6 +56,7 @@ struct Workbench {
     sidebar_visible: bool,
     expanded: std::collections::HashSet<PathBuf>,
     editors: Editors,
+    branch: Option<String>,
     error: Option<String>,
 }
 
@@ -77,6 +79,7 @@ impl Workbench {
             sidebar_visible: true,
             expanded: Default::default(),
             editors: Editors::default(),
+            branch: git_branch(&root),
             error: None,
         };
         // Open a README if there is one, so the first launch shows real text.
@@ -129,7 +132,9 @@ impl Workbench {
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     let small = |s: &str| RichText::new(s).size(12.0).color(t.sidebar_fg);
-                    ui.label(small("⎇ main"));
+                    if let Some(branch) = &self.branch {
+                        ui.label(small(&format!("⎇ {branch}")));
+                    }
                     if let Some(err) = &self.error {
                         ui.label(RichText::new(err).size(12.0).color(Color32::from_rgb(0xF1, 0x4C, 0x4C)));
                     }
@@ -383,6 +388,18 @@ impl eframe::App for Workbench {
         self.side_bar(ui);
         self.editor_group(ui);
     }
+}
+
+/// Current branch of the folder's git repo, if any (placeholder until an SCM service exists).
+fn git_branch(root: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()?;
+    let name = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (out.status.success() && !name.is_empty()).then_some(name)
 }
 
 fn folder_name(p: &Path) -> String {

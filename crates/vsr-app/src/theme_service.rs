@@ -21,11 +21,13 @@ use gpui_kit::component::theme::{Theme as ComponentTheme, ThemeMode, ThemeRegist
 use gpui_kit::*;
 use serde_json::Value;
 use vsr_settings::Configuration;
+use vsr_syntax::SyntaxService;
+use vsr_textmate::{RawThemeRule, TokenColorsProvider};
 use vsr_theme::selection::{
     COLOR_CUSTOMIZATIONS, COLOR_THEME, DETECT_COLOR_SCHEME, DETECT_HC, PREFERRED_DARK_THEME, PREFERRED_HC_DARK_THEME, PREFERRED_HC_LIGHT_THEME,
     PREFERRED_LIGHT_THEME, SEMANTIC_TOKEN_COLOR_CUSTOMIZATIONS, TOKEN_COLOR_CUSTOMIZATIONS,
 };
-use vsr_theme::{ColorScheme, ColorTheme, Customizations, HostColorScheme, ThemeCatalog, ThemeContribution, ThemeSettings};
+use vsr_theme::{ColorScheme, ColorTheme, Customizations, HostColorScheme, ThemeCatalog, ThemeContribution, ThemeSettings, TokenColorRule};
 
 use crate::config::AppConfig;
 use crate::ui::to_gpui;
@@ -55,6 +57,36 @@ pub fn theme_settings(c: &Configuration) -> ThemeSettings {
 /// `IHostColorSchemeService` from the window appearance.
 pub fn host_color_scheme(appearance: WindowAppearance, high_contrast: bool) -> HostColorScheme {
     HostColorScheme { dark: matches!(appearance, WindowAppearance::Dark | WindowAppearance::VibrantDark), high_contrast }
+}
+
+/// The token colours of a colour theme (customisations included) as the highlighter's rules.
+struct ThemeTokenColors<'a>(&'a ColorTheme);
+
+impl TokenColorsProvider for ThemeTokenColors<'_> {
+    fn token_colors(&self) -> Vec<RawThemeRule> {
+        self.0.token_colors().iter().map(raw_rule).collect()
+    }
+}
+
+fn raw_rule(rule: &TokenColorRule) -> RawThemeRule {
+    RawThemeRule {
+        scope: rule.scope.clone(),
+        // A JSON string keeps its comma separated alternatives (`"keyword, string"`); a JSON array
+        // is one selector per element. `vsr-theme` keeps one entry for a string.
+        scope_is_string: rule.scope.len() == 1,
+        font_style: rule.settings.font_style.clone(),
+        foreground: rule.settings.foreground.clone(),
+        background: rule.settings.background.clone(),
+    }
+}
+
+/// Hands the active colour theme's token colours to the highlighter (ADR-0038). Call it on
+/// startup and whenever the theme service notifies its observers: a theme change, a customisation
+/// or a preview. Open editors show the new colours on their next draw.
+pub fn sync_token_colors(syntax: &SyntaxService, cx: &App) {
+    if let Some(theme) = ThemeService::color_theme(cx) {
+        syntax.set_token_colors(&ThemeTokenColors(theme));
+    }
 }
 
 pub struct ThemeService {
@@ -120,7 +152,6 @@ impl ThemeService {
 
     /// The active colour theme with the user's customisations: token colours for the highlighter,
     /// any colour key by name.
-    #[allow(dead_code)] // API for the syntax highlighter and tests
     pub fn color_theme(cx: &App) -> Option<&ColorTheme> {
         cx.try_global::<ThemeService>().map(|s| &s.active)
     }

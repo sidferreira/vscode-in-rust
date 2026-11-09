@@ -18,6 +18,9 @@ use super::e2e::{open_file, set, workbench};
 use crate::Workbench;
 use crate::language_mode::ChangeLanguageMode;
 
+/// Light Modern (Light+) colours `fn` as a keyword.
+const LIGHT_MODERN_KEYWORD: Rgba = Rgba([0x00, 0x00, 0xff, 255]);
+
 fn language(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> (String, String) {
     wb.read_with(cx, |wb, _| {
         let e = wb.editors.active_editor().unwrap();
@@ -82,6 +85,22 @@ fn editing_retokenizes_and_the_colors_follow(cx: &mut TestAppContext) {
     cx.run_until_parked();
     tokenized(&wb, cx);
     assert_eq!(foreground_of(&wb, cx, 1, "let"), Some(Rgba([0x56, 0x9c, 0xd6, 255])));
+}
+
+#[gpui_kit::test]
+fn the_token_colors_follow_the_colour_theme_and_its_customizations(cx: &mut TestAppContext) {
+    // `fn` is keyword.other.fn (not in the `keywords` group); `if` is keyword.control.
+    let (wb, cx, f) = workbench(cx, "syntax-theme", None, &[("a.rs", "fn main() { if true {} }\n")]);
+    open_file(&wb, cx, &f.dir.join("a.rs"));
+    tokenized(&wb, cx);
+    assert_eq!(foreground_of(&wb, cx, 1, "fn"), Some(Rgba([0x56, 0x9c, 0xd6, 255])), "Dark Modern keyword");
+
+    // A theme change restyles the tokens; the tokens themselves are kept.
+    set(cx, "workbench.colorTheme", json!("Light Modern"));
+    assert_eq!(foreground_of(&wb, cx, 1, "fn"), Some(LIGHT_MODERN_KEYWORD), "Light Modern keyword");
+
+    set(cx, "editor.tokenColorCustomizations", json!({ "keywords": "#ff0000" }));
+    assert_eq!(foreground_of(&wb, cx, 1, "if"), Some(Rgba([0xff, 0x00, 0x00, 255])), "customised keyword");
 }
 
 #[gpui_kit::test]

@@ -1044,6 +1044,22 @@ or regex token, and in lines the tokenizer has not reached yet, like upstream). 
 blocked, reason rewritten to "needs untitled editors": it is the language of new untitled files, which rscode
 does not have. `editor.semanticHighlighting*` and `workbench.editor.languageDetection*` stay blocked.
 
+### Theme hookup (ADR-0037)
+
+The token colours are the active colour theme's, not a bundled Dark Modern. `vsr-app`'s `theme_service::sync_token_colors`
+hands `ColorTheme::token_colors()` (the theme's `tokenColors` with the include chain, the default rule from
+`editor.foreground`/`editor.background`, and `editor.tokenColorCustomizations` as `vsr-theme` applies them) to
+`SyntaxService::set_token_colors` as `RawThemeRule`s. It runs at startup and in the Workbench's `ThemeService` observer, so a
+theme change, a colour customisation and the picker's preview all restyle open editors and the minimap (the minimap cache
+keys on `SyntaxService::theme_generation`). Tokens are not re-tokenized: only styles change. `SyntaxService::new()` starts
+with no token colours; `BundledTheme` (Dark Modern) remains for the crate's tests only.
+
+The default rule's colours are not painted through the token trie: vscode-textmate keeps them as the root style, and
+`ThemeStyles::style_of` starts from "no colour", so an unmatched token has no foreground and the editor paints its
+`editor.foreground` (the minimap uses the same). Visually identical to upstream. `keywords` in `tokenColorCustomizations`
+covers `keyword.control`, `storage` and `storage.type` only, as upstream's `tokenGroupToScopesMap` does: `fn` (`keyword.other.fn`)
+keeps the theme's colour.
+
 ### Numbers (release build, Apple silicon, `editorOptions.ts`: 7,084 lines, 259 KB)
 
 Grammar build 3 ms (rule graph; regexes compile on first use). Tokenizing the whole file: 472 ms cold (includes

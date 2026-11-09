@@ -49,8 +49,8 @@ impl RawThemeRule {
     }
 }
 
-/// Where a theme's `tokenColors` come from. The theme service will implement this; until then
-/// `vsr-syntax` implements it on the bundled Dark Modern files.
+/// Where a theme's `tokenColors` come from. The app implements this on the active colour theme
+/// (`vsr-app`'s theme service, ADR-0037); `vsr-syntax::BundledTheme` implements it for tests.
 pub trait TokenColorsProvider {
     fn token_colors(&self) -> Vec<RawThemeRule>;
 }

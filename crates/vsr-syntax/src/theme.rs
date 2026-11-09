@@ -1,8 +1,8 @@
 //! `tokenColors` from theme JSON, and the bundled Dark Modern chain.
 //!
 //! upstream: extensions/theme-defaults/themes/dark_modern.json @ 50e1350fc78d
-//! Until the theme service lands this is where the token colors come from; it exposes them
-//! through `TokenColorsProvider`, the trait the theme service will implement instead.
+//! The app hands the active theme's rules to `SyntaxService::set_token_colors` (ADR-0037); this
+//! bundled Dark Modern chain is for the crate's tests.
 
 use serde_json::Value;
 use vsr_languages::bundled::THEME_FILES;
@@ -42,7 +42,7 @@ pub fn parse_rule(entry: &Value) -> Option<RawThemeRule> {
     })
 }
 
-/// The bundled VS Code Dark Modern theme (dark_modern, dark_plus, dark_vs).
+/// The bundled VS Code Dark Modern theme (dark_modern, dark_plus, dark_vs), for tests.
 pub struct BundledTheme {
     file: &'static str,
 }

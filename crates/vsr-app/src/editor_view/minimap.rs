@@ -388,8 +388,8 @@ impl MinimapView {
             (params.render == RenderMinimap::Text, params.font_scale, params.line_height, params.char_width).hash(&mut h);
             (params.canvas_width, params.canvas_height, params.tab_size, params.top_padding_lines).hash(&mut h);
             (params.fg, params.bg, sampling.as_ref().map(Vec::len)).hash(&mut h);
-            // Token colours change as the tokenizer works through the file.
-            i.editor.syntax().map(|d| d.tokenizer.progress()).hash(&mut h);
+            // Token colours change as the tokenizer works through the file, and with the theme.
+            i.editor.syntax().map(|d| (d.tokenizer.progress(), d.service.theme_generation())).hash(&mut h);
             h.finish()
         };
         let cached = self.image.borrow().as_ref().filter(|(k, _)| *k == key).map(|(_, img)| img.clone());

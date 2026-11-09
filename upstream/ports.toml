@@ -236,3 +236,49 @@ upstream = [
 rust = ["crates/vsr-app/src/search_view.rs", "crates/vsr-app/src/search/model.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Search view on gpui (ADR-0023): query box with toggles, files to include/exclude, streaming virtualised list view, collapse/clear/refresh actions. Not ported: replace, search editor, tree layout, open-editors/changed-files scope, history, keyboard navigation of results, context menus, file icon theme. search/e2e_tests.rs is ours."
+
+[[port]]
+id = "quickinput-fuzzy-scorer"
+status = "partial"
+upstream = [
+  "src/vs/base/common/fuzzyScorer.ts",
+  "src/vs/base/common/filters.ts",
+  "src/vs/base/common/comparers.ts",
+  "src/vs/base/test/common/fuzzyScorer.test.ts",
+  "src/vs/workbench/contrib/search/common/search.ts",
+  "src/vs/workbench/contrib/search/test/common/extractRange.test.ts",
+]
+rust = [
+  "crates/vsr-quickinput/src/fuzzy.rs",
+  "crates/vsr-quickinput/tests/upstream_fuzzy_scorer.rs",
+  "crates/vsr-quickinput/tests/upstream_extract_range.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Fuzzy scorer (ADR-0028): scoreFuzzy, scoreFuzzy2, scoreItemFuzzy, compareItemsByFuzzyScore, prepareQuery plus the filters.ts fuzzyScore/matchesPrefix they use, same scores and positions. 67 of 68 upstream fuzzyScorer tests ported (the JS-hash cache key test is not applicable: HashMap cache); extractRangeFromFilter ported in quickinput open.rs. Differences: char indexes instead of UTF-16 offsets, Intl.Collator replaced by a numeric case-insensitive compare. filters.ts matchesFuzzy/camelCase/word filters are not ported (not used by the scorer)."
+
+[[port]]
+id = "quick-input"
+status = "partial"
+upstream = [
+  "src/vs/platform/quickinput/browser/quickInput.ts",
+  "src/vs/platform/quickinput/browser/quickInputController.ts",
+  "src/vs/platform/quickinput/browser/quickInputList.ts",
+  "src/vs/platform/quickinput/browser/quickInputBox.ts",
+  "src/vs/platform/quickinput/browser/media/quickInput.css",
+  "src/vs/platform/quickinput/common/quickInput.ts",
+  "src/vs/platform/theme/common/colors/quickpickColors.ts",
+]
+rust = ["crates/vsr-app/src/quick_input.rs", "crates/vsr-quickinput/src/pick.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Quick Pick component on gpui (ADR-0028): overlay, input, virtualised list with highlighted label and description, separators, keyboard navigation with loop, click outside, closeOnFocusLost. Not ported: icons, buttons, details, checkboxes, multi-select, title bar, progress, drag, hover, quick navigate, item separators taller than items."
+
+[[port]]
+id = "quick-open"
+status = "partial"
+upstream = [
+  "src/vs/workbench/contrib/search/browser/anythingQuickAccess.ts",
+  "src/vs/platform/quickinput/browser/quickAccess.ts",
+]
+rust = ["crates/vsr-app/src/quick_open.rs", "crates/vsr-quickinput/src/open.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Quick Open / Go to File (Cmd+P): recently opened first, file results by fuzzy score (top 512), history matched contiguously, path:line:column suffix, settings closeOnFocusLost/preserveInput/includeHistory/history.filterSortOrder. File list from the ignore walker + vsr-search FileFilter (files.exclude, search.exclude, ignore files), rebuilt in the background on open. Not ported: symbols (@, #), open to the side, remove from history, absolute path results, links, persisted history, file icons, preview/pinned editors."

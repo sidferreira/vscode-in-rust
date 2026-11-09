@@ -500,3 +500,26 @@ moment: launching rscode or any GUI binary (including `--background`), AppleScri
 Events UI scripting, screenshots, anything that opens a window or could change focus. To try a
 build, the user runs `scripts/rscode` themselves. The off-screen rendering checks planned in
 ADR-0024 are only acceptable if they render through gpui's test platform with no OS window.
+
+## ADR-0028 — Quick input and the fuzzy scorer (2026-11-09)
+
+Quick Open (Cmd+P) is built on a reusable Quick Pick so the Command Palette can reuse it.
+
+- **`vsr-quickinput` (UI-free)** holds the port of `fuzzyScorer.ts` (with the parts of `filters.ts` and
+  `comparers.ts` it needs), the quick pick model (rows, active row, loop/page navigation, generic
+  filtering) and the quick open picks (history first, then top 512 file results, the
+  `path:line:column` suffix of `extractRangeFromFilter`). nucleo was not used: matching VS Code's
+  ordering and highlights is the point, and the scorer ports cleanly (67 of 68 upstream tests pass).
+  Deviations: char indexes instead of UTF-16 offsets, a numeric case-insensitive comparison instead of
+  `Intl.Collator`, a `HashMap` score cache instead of number hashes.
+- **`vsr-app/quick_input.rs`** is the gpui view: a `PickSource` supplies rows for the typed text
+  (immediately or as a background task), the owner listens to `QuickPickEvent::{Accept, Dismiss}` and
+  closes it by dropping the entity. gpui-component's single-line `Input` swallows Up/Down/PageUp/
+  PageDown and only propagates Escape, so the picker takes those actions in the capture phase.
+- **`vsr-app/quick_open.rs`** builds the file list on the background executor with the `ignore`
+  walker and `vsr-search`'s `FileFilter` (files.exclude, search.exclude, ignore files), caches it
+  and walks again when it is older than 5 s or the settings changed. Editor history lives in
+  `Editors` (most recent first, not persisted yet). Wired settings: `workbench.quickOpen.closeOnFocusLost`,
+  `preserveInput`, `search.quickOpen.includeHistory`, `search.quickOpen.history.filterSortOrder`.
+- History entries match contiguously only and the file results exclude them, as upstream does.
+- Not yet: symbol picks, open to the side, remove from history, file icons, a file watcher.

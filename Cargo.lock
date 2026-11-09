@@ -7232,9 +7232,11 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "gpui-pre-apple",
+ "ignore",
  "serde",
  "serde_json",
  "vsr-editor",
+ "vsr-quickinput",
  "vsr-search",
  "vsr-settings",
  "vsr-text",
@@ -7245,6 +7247,13 @@ name = "vsr-editor"
 version = "0.1.0"
 dependencies = [
  "vsr-text",
+]
+
+[[package]]
+name = "vsr-quickinput"
+version = "0.1.0"
+dependencies = [
+ "regex",
 ]
 
 [[package]]

@@ -10,8 +10,8 @@ Suites (describe): Search; Quick Open
 | 3 | searches only for *.js files & checks for correct result number | Search | `search/search.test.ts:44` | Sets files-to-include `*.js`, searches `body`, expects '4 results in 1 file', then resets filters. | ready | `include_glob_narrows_the_results` (own fixture). |
 | 4 | dismisses result & checks for correct result number | Search | `search/search.test.ts:58` | Searches `body` then removes the app.js file match and expects '2 results in 2 files'. | pending | Dismiss exists (`Results::remove_match/remove_file`, unit tested); no E2E yet. |
 | 5 | replaces first search result with a replace term | Search | `search/search.test.ts:65` | Searches, expands replace, replaces matches in app.js with `ydob` and back, verifying counts after each step. | pending | it.skip upstream (issue 137195). Replace is not implemented (ADR-0023). |
-| 6 | quick open search produces correct result | Quick Open | `search/search.test.ts:87` | Opens file quick access with `.js` and waits for 8 expected file names, then closes it. | pending | Needs quick open. |
-| 7 | quick open respects fuzzy matching | Quick Open | `search/search.test.ts:105` | Opens quick access with `a.s` and expects tasks.json, app.js, package.json. | pending | Needs quick open with fuzzy matching. |
+| 6 | quick open search produces correct result | Quick Open | `search/search.test.ts:87` | Opens file quick access with `.js` and waits for 8 expected file names, then closes it. | ready | Covered headlessly by `quick_open::e2e_tests` (typing narrows to files, Enter opens). |
+| 7 | quick open respects fuzzy matching | Quick Open | `search/search.test.ts:105` | Opens quick access with `a.s` and expects tasks.json, app.js, package.json. | ready | Fuzzy matching covered by `quick_open::e2e_tests::typing_mainrs_ranks_src_main_first_with_highlights` and the ported fuzzy scorer tests. |
 
 ## Notes
 

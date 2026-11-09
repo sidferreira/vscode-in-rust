@@ -101,6 +101,18 @@ pub struct Theme {
     pub badge_bg: Rgba8,                      // badge.background (dark_modern)
     pub badge_fg: Rgba8,                      // badge.foreground (dark_modern)
     pub toolbar_hover_bg: Rgba8,              // toolbar.hoverBackground (registry dark)
+    // ---- Quick input (quickInput.css, quickpickColors.ts) ----
+    pub quick_input_bg: Rgba8,                // quickInput.background (dark_modern)
+    pub quick_input_fg: Rgba8,                // quickInput.foreground (dark_modern)
+    pub quick_input_list_focus_bg: Rgba8,     // quickInputList.focusBackground (= list.activeSelectionBackground)
+    pub quick_input_list_focus_fg: Rgba8,     // quickInputList.focusForeground (= list.activeSelectionForeground)
+    #[allow(dead_code)] // used by the Command Palette's group labels
+    pub picker_group_fg: Rgba8,               // pickerGroup.foreground (registry dark)
+    pub picker_group_border: Rgba8,           // pickerGroup.border (dark_modern)
+    pub widget_shadow: Rgba8,                 // widget.shadow (registry dark: black @ 36%)
+    pub widget_border: Rgba8,                 // widget.border (dark_modern)
+    pub list_highlight_fg: Rgba8,             // list.highlightForeground (registry dark)
+    pub list_focus_highlight_fg: Rgba8,       // list.focusHighlightForeground (= list.highlightForeground)
 }
 
 impl Theme {
@@ -169,6 +181,16 @@ impl Theme {
             badge_bg: c("#616161"),
             badge_fg: c("#F8F8F8"),
             toolbar_hover_bg: c("#5A5D5E50"),
+            quick_input_bg: c("#222222"),
+            quick_input_fg: c("#CCCCCC"),
+            quick_input_list_focus_bg: c("#04395E"),
+            quick_input_list_focus_fg: c("#FFFFFF"),
+            picker_group_fg: c("#3794FF"),
+            picker_group_border: c("#3C3C3C"),
+            widget_shadow: c("#0000005C"),
+            widget_border: c("#313131"),
+            list_highlight_fg: c("#2AAAFF"),
+            list_focus_highlight_fg: c("#2AAAFF"),
         }
     }
 }

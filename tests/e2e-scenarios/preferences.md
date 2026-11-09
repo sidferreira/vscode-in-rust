@@ -26,3 +26,21 @@ Near-term (ready / pending):
 
 Blocked, grouped by feature:
 - none
+
+## rscode scenarios (not from upstream's smoke suite)
+
+Settings that take effect live, headless (`crates/vsr-app/src/editor_view/minimap/e2e.rs`, ADR-0031). Layout and
+the minimap model are asserted; the test platform's text system is a no-op, so no pixels.
+
+| scenario | status | test |
+|---|---|---|
+| minimap is shown on the right by default, with a slider over the visible part | ready | `minimap_is_shown_by_default_on_the_right` |
+| `editor.minimap.enabled: false` removes it and the editor gets its width back | ready | `disabling_the_minimap_removes_it_and_gives_the_editor_its_width_back` |
+| `editor.minimap.side: left` puts it before the editor | ready | `side_left_puts_the_minimap_before_the_editor` |
+| clicking the minimap centres the clicked line | ready | `clicking_the_minimap_centres_the_clicked_line` |
+| slider bounds follow scrolling and stay inside the minimap | ready | `the_slider_tracks_scrolling_and_stays_inside_the_minimap` |
+| dragging the slider scrolls the editor | ready | `dragging_the_slider_scrolls_the_editor` |
+| `renderCharacters`, `scale`, `maxColumn` change line height / width | ready | `render_characters_scale_and_max_column_change_the_layout` |
+| `size: fill` / `fit` (incl. sampling and click-to-drag) | ready | `size_fill_and_fit_stretch_the_minimap_over_the_editor_height`, `size_fill_samples_long_documents_and_clicks_drag_from_the_slider_centre` |
+| `showSlider` and `autohide` (mouseover, scroll) | ready | `show_slider_and_autohide_follow_hover`, `autohide_scroll_shows_the_minimap_only_after_scrolling` |
+| a 10k-line file draws only the lines that fit | ready | `a_10k_line_file_draws_only_the_lines_that_fit_and_stays_responsive` |

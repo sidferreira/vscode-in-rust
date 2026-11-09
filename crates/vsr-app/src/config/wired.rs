@@ -49,6 +49,19 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.find.closeOnResult",
         ],
     ),
+    (
+        "Minimap",
+        &[
+            "editor.minimap.enabled",
+            "editor.minimap.side",
+            "editor.minimap.size",
+            "editor.minimap.showSlider",
+            "editor.minimap.autohide",
+            "editor.minimap.renderCharacters",
+            "editor.minimap.maxColumn",
+            "editor.minimap.scale",
+        ],
+    ),
     ("Saving", &["files.insertFinalNewline", "files.trimTrailingWhitespace"]),
     (
         "Search",
@@ -145,7 +158,7 @@ mod tests {
             assert!(seen.insert(key), "{key} is listed twice");
         }
         assert_eq!(seen.len(), count());
-        assert!(is_wired("editor.fontSize") && !is_wired("editor.minimap.enabled"));
+        assert!(is_wired("editor.fontSize") && !is_wired("editor.minimap.showMarkSectionHeaders"));
     }
 
     #[test]

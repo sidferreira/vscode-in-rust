@@ -24,6 +24,8 @@ serde_json = "1"
 # UI: gpui via gpui-kit (ADR-0012). 0.9.1 is quarantined by the proxy; pinned exactly.
 gpui-kit = "=0.9.0"
 vsr-editor.workspace = true
+# Pixel buffer for the minimap image (gpui `RenderImage` frames); already in the lockfile via gpui.
+image = { version = "0.25", default-features = false }
 
 [dev-dependencies]
 # Headless gpui tests (TestAppContext / VisualTestContext), docs/testing.md tier 2 (ADR-0017/0018).

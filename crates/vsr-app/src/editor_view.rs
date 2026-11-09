@@ -21,6 +21,7 @@
 //! drag auto-scroll, IME candidate-window placement precision.
 
 pub(crate) mod find;
+mod minimap;
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -89,6 +90,8 @@ pub struct EditorView {
     cfg: EditorSettings,
     /// The Find widget (Cmd+F): state, model and text boxes.
     find: find::FindUi,
+    /// The minimap beside the editor (`editor.minimap.*`, ADR-0031).
+    minimap: minimap::MinimapView,
 }
 
 impl EditorView {
@@ -182,6 +185,10 @@ impl EditorView {
         };
         let gutter = gutter_width(lines, &cfg);
         self.gutter = gutter;
+        let minimap = self.minimap.build(
+            minimap::BuildInput { editor, theme, cfg: settings, scroll: &scroll, gutter, text_bounds: &self.bounds },
+            cx,
+        );
         if self.blink_task.is_none() {
             self.blink_task = Some(cx.spawn(async move |this, cx| {
                 loop {
@@ -239,7 +246,9 @@ impl EditorView {
             .key_context(KeyContext::parse(KEY_CONTEXT).unwrap_or_default())
             .track_focus(&focus)
             .relative()
-            .size_full()
+            .h_full()
+            .flex_1()
+            .min_w_0()
             .on_action(cx.listener(|this: &mut T, a: &Run, window, cx| {
                 run_command(this, a.0, window, cx)
             }))
@@ -269,7 +278,16 @@ impl EditorView {
                 .size_full(),
             cx,
         )
-        .child(surface)
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .size_full()
+                .children(minimap.left)
+                .child(surface)
+                .children(minimap.right)
+                .children(minimap.check),
+        )
         .children(find_widget)
     }
 }

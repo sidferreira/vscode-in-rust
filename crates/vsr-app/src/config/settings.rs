@@ -12,6 +12,8 @@ use vsr_search::SearchSettings;
 use vsr_search::settings::{CollapseResults, ExcludeMap};
 use vsr_settings::Configuration;
 
+use super::minimap::MinimapSettings;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LineNumbers {
@@ -201,6 +203,7 @@ pub struct EditorSettings {
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
     pub find: FindSettings,
+    pub minimap: MinimapSettings,
 }
 
 impl Default for EditorSettings {
@@ -222,6 +225,7 @@ impl Default for EditorSettings {
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             find: FindSettings::default(),
+            minimap: MinimapSettings::default(),
         }
     }
 }
@@ -246,6 +250,7 @@ impl EditorSettings {
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             find: FindSettings::from_configuration(c),
+            minimap: MinimapSettings::from_configuration(c),
         }
     }
 

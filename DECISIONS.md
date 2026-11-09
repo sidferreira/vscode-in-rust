@@ -697,3 +697,40 @@ commands, the alias line (localized builds), the remove-from-history button, per
 (no storage service yet), the confirmation dialog of Clear Command History, user `keybindings.json`,
 menus built from the registry (the macOS menu still has only Quit), live reveal and decoration while
 typing a line number, the zero-based offset toggle, the `view`, `@` symbol, `#` and `%` providers.
+
+## ADR-0031 — Editor minimap: pure layout, a pixel image, and a build per render (2026-11-09)
+
+`editor.minimap.*` (enabled, side, size, showSlider, autohide, renderCharacters, maxColumn, scale) is
+implemented in `editor_view/minimap.rs` with `layout.rs` (pure math), `raster.rs` (pixels) and
+`config/minimap.rs` (typed settings).
+
+- **Layout is a port, not a redesign.** `_computeMinimapLayout`, `computeContainedMinimapLineCount`,
+  `MinimapLayout.create` (slider, start/end line, top padding, anti-flicker vs the previous layout) and the
+  sampling lines are Rust ports on `f64`, checked against upstream's `editorLayoutProvider.test.ts` minimap
+  cases (incl. pixel ratio 2/4, fill/fit, sampling) and `minimapLayout.test.ts`. Word wrap, view zones and
+  custom line heights do not exist in rscode, so those inputs are constants.
+- **Pixels, like upstream.** The canvas is a BGRA buffer drawn with upstream's pre-baked 1x/2x character
+  sheets (`renderCharacters`) or flat blocks, handed to gpui as one `RenderImage` (`paint_image`; adds the
+  `image` crate, already in the lockfile via gpui). Per-quad drawing would mean ~100k quads for a full minimap.
+  Scale 3 resamples the 2x sheet (upstream samples the editor font from a canvas). Colours: editor
+  foreground on editor background, no tokens yet.
+- **Virtualised.** Only the lines that fit the canvas are drawn (`end_line - start_line`, at most the canvas
+  height / line height), tabs and full-width characters as upstream, and the image is rebuilt only when
+  something it shows changed (document version, first line, size, colours). A 10k-line file draws the same
+  number of lines as a 100-line one.
+- **Built per render from the last painted size.** `EditorView::element` calls `MinimapView::build` with the
+  scroll handle's offset and the last painted editor bounds, which is the only hook in `editor_view.rs` (plus
+  the flex row around the editor surface). A zero-sized check element compares what the build assumed (width,
+  height, scroll offset, pixel ratio) with what was painted and notifies the view when they differ, so the
+  first frame, resizes, key-driven `scroll_to_item` and display changes converge in one extra frame.
+- **Interaction.** Click (proportional): the clicked line is centred. Click (fill/fit): drag from the slider
+  centre. Slider drag follows the pointer anywhere in the window (listeners registered at paint, released on
+  mouse up). Wheel over the minimap scrolls the editor. showSlider `mouseover` and autohide `scroll` use a
+  500 ms timer (`SCROLL_VISIBLE`), `autohide: mouseover` is hover.
+- **Not implemented, left `todo`:** `showRegionSectionHeaders`, `showMarkSectionHeaders`,
+  `markSectionHeaderRegex`, `sectionHeaderFontSize`, `sectionHeaderLetterSpacing` (need comment tokens from a
+  tokenizer and `#region` markers from language configuration). Also missing: token colours, selection / find /
+  error decorations on the minimap, the shadow when scrolled horizontally, fade transitions.
+- The vertical scrollbar width is 0 (rscode has no scrollbar yet), padding is 0 and `scrollBeyondLastLine` is
+  false; they are inputs of the layout, so adding them later is a matter of passing them.
+

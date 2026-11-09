@@ -19,6 +19,7 @@
 #[cfg(test)]
 mod e2e;
 pub mod glob;
+pub mod minimap;
 pub mod settings;
 pub mod wired;
 

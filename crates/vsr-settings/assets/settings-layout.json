@@ -1,0 +1,142 @@
+{
+  "$comment": "Port of `tocData` and `COMMONLY_USED_SETTINGS` in src/vs/workbench/contrib/preferences/browser/settingsLayout.ts @ 50e1350fc78d. Labels are the English strings of localize(). Patterns use upstream's semantics (`*` wildcard, case-insensitive, whole key; `@tag:` is not used here). `hideOn` is a port of upstream `hide:`: `desktop` == `!isWeb`, `windows` == `isWindows`. Hand-maintained; re-check against upstream when settingsLayout.ts changes (scripts/upstream-sync status settings-editor).",
+  "upstream": {
+    "path": "src/vs/workbench/contrib/preferences/browser/settingsLayout.ts",
+    "commit": "50e1350fc78d"
+  },
+  "commonlyUsed": [
+    "editor.fontSize",
+    "editor.formatOnSave",
+    "files.autoSave",
+    "GitHub.copilot-chat.manageExtension",
+    "editor.defaultFormatter",
+    "editor.fontFamily",
+    "editor.wordWrap",
+    "chat.agent.maxRequests",
+    "files.exclude",
+    "workbench.colorTheme",
+    "editor.tabSize",
+    "editor.mouseWheelZoom",
+    "editor.formatOnPaste"
+  ],
+  "toc": [
+    {
+      "id": "editor",
+      "label": "Text Editor",
+      "settings": ["editor.*"],
+      "children": [
+        { "id": "editor/cursor", "label": "Cursor", "settings": ["editor.cursor*"] },
+        { "id": "editor/find", "label": "Find", "settings": ["editor.find.*"] },
+        { "id": "editor/font", "label": "Font", "settings": ["editor.font*"] },
+        { "id": "editor/format", "label": "Formatting", "settings": ["editor.format*"] },
+        { "id": "editor/diffEditor", "label": "Diff Editor", "settings": ["diffEditor.*"] },
+        { "id": "editor/multiDiffEditor", "label": "Multi-File Diff Editor", "settings": ["multiDiffEditor.*"] },
+        { "id": "editor/minimap", "label": "Minimap", "settings": ["editor.minimap.*"] },
+        { "id": "editor/suggestions", "label": "Suggestions", "settings": ["editor.*suggest*"] },
+        { "id": "editor/files", "label": "Files", "settings": ["files.*"] }
+      ]
+    },
+    {
+      "id": "workbench",
+      "label": "Workbench",
+      "settings": ["workbench.*"],
+      "children": [
+        {
+          "id": "workbench/appearance",
+          "label": "Appearance",
+          "settings": ["workbench.activityBar.*", "workbench.*color*", "workbench.fontAliasing", "workbench.iconTheme", "workbench.sidebar.location", "workbench.*.visible", "workbench.tips.enabled", "workbench.tree.*", "workbench.view.*"]
+        },
+        { "id": "workbench/breadcrumbs", "label": "Breadcrumbs", "settings": ["breadcrumbs.*"] },
+        { "id": "workbench/editor", "label": "Editor Management", "settings": ["workbench.editor.*"] },
+        { "id": "workbench/settings", "label": "Settings Editor", "settings": ["workbench.settings.*"] },
+        { "id": "workbench/zenmode", "label": "Zen Mode", "settings": ["zenmode.*"] },
+        { "id": "workbench/screencastmode", "label": "Screencast Mode", "settings": ["screencastMode.*"] },
+        { "id": "workbench/browser", "label": "Browser", "settings": ["workbench.browser.*"] }
+      ]
+    },
+    {
+      "id": "window",
+      "label": "Window",
+      "settings": ["window.*"],
+      "children": [
+        { "id": "window/newWindow", "label": "New Window", "settings": ["window.*newwindow*"] }
+      ]
+    },
+    {
+      "id": "chat",
+      "label": "Chat",
+      "children": [
+        {
+          "id": "chat/agent",
+          "label": "Agent",
+          "settings": ["chat.agent.*", "chat.checkpoints.*", "chat.editRequests", "chat.requestQueuing.*", "chat.undoRequests.*", "chat.customAgentInSubagent.*", "chat.editing.autoAcceptDelay", "chat.editing.confirmEditRequest*", "chat.planAgent.defaultModel"]
+        },
+        {
+          "id": "chat/appearance",
+          "label": "Appearance",
+          "settings": ["chat.editor.*", "chat.fontFamily", "chat.fontSize", "chat.math.*", "chat.agentsControl.*", "chat.alternativeToolAction.*", "chat.codeBlock.*", "chat.editing.explainChanges.enabled", "chat.editorAssociations", "chat.extensionUnification.*", "chat.inlineReferences.*", "chat.notifyWindow*", "chat.statusWidget.*", "chat.tips.*", "chat.unifiedAgentsBar.*", "accessibility.signals.chatUserActionRequired", "accessibility.signals.chatResponseReceived"]
+        },
+        {
+          "id": "chat/sessions",
+          "label": "Sessions",
+          "settings": ["chat.agentSessionProjection.*", "chat.sessions.*", "chat.viewProgressBadge.*", "chat.viewSessions.*", "chat.restoreLastPanelSession", "chat.exitAfterDelegation", "chat.repoInfo.*"]
+        },
+        { "id": "chat/tools", "label": "Tools", "settings": ["chat.tools.*", "chat.extensionTools.*"] },
+        { "id": "chat/mcp", "label": "MCP", "settings": ["mcp", "chat.mcp.*", "mcp.*"] },
+        {
+          "id": "chat/context",
+          "label": "Context",
+          "settings": ["chat.detectParticipant.*", "chat.experimental.detectParticipant.*", "chat.implicitContext.*", "chat.promptFilesLocations", "chat.instructionsFilesLocations", "chat.modeFilesLocations", "chat.agentFilesLocations", "chat.agentSkillsLocations", "chat.hookFilesLocations", "chat.promptFilesRecommendations", "chat.useAgentsMdFile", "chat.useNestedAgentsMdFiles", "chat.useAgentSkills", "chat.experimental.useSkillAdherencePrompt", "chat.useHooks", "chat.includeApplyingInstructions", "chat.includeReferencedInstructions", "chat.useClaudeMdFile"]
+        },
+        { "id": "chat/inlineChat", "label": "Inline Chat", "settings": ["inlineChat.*"] },
+        { "id": "chat/miscellaneous", "label": "Miscellaneous", "settings": ["chat.disableAIFeatures", "chat.allowAnonymousAccess"] }
+      ]
+    },
+    {
+      "id": "features",
+      "label": "Features",
+      "children": [
+        { "id": "features/accessibilitySignals", "label": "Accessibility Signals", "settings": ["accessibility.signal*"] },
+        { "id": "features/accessibility", "label": "Accessibility", "settings": ["accessibility.*"] },
+        { "id": "features/explorer", "label": "Explorer", "settings": ["explorer.*", "outline.*"] },
+        { "id": "features/search", "label": "Search", "settings": ["search.*"] },
+        { "id": "features/debug", "label": "Debug", "settings": ["debug.*", "launch"] },
+        { "id": "features/testing", "label": "Testing", "settings": ["testing.*"] },
+        { "id": "features/scm", "label": "Source Control", "settings": ["scm.*"] },
+        { "id": "features/extensions", "label": "Extensions", "settings": ["extensions.*"] },
+        { "id": "features/terminal", "label": "Terminal", "settings": ["terminal.*"] },
+        { "id": "features/task", "label": "Task", "settings": ["task.*"] },
+        { "id": "features/problems", "label": "Problems", "settings": ["problems.*"] },
+        { "id": "features/output", "label": "Output", "settings": ["output.*"] },
+        { "id": "features/comments", "label": "Comments", "settings": ["comments.*"] },
+        { "id": "features/remote", "label": "Remote", "settings": ["remote.*"] },
+        { "id": "features/timeline", "label": "Timeline", "settings": ["timeline.*"] },
+        { "id": "features/notebook", "label": "Notebook", "settings": ["notebook.*", "interactiveWindow.*"] },
+        { "id": "features/mergeEditor", "label": "Merge Editor", "settings": ["mergeEditor.*"] },
+        { "id": "features/issueReporter", "label": "Issue Reporter", "settings": ["issueReporter.*"], "hideOn": "desktop" }
+      ]
+    },
+    {
+      "id": "application",
+      "label": "Application",
+      "children": [
+        { "id": "application/http", "label": "Proxy", "settings": ["http.*"] },
+        { "id": "application/keyboard", "label": "Keyboard", "settings": ["keyboard.*"] },
+        { "id": "application/update", "label": "Update", "settings": ["update.*"] },
+        { "id": "application/telemetry", "label": "Telemetry", "settings": ["telemetry.*"] },
+        { "id": "application/settingsSync", "label": "Settings Sync", "settings": ["settingsSync.*"] },
+        { "id": "application/network", "label": "Network", "settings": ["network.*"] },
+        { "id": "application/experimental", "label": "Experimental", "settings": ["application.experimental.*"] },
+        { "id": "application/other", "label": "Other", "settings": ["application.*"], "hideOn": "windows" }
+      ]
+    },
+    {
+      "id": "security",
+      "label": "Security",
+      "settings": ["security.*"],
+      "children": [
+        { "id": "security/workspace", "label": "Workspace", "settings": ["security.workspace.*"] }
+      ]
+    }
+  ]
+}

@@ -6809,6 +6809,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vsr-settings"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "vsr-text"
 version = "0.1.0"
 

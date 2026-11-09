@@ -154,3 +154,14 @@ User's call, for fun. User-facing name, binary (`rscode`), window title, launche
 (`~/Library/Application Support/rscode/`). Internal crate prefix `vsr-` and the repo/folder
 name `vscode-rust` stay for now (renaming them mid-flight would conflict with in-progress
 work); revisit later if wanted.
+
+## ADR-0015 — Settings data from the real registry (2026-11-09)
+
+`vsr-settings` holds the full default settings schema (2062 settings: titles, markdown
+descriptions, types, enums, defaults, order) and the Settings editor table of contents ported
+from `settingsLayout.ts` `tocData`. Data is exported by `scripts/export-default-settings`, which
+starts the locally installed VS Code with an isolated throwaway profile and reads
+`vscode://schemas/settings/default` (the `--export-default-configuration` flag is parsed but not
+implemented upstream). Caveat: the installed app is 1.144.1, not the 1.147.0 pin; re-run the
+script after updating VS Code. User settings live at
+`~/Library/Application Support/rscode/User/settings.json` (JSONC read; save drops comments for now).

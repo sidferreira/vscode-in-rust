@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""Export the settings schema of the installed VS Code and trim it into vsr-settings' asset.
+
+Why not `code --export-default-configuration`? The flag is parsed (src/vs/platform/environment/
+node/argv.ts) but nothing consumes it, in upstream or in the shipped app, so it writes no file.
+
+What is used instead: the workbench registers the full settings schema as the JSON schema
+`vscode://schemas/settings/default` (src/vs/workbench/services/configuration/browser/
+configurationService.ts, `defaultSettingsSchema`, built from `allSettings`). A throwaway extension
+(generated here, run in an isolated profile and extensions folder) reads that document through
+`vscode.workspace.fs` once the built-in extensions have registered their settings, writes it out,
+and quits the app.
+
+Usage (repo root):
+  scripts/export-default-settings [--code /usr/local/bin/code] [--app-dir DIR]
+      [--upstream-clone ../vscode-original] [--out crates/vsr-settings/assets/default-configuration.json]
+      [--timeout 120]
+
+The user-data dir lives in a fresh temp dir (a short path: macOS limits IPC socket paths to 103
+bytes). Nothing touches the default profile.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+DEFAULT_CODE = "/usr/local/bin/code"
+DEFAULT_APP_DIR = "/Applications/Visual Studio Code.app/Contents/Resources/app"
+DEFAULT_CLONE = os.path.join(os.path.dirname(REPO_ROOT), "vscode-original")
+DEFAULT_OUT = os.path.join(REPO_ROOT, "crates", "vsr-settings", "assets", "default-configuration.json")
+SCHEMA_URI = "vscode://schemas/settings/default"
+
+# Keys copied from each property schema. Everything else (internal bookkeeping) is dropped.
+KEEP_PROPERTY_FIELDS = [
+    "type", "default", "description", "markdownDescription",
+    "enum", "enumDescriptions", "markdownEnumDescriptions", "enumItemLabels",
+    "minimum", "maximum", "scope", "order", "tags",
+    "deprecationMessage", "markdownDeprecationMessage",
+    "items", "additionalProperties", "patternProperties", "properties",
+    "editPresentation", "restricted", "included", "markdownEnumDescriptions",
+]
+
+EXTENSION_JS = r"""
+const fs = require('fs');
+const path = require('path');
+const vscode = require('vscode');
+const OUT = __OUT__;
+const DONE = __DONE__;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+exports.activate = async function () {
+  const uri = vscode.Uri.parse('__SCHEMA__');
+  let text = null, last = -1, stable = 0, error = null;
+  await sleep(4000);
+  for (let i = 0; i < 90; i++) {
+    try {
+      text = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
+      const n = Object.keys(JSON.parse(text).properties || {}).length;
+      stable = n === last ? stable + 1 : 0;
+      last = n;
+    } catch (e) {
+      error = String((e && e.message) || e);
+    }
+    // Settings from built-in extensions arrive after startup; wait until the count is stable.
+    if (text && stable >= 4) break;
+    await sleep(1000);
+  }
+  if (text) {
+    fs.writeFileSync(OUT, text);
+    fs.writeFileSync(DONE, JSON.stringify({ ok: true, properties: last }));
+  } else {
+    fs.writeFileSync(DONE, JSON.stringify({ ok: false, error }));
+  }
+  await vscode.commands.executeCommand('workbench.action.quit');
+};
+exports.deactivate = function () {};
+"""
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, check=False, capture_output=True, text=True, **kw)
+
+
+def code_version(code):
+    r = run([code, "--version"])
+    if r.returncode != 0:
+        sys.exit(f"`{code} --version` failed: {r.stderr.strip()}")
+    lines = r.stdout.strip().splitlines()
+    return {"version": lines[0], "commit": lines[1], "arch": lines[2]}
+
+
+def upstream_commit(clone):
+    r = run(["git", "-C", clone, "rev-parse", "HEAD"])
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def nls_value(value, nls):
+    if isinstance(value, str) and value.startswith("%") and value.endswith("%") and len(value) > 2:
+        return nls.get(value[1:-1], value)
+    return value
+
+
+def extension_sources(app_dir):
+    """Map each contributed setting key to the built-in extension that declares it."""
+    sources = {}
+    titles = {}
+    names = {}
+    ext_root = os.path.join(app_dir, "extensions")
+    if not os.path.isdir(ext_root):
+        return sources, titles, names
+    for name in sorted(os.listdir(ext_root)):
+        pkg_path = os.path.join(ext_root, name, "package.json")
+        if not os.path.isfile(pkg_path):
+            continue
+        with open(pkg_path, encoding="utf8") as f:
+            pkg = json.load(f)
+        conf = (pkg.get("contributes") or {}).get("configuration")
+        if not conf:
+            continue
+        nls = {}
+        nls_path = os.path.join(ext_root, name, "package.nls.json")
+        if os.path.isfile(nls_path):
+            with open(nls_path, encoding="utf8") as f:
+                nls = json.load(f)
+        ext_id = f"{pkg.get('publisher', 'vscode')}.{pkg.get('name', name)}"
+        for node in (conf if isinstance(conf, list) else [conf]):
+            title = nls_value(node.get("title"), nls)
+            for key in (node.get("properties") or {}):
+                sources[key] = ext_id
+                names[key] = nls_value(pkg.get("displayName"), nls) or pkg.get("name", name)
+                if title:
+                    titles[key] = title
+    return sources, titles, names
+
+
+def resolve_ref(prop, defs, depth=0):
+    """The schema generator dedupes identical property shapes into `#/$defs/<name>`; inline them."""
+    if not isinstance(prop, dict) or "$ref" not in prop or depth > 10:
+        return prop
+    ref = prop["$ref"]
+    if not ref.startswith("#/$defs/") or ref[len("#/$defs/"):] not in defs:
+        return prop
+    base = resolve_ref(defs[ref[len("#/$defs/"):]], defs, depth + 1)
+    merged = dict(base)
+    merged.update({k: v for k, v in prop.items() if k != "$ref"})
+    return merged
+
+
+def trim(schema, sources, titles, names):
+    out = []
+    defs = schema.get("$defs", {})
+    for key, raw in schema.get("properties", {}).items():
+        # `[lang]` keys are language-override placeholders, not settings the editor lists.
+        if key.startswith("["):
+            continue
+        prop = resolve_ref(raw, defs)
+        entry = {"key": key}
+        for field in KEEP_PROPERTY_FIELDS:
+            if field in prop:
+                entry[field] = prop[field]
+        if "type" not in entry and "enum" in entry:
+            entry["type"] = "string"
+        entry["source"] = sources.get(key, "core")
+        if key in titles:
+            entry["extensionTitle"] = titles[key]
+        if key in names:
+            entry["extensionDisplayName"] = names[key]
+        out.append(entry)
+    return out
+
+
+def export(args):
+    work = tempfile.mkdtemp(prefix="vsr-export-")
+    udd = os.path.join(work, "u")
+    exts = os.path.join(work, "x")
+    ext_dir = os.path.join(work, "probe-ext")
+    out_json = os.path.join(work, "schema-default.json")
+    done = os.path.join(work, "done.json")
+    os.makedirs(ext_dir)
+    with open(os.path.join(ext_dir, "package.json"), "w", encoding="utf8") as f:
+        json.dump({
+            "name": "vsr-settings-export", "version": "0.0.1", "publisher": "vsr",
+            "engines": {"vscode": "^1.80.0"}, "main": "./index.js",
+            "activationEvents": ["onStartupFinished"],
+        }, f)
+    js = (EXTENSION_JS.replace("__OUT__", json.dumps(out_json))
+          .replace("__DONE__", json.dumps(done))
+          .replace("__SCHEMA__", SCHEMA_URI))
+    with open(os.path.join(ext_dir, "index.js"), "w", encoding="utf8") as f:
+        f.write(js)
+
+    cmd = [args.code, "--user-data-dir", udd, "--extensions-dir", exts,
+           f"--extensionDevelopmentPath={ext_dir}",
+           "--skip-welcome", "--skip-release-notes", "--disable-workspace-trust"]
+    # The CLI hands off to the app and returns; the app quits itself via the extension.
+    launch = run(cmd)
+    if launch.returncode != 0:
+        sys.exit(f"launch failed ({launch.returncode}): {launch.stderr.strip()[:500]}")
+
+    deadline = time.time() + args.timeout
+    while time.time() < deadline and not os.path.exists(done):
+        time.sleep(1)
+    run(["pkill", "-f", udd])  # make sure this isolated instance is gone
+    if not os.path.exists(done):
+        sys.exit(f"export timed out after {args.timeout}s; work dir kept at {work}")
+    with open(done, encoding="utf8") as f:
+        status = json.load(f)
+    if not status.get("ok"):
+        sys.exit(f"schema read failed: {status.get('error')}; work dir kept at {work}")
+    with open(out_json, encoding="utf8") as f:
+        schema = json.load(f)
+    # The work dir is left in place (fresh per run, never reused or deleted by this script).
+    print(f"work dir: {work}", file=sys.stderr)
+    return schema
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--code", default=DEFAULT_CODE)
+    p.add_argument("--app-dir", default=DEFAULT_APP_DIR)
+    p.add_argument("--upstream-clone", default=DEFAULT_CLONE)
+    p.add_argument("--out", default=DEFAULT_OUT)
+    p.add_argument("--timeout", type=int, default=120)
+    args = p.parse_args()
+
+    version = code_version(args.code)
+    schema = export(args)
+    sources, titles, names = extension_sources(args.app_dir)
+    settings = trim(schema, sources, titles, names)
+
+    doc = {
+        "$comment": "Generated by scripts/export-default-settings. Do not edit by hand.",
+        "exportedFrom": {
+            "vscodeVersion": version["version"],
+            "vscodeCommit": version["commit"],
+            "vscodeArch": version["arch"],
+            "method": f"reads {SCHEMA_URI} (workbench defaultSettingsSchema) from an isolated instance",
+        },
+        "upstream": {
+            "repo": "https://github.com/microsoft/vscode",
+            "pinnedCommit": upstream_commit(args.upstream_clone) or "50e1350fc78df67b11049b903d96b530f28d26a5",
+        },
+        "settingCount": len(settings),
+        "settings": settings,
+    }
+    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    with open(args.out, "w", encoding="utf8") as f:
+        json.dump(doc, f, indent=1, ensure_ascii=False)
+        f.write("\n")
+    print(f"wrote {len(settings)} settings from {version['version']} ({version['commit']}) to {args.out}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

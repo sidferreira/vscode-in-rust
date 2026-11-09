@@ -20,6 +20,7 @@
 //! Known gaps: multi-cursor, word wrap, syntax colors, horizontal reveal of the caret,
 //! drag auto-scroll, IME candidate-window placement precision.
 
+mod decorations;
 pub(crate) mod find;
 mod minimap;
 
@@ -40,7 +41,9 @@ use gpui_kit::{
 use gpui_kit::InteractiveElement;
 use vsr_editor::Position;
 
-use crate::config::settings::{CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers};
+use crate::config::settings::{
+    CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers, OccurrencesHighlight,
+};
 use crate::keymap::{self, BINDINGS, Command};
 use crate::model::{Editors, OpenEditor, SaveTransforms};
 use crate::text_layout::{column_for_x, expand_tabs, expanded_byte_for_column, visual_column};
@@ -92,6 +95,8 @@ pub struct EditorView {
     find: find::FindUi,
     /// The minimap beside the editor (`editor.minimap.*`, ADR-0031).
     minimap: minimap::MinimapView,
+    /// The bracket pair highlighted at the caret (`editor.matchBrackets`).
+    brackets: decorations::BracketCache,
 }
 
 impl EditorView {
@@ -202,9 +207,11 @@ impl EditorView {
         let theme = theme.clone();
         let id: SharedString = editor.path.display().to_string().into();
         let list_focus = focus.clone();
+        // `editor.scrollBeyondLastLine`: empty rows after the last line (the page is measured at paint).
+        let rows_total = decorations::scroll_rows(lines, self.rows_per_page(), cfg.scroll_beyond_last_line);
         let list = uniform_list(
             id,
-            lines,
+            rows_total,
             cx.processor(move |this: &mut T, range: Range<usize>, window: &mut Window, cx| {
                 let (editors, view) = this.editor_host();
                 let Some(e) = editors.active_editor() else { return Vec::new() };
@@ -214,7 +221,8 @@ impl EditorView {
                 }
                 let focused = list_focus.is_focused(window);
                 let find = view.find.highlights(e);
-                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref())
+                let pair = view.brackets.get(&e.path, e.buffer(), e.editor.version(), e.editor.selection().active, cfg.match_brackets);
+                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair)
             }),
         )
         .track_scroll(&scroll)
@@ -371,7 +379,13 @@ fn shape(window: &Window, cfg: &EditorSettings, text: &str) -> Option<gpui_kit::
 fn editor_font(cfg: &EditorSettings) -> gpui_kit::Font {
     let mut f = font(SharedString::from(cfg.font_family.clone()));
     f.weight = gpui_kit::FontWeight(cfg.font_weight);
+    f.features = font_features(cfg);
     f
+}
+
+/// `editor.fontLigatures` as gpui font features (shaping and painting use the same ones).
+fn font_features(cfg: &EditorSettings) -> gpui_kit::FontFeatures {
+    gpui_kit::FontFeatures(std::sync::Arc::new(cfg.font_features.clone()))
 }
 
 /// Document position under window point `p`.
@@ -670,6 +684,20 @@ fn selection_on_line(e: &OpenEditor, line: usize) -> Option<(usize, usize, bool)
     Some((from, to, past))
 }
 
+/// The occurrences to highlight in this paint (`editor.selectionHighlight`,
+/// `editor.occurrencesHighlight`): the selection when it is on one line, else the word at the caret.
+fn occurrence_source(e: &OpenEditor, cfg: &EditorSettings) -> Option<decorations::Occurrences> {
+    let sel = e.editor.selection();
+    let range = sel.range();
+    let selection = (cfg.selection_highlight && !sel.is_empty() && range.start.line == range.end.line)
+        .then(|| e.editor.selected_text());
+    let word = (sel.is_empty() && cfg.occurrences_highlight != OccurrencesHighlight::Off)
+        .then(|| e.editor.word_at(sel.active).map(|r| e.buffer().value_in_range(r)))
+        .flatten();
+    let max = cfg.selection_highlight.then_some(cfg.selection_highlight_max_length);
+    decorations::occurrences_for(selection.as_deref(), word.as_deref(), max)
+}
+
 /// The gutter text of `line` for `editor.lineNumbers` (lineNumbers.ts: `relative` shows the distance
 /// to the caret line and the caret line's own number; `interval` every 10th line and the caret line).
 fn line_number_label(mode: LineNumbers, line: usize, caret_line: usize) -> String {
@@ -726,6 +754,7 @@ fn rows(
     caret_on: bool,
     focused: bool,
     find: Option<&find::Highlights<'_>>,
+    brackets: Option<(Position, Position)>,
 ) -> Vec<AnyElement> {
     let buf = e.buffer();
     let sel = e.editor.selection();
@@ -737,18 +766,44 @@ fn rows(
     let hl = cfg.render_line_highlight;
     // The border box of the current line: content only (`line`, empty selection), gutter only
     // (`gutter`), or the whole row (`all`).
-    let hl_content = matches!(hl, LineHighlight::Line | LineHighlight::All) && sel.is_empty();
-    let hl_gutter = matches!(hl, LineHighlight::Gutter | LineHighlight::All);
+    // `editor.renderLineHighlightOnlyWhenFocus`: the current line is marked only in a focused editor.
+    let hl_shown = focused || !cfg.line_highlight_only_when_focus;
+    let hl_content = matches!(hl, LineHighlight::Line | LineHighlight::All) && sel.is_empty() && hl_shown;
+    let hl_gutter = matches!(hl, LineHighlight::Gutter | LineHighlight::All) && hl_shown;
+    let occurrences = occurrence_source(e, cfg);
+    // The active indent guide is found once per paint, not per row (it may scan the block).
+    let active_guide = (cfg.guides_indentation && cfg.guides_highlight_active)
+        .then(|| decorations::active_indent_guide(buf, caret_line, tab))
+        .flatten();
     range
         .map(|ix| {
             let line = ix + 1;
+            if line > buf.line_count() {
+                // The room after the last line (`scrollBeyondLastLine`) is empty.
+                return div().h(px(lh)).into_any_element();
+            }
             let text = buf.line_content(line);
             let is_active = line == caret_line;
             let expanded = expand_tabs(text, tab);
             let selected = selection_on_line(e, line);
             let has_caret = is_active && caret_on;
             let found = find.map_or_else(Vec::new, |f| f.matches_on_line(line, buf.line_max_column(line)));
-            let shaped = (selected.is_some() || has_caret || !found.is_empty())
+            let markers = decorations::whitespace_marks(text, cfg.render_whitespace, selected.map(|(from, to, _)| (from, to)));
+            // The bracket boxes of this line (the pair's two brackets, when they are on it).
+            let bracket_cols: Vec<usize> = brackets
+                .into_iter()
+                .flat_map(|(a, b)| [a, b])
+                .filter(|p| p.line == line)
+                .map(|p| p.column)
+                .collect();
+            // Occurrences of the selection or of the word at the caret, on this line.
+            let occurrence_cols: Vec<(usize, usize)> = occurrences.as_ref().map_or_else(Vec::new, |o| {
+                decorations::occurrences_in_line(text, &o.needle, o.whole_word)
+                    .into_iter()
+                    .filter(|&(from, to)| !(o.is_selection && selected.is_some_and(|(sf, st, _)| (sf, st) == (from, to))))
+                    .collect()
+            });
+            let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty() || !bracket_cols.is_empty() || !occurrence_cols.is_empty())
                 .then(|| shape(window, cfg, &expanded))
                 .flatten();
             let x_at = |col: usize| -> f32 {
@@ -762,15 +817,10 @@ fn rows(
                 let x0 = x_at(from);
                 let x1 = x_at(to) + if past { space_w } else { 0.0 };
                 if x1 > x0 {
-                    text_box = text_box.child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left(px(x0))
-                            .w(px(x1 - x0))
-                            .h(px(lh))
-                            .bg(to_gpui(sel_bg)),
-                    );
+                    let mut sel_box = div().absolute().top_0().left(px(x0)).w(px(x1 - x0)).h(px(lh)).bg(to_gpui(sel_bg));
+                    // `editor.roundedSelection`: 3px corners on the selection (upstream `border-radius`).
+                    sel_box = if cfg.rounded_selection { sel_box.rounded(px(3.)) } else { sel_box };
+                    text_box = text_box.child(sel_box.debug_selector(|| format!("selection:{line}")));
                 }
             }
             // Find matches over the selection: the current one in its own color.
@@ -784,6 +834,62 @@ fn rows(
                         );
                     }
                 }
+            }
+            // Whitespace markers (`editor.renderWhitespace`): a middle dot in a space's cell, an arrow
+            // at the start of a tab's cells (the tab itself is shown as spaces).
+            for m in markers {
+                let (x0, x1) = (x_at(m.column), x_at(m.column + 1));
+                let glyph = match m.kind {
+                    decorations::MarkKind::Space => "\u{b7}",
+                    decorations::MarkKind::Tab => "\u{2192}",
+                };
+                let mark = div()
+                    .absolute()
+                    .top_0()
+                    .left(px(x0))
+                    .w(px((x1 - x0).max(0.0)))
+                    .h(px(lh))
+                    .text_color(to_gpui(t.whitespace_fg))
+                    .debug_selector(|| format!("ws:{line}:{}", m.column))
+                    .child(glyph);
+                text_box = text_box.child(match m.kind {
+                    decorations::MarkKind::Space => mark.text_center(),
+                    decorations::MarkKind::Tab => mark.text_left(),
+                });
+            }
+            let occurrence_color = match occurrences.as_ref() {
+                Some(o) if o.is_selection => t.selection_highlight_bg,
+                _ => t.word_highlight_bg,
+            };
+            for (from, to) in occurrence_cols {
+                let (x0, x1) = (x_at(from), x_at(to));
+                if x1 > x0 {
+                    text_box = text_box.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left(px(x0))
+                            .w(px(x1 - x0))
+                            .h(px(lh))
+                            .bg(to_gpui(occurrence_color))
+                            .debug_selector(|| format!("occurrence:{line}:{from}")),
+                    );
+                }
+            }
+            for col in bracket_cols {
+                let (x0, x1) = (x_at(col), x_at(col + 1));
+                text_box = text_box.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(px(x0))
+                        .w(px((x1 - x0).max(0.0)))
+                        .h(px(lh))
+                        .bg(to_gpui(t.bracket_match_bg))
+                        .border_1()
+                        .border_color(to_gpui(t.bracket_match_border))
+                        .debug_selector(|| format!("bracket:{line}:{col}")),
+                );
             }
             text_box = text_box.text_color(to_gpui(t.editor_fg)).child(expanded);
             if has_caret {
@@ -803,11 +909,42 @@ fn rows(
                 .line_height(px(lh))
                 .font_family(SharedString::from(cfg.font_family.clone()))
                 .font_weight(gpui_kit::FontWeight(cfg.font_weight))
+                .font_features(font_features(cfg))
                 .text_size(px(cfg.font_size));
             if let Some(f) = find.filter(|f| f.line_in_scope(line)) {
                 // "Find in Selection": the lines of the scope get the range highlight.
                 row = row.child(
                     div().absolute().top_0().bottom_0().left(px(gutter)).right_0().bg(to_gpui(f.colors.range_highlight_bg)),
+                );
+            }
+            // Indent guides (`editor.guides.indentation`): one per indent level of the line.
+            if cfg.guides_indentation {
+                for k in 0..decorations::line_level(buf, line, tab) {
+                    let active = active_guide.as_ref().is_some_and(|(ak, span)| *ak == k && span.contains(&line));
+                    let color = if active { t.indent_guide_active_fg } else { t.indent_guide_fg };
+                    row = row.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left(px(gutter + (k * tab) as f32 * space_w))
+                            .w(px(1.))
+                            .bg(to_gpui(color))
+                            .debug_selector(|| if active { format!("guide-active:{line}:{k}") } else { format!("guide:{line}:{k}") }),
+                    );
+                }
+            }
+            // Rulers (`editor.rulers`): a 1px line after `column` characters, in every row.
+            for ruler in &cfg.rulers {
+                row = row.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left(px(gutter + ruler.column as f32 * space_w))
+                        .w(px(1.))
+                        .bg(to_gpui(ruler.color.unwrap_or(t.ruler_fg)))
+                        .debug_selector(|| format!("ruler:{}", ruler.column)),
                 );
             }
             if is_active && (hl_content || hl_gutter) {

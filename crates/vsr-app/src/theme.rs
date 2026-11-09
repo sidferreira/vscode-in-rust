@@ -89,6 +89,14 @@ pub struct Theme {
     pub selection_bg: Rgba8,           // editor.selectionBackground
     pub inactive_selection_bg: Rgba8,  // editor.inactiveSelectionBackground
     pub line_highlight_border: Rgba8,  // editor.lineHighlightBorder
+    pub whitespace_fg: Rgba8,          // editorWhitespace.foreground (registry dark)
+    pub ruler_fg: Rgba8,               // editorRuler.foreground (registry dark)
+    pub indent_guide_fg: Rgba8,        // editorIndentGuide.background1 (dark_vs.json)
+    pub indent_guide_active_fg: Rgba8, // editorIndentGuide.activeBackground1 (dark_vs.json)
+    pub bracket_match_bg: Rgba8,       // editorBracketMatch.background (registry dark)
+    pub bracket_match_border: Rgba8,   // editorBracketMatch.border (registry dark)
+    pub selection_highlight_bg: Rgba8, // editor.selectionHighlightBackground (dark_vs.json)
+    pub word_highlight_bg: Rgba8,      // editor.wordHighlightBackground (registry dark)
     // ---- Search view (searchview.css, inputOption.*, badge.*) ----
     pub input_option_active_bg: Rgba8,        // inputOption.activeBackground (dark_modern)
     pub input_option_active_border: Rgba8,    // inputOption.activeBorder (dark_modern)
@@ -184,6 +192,14 @@ impl Theme {
             selection_bg: c("#264F78"),
             inactive_selection_bg: c("#3A3D41"),
             line_highlight_border: c("#282828"),
+            whitespace_fg: c("#E3E4E229"),
+            ruler_fg: c("#5A5A5A"),
+            indent_guide_fg: c("#404040"),
+            indent_guide_active_fg: c("#707070"),
+            bracket_match_bg: c("#0064001A"),
+            bracket_match_border: c("#888888"),
+            selection_highlight_bg: c("#ADD6FF26"),
+            word_highlight_bg: c("#575757B8"),
             input_option_active_bg: c("#2489DB82"),
             input_option_active_border: c("#2488DB"),
             input_option_active_fg: c("#FFFFFF"),

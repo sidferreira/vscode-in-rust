@@ -80,6 +80,12 @@ match = ["telemetry.*"]
 
 [[rule]]
 status = "n/a"
+reason = "not yet: multi-line selection matches"
+comment = "editor.selectionHighlightMultiline. The default (false) matches upstream: a multi-line selection is not highlighted. Setting it to true has no effect yet; the highlight search is per line (ADR-0032)."
+match = ["editor.selectionHighlightMultiline"]
+
+[[rule]]
+status = "n/a"
 reason = "auto-update (product)"
 comment = "rscode has no updater; update channels are a product service."
 match = ["update.*"]

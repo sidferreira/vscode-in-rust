@@ -80,6 +80,7 @@ upstream = [
   "src/vs/editor/common/core/cursorColumns.ts",
   "src/vs/editor/common/core/misc/indentation.ts",
   "src/vs/editor/common/model/editStack.ts",
+  "src/vs/editor/common/model/bracketPairsTextModelPart/bracketPairsImpl.ts",
   "src/vs/base/common/strings.ts",
   "src/vs/editor/test/browser/controller/cursor.test.ts",
   "src/vs/editor/test/browser/controller/cursorMoveCommand.test.ts",

@@ -329,3 +329,108 @@ fn settings_editor_marks_unwired_settings_only(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(cx.debug_bounds("unsupported:search:editor.fontSize").is_none(), "wired setting is not");
 }
+
+// ---- editor rendering --------------------------------------------------------------------------
+
+#[gpui_kit::test]
+fn render_whitespace_marks_follow_the_setting_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "whitespace", None, &[("a.txt", "a b\n\tc")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    // The default is `selection`: nothing is marked while the caret is alone.
+    assert!(cx.debug_bounds("ws:1:2").is_none());
+    cx.simulate_keystrokes("cmd-a");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("ws:1:2").is_some(), "the selected space is marked");
+    assert!(cx.debug_bounds("ws:2:1").is_some(), "and the selected tab");
+    set(cx, "editor.renderWhitespace", json!("all"));
+    assert!(cx.debug_bounds("ws:1:2").is_some());
+    assert!(cx.debug_bounds("ws:2:1").is_some());
+    set(cx, "editor.renderWhitespace", json!("none"));
+    assert!(cx.debug_bounds("ws:1:2").is_none(), "none marks nothing, even when selected");
+    assert!(cx.debug_bounds("ws:2:1").is_none());
+}
+
+#[gpui_kit::test]
+fn rulers_follow_the_setting_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "rulers", None, &[("a.txt", "x")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    assert!(cx.debug_bounds("ruler:5").is_none(), "no rulers by default");
+    set(cx, "editor.rulers", json!([5, { "column": 9, "color": "#ff0000" }]));
+    assert!(cx.debug_bounds("ruler:5").is_some());
+    assert!(cx.debug_bounds("ruler:9").is_some());
+    set(cx, "editor.rulers", json!([]));
+    assert!(cx.debug_bounds("ruler:5").is_none() && cx.debug_bounds("ruler:9").is_none());
+}
+
+#[gpui_kit::test]
+fn indent_guides_follow_the_settings_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "guides", None, &[("a.txt", "a\n  b\n      c\n")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    cx.run_until_parked(); // the list lays out its visible rows on the frame after the first
+    assert!(cx.debug_bounds("guide:1:0").is_none() && cx.debug_bounds("guide-active:1:0").is_none(), "no guide on a top-level line");
+    // The caret starts on line 1, a header of line 2: its guide (column 0) is the active one.
+    assert!(cx.debug_bounds("guide-active:2:0").is_some(), "the header's guide is active");
+    // A caret on line 3 (two levels deep) activates its innermost guide, the one at column 4.
+    let gutter = bounds(cx, "gutter:3").center();
+    cx.simulate_click(gutter, Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("guide-active:3:1").is_some(), "the innermost guide of the caret block");
+    assert!(cx.debug_bounds("guide:2:0").is_some(), "other guides are not active");
+    set(cx, "editor.guides.highlightActiveIndentation", json!(false));
+    assert!(cx.debug_bounds("guide-active:3:1").is_none());
+    assert!(cx.debug_bounds("guide:3:1").is_some());
+    set(cx, "editor.guides.indentation", json!(false));
+    assert!(cx.debug_bounds("guide:2:0").is_none() && cx.debug_bounds("guide:3:1").is_none());
+}
+
+#[gpui_kit::test]
+fn match_brackets_follows_the_setting_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "brackets", None, &[("a.txt", "f(ab)")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    // The caret between `a` and `b`: `always` highlights the enclosing pair.
+    cx.simulate_keystrokes("right right right");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("bracket:1:2").is_some() && cx.debug_bounds("bracket:1:5").is_some());
+    set(cx, "editor.matchBrackets", json!("near"));
+    assert!(cx.debug_bounds("bracket:1:2").is_none(), "near: only a bracket next to the caret");
+    // Moving left puts the caret after `(`, so that bracket and its partner are highlighted.
+    cx.simulate_keystrokes("left");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("bracket:1:2").is_some() && cx.debug_bounds("bracket:1:5").is_some());
+    set(cx, "editor.matchBrackets", json!("never"));
+    assert!(cx.debug_bounds("bracket:1:2").is_none() && cx.debug_bounds("bracket:1:5").is_none());
+}
+
+#[gpui_kit::test]
+fn occurrences_and_selection_highlights_follow_the_settings(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "occurrences", None, &[("a.txt", "foo bar foo\nfoo")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    // The caret on `foo`: every whole-word occurrence is highlighted (singleFile is the default).
+    assert!(cx.debug_bounds("occurrence:1:1").is_some() && cx.debug_bounds("occurrence:1:9").is_some());
+    assert!(cx.debug_bounds("occurrence:2:1").is_some());
+    set(cx, "editor.occurrencesHighlight", json!("off"));
+    assert!(cx.debug_bounds("occurrence:1:9").is_none(), "off: no word highlight");
+    // Selecting `foo` (Shift+Right three times) highlights the other copies, not the selection.
+    cx.simulate_keystrokes("shift-right shift-right shift-right");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("occurrence:1:9").is_some() && cx.debug_bounds("occurrence:2:1").is_some());
+    assert!(cx.debug_bounds("occurrence:1:1").is_none(), "the selection itself is not boxed");
+    set(cx, "editor.selectionHighlight", json!(false));
+    assert!(cx.debug_bounds("occurrence:1:9").is_none(), "selectionHighlight off");
+}
+
+#[gpui_kit::test]
+fn selection_and_ligature_settings_apply_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "typography", None, &[("a.txt", "foo bar")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    cx.simulate_keystrokes("shift-right shift-right");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("selection:1").is_some(), "the selection is drawn");
+    // Rounded corners and font features are read from the settings and the editor keeps rendering.
+    set(cx, "editor.roundedSelection", json!(false));
+    set(cx, "editor.fontLigatures", json!(true));
+    set(cx, "editor.renderLineHighlightOnlyWhenFocus", json!(true));
+    assert!(cx.debug_bounds("selection:1").is_some(), "the focused editor still draws its selection");
+    let features = wb.read_with(cx, |wb, _| wb.editor_settings.font_features.clone());
+    assert_eq!(features, [("liga".to_string(), 1), ("calt".to_string(), 1)]);
+}

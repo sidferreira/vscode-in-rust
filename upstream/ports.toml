@@ -526,3 +526,26 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Word wrap (ADR-0036): the monospace line breaks computer (all of createLineBreaks: break before/after classes, CJK and Kinsoku, keepAll, wrapping indent, tabs, surrogate pairs, two-cell full-width, escaped line feeds), ModelLineProjectionData offset translation, and a ViewLines projection over a TextBuffer (incremental: unchanged lines are matched from both ends by hash, only the edited middle is recomputed). 24 of the 37 monospaceLineBreaksComputer.test.ts tests (the 11 injected-text ones and the two-cell variants that need them are left out), the Basic test of lineBreakData.test.ts and SplitLine of modelLineProjection.test.ts are ported. Not ported: createLineBreaksFromPreviousLineBreaks (resize recomputes), injected text, hidden areas, the DOM breaks computer (wrappingStrategy advanced is read as simple)."
+
+[[port]]
+id = "explorer-file-operations"
+status = "partial"
+upstream = [
+  "src/vs/workbench/contrib/files/browser/fileActions.ts",
+  "src/vs/workbench/contrib/files/test/browser/fileActions.test.ts",
+  "src/vs/workbench/contrib/files/browser/explorerService.ts",
+]
+rust = ["crates/vsr-app/src/explorer/names.rs", "crates/vsr-app/src/explorer/ops.rs", "crates/vsr-app/src/explorer/workbench.rs", "crates/vsr-app/src/explorer/trash.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Explorer create file/folder, rename, delete (ADR-0039). validateFileName messages (plain text, no Markdown), incrementFileName simple and smart (ported tests in names.rs). Delete goes to the macOS Trash through NSFileManager behind a Trash trait. Not ported yet: the inline name input and its keys, the context menu and key bindings, copy/paste/duplicate, explorer.confirmDelete, explorer.sortOrder and the other explorer.* view settings, and the Compare action of the save conflict bar."
+
+[[port]]
+id = "file-watcher"
+status = "partial"
+upstream = [
+  "src/vs/platform/files/node/watcher/**",
+  "src/vs/workbench/contrib/files/browser/editors/textFileSaveErrorHandler.ts",
+]
+rust = ["crates/vsr-app/src/explorer/watcher.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Recursive notify (FSEvents) watcher behind a FileWatcher trait, events coalesced for 100 ms, files.watcherExclude with upstream's defaults, live tree refresh with expanded folders kept, clean editors reload from disk, dirty editors show the save conflict bar (Overwrite, Revert; Compare needs the diff editor). Not ported: watcherInclude, the parcel and nodejs watcher backends, the watcher's error and restart handling."

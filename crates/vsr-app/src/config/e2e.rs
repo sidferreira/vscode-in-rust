@@ -512,7 +512,9 @@ fn close_on_file_delete_closes_clean_tabs_and_keeps_dirty_ones(cx: &mut TestAppC
     cx.run_until_parked();
     fs::remove_file(f.dir.join("a.txt")).unwrap();
     fs::remove_file(f.dir.join("b.txt")).unwrap();
-    cx.executor().advance_clock(std::time::Duration::from_secs(2));
+    // The watcher reports the deletes (ADR-0039); tests have no watcher, so the report is direct.
+    let gone = vec![f.dir.join("a.txt"), f.dir.join("b.txt")];
+    wb.update(cx, |wb, cx| wb.on_disk_changes(gone, cx));
     cx.run_until_parked();
     assert_eq!(tab_titles(&wb, cx), ["b.txt"], "the clean tab closes, the edited one stays");
 }

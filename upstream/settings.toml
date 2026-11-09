@@ -430,15 +430,9 @@ match = ["files.trimTrailingWhitespaceInRegexAndStrings"]
 
 [[rule]]
 status = "blocked"
-reason = "needs a file watcher (changes on disk to files and folders)"
-comment = "watcherExclude and watcherInclude configure what the watcher sees. rscode polls only settings.json and the existence of open files (ADR-0022, ADR-0033)."
-match = ["files.watcherExclude", "files.watcherInclude"]
-
-[[rule]]
-status = "blocked"
-reason = "needs file watching (detect a file changed on disk before saving)"
-comment = "saveConflictResolution decides what a save does when the file changed on disk after it was opened. rscode does not compare the file with the buffer before writing."
-match = ["files.saveConflictResolution"]
+reason = "needs watching of symlinked folders (watcherInclude adds paths the watcher does not follow)"
+comment = "rscode's watcher covers the workspace recursively (ADR-0039) and does not follow symbolic links. watcherExclude is wired; watcherInclude is not."
+match = ["files.watcherInclude"]
 
 [[rule]]
 status = "blocked"
@@ -448,8 +442,8 @@ match = ["files.hotExit", "files.restoreUndoStack"]
 
 [[rule]]
 status = "blocked"
-reason = "needs explorer file operations (delete, to the Trash)"
-comment = "enableTrash moves deleted files to the Trash. The explorer has no delete yet."
+reason = "needs the Explorer Delete command (the workbench deletes to the Trash; no command or key reaches it yet)"
+comment = "enableTrash moves deleted files to the macOS Trash (ADR-0039). The workbench honours it; the Delete key and the context menu come with the explorer's inline editing."
 match = ["files.enableTrash"]
 
 [[rule]]

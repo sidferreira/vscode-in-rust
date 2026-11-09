@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Fetch dependencies through a package firewall that quarantines recent crate versions.
+
+When `cargo fetch` fails with a 403 on `<crate>/<version>`, step that crate back to the
+previous non-yanked version that still satisfies the lockfile constraints
+(`cargo update -p <crate>@<version> --precise <older>`) and retry. It never bypasses the
+proxy; it only selects older versions the proxy already allows.
+
+Usage: scripts/cargo-firewall-fetch [--max-steps N]
+"""
+import json
+import re
+import subprocess
+import sys
+import urllib.request
+
+TARGET = subprocess.run(["rustc", "-vV"], capture_output=True, text=True).stdout.split("host: ")[1].split()[0]
+FAIL_RE = re.compile(r"crates/([^/]+)/([^/]+)/download")
+
+
+def versions(crate):
+    req = urllib.request.Request(
+        f"https://crates.io/api/v1/crates/{crate}/versions",
+        headers={"User-Agent": "vscode-rust-firewall-fetch"},
+    )
+    with urllib.request.urlopen(req) as r:
+        data = json.load(r)
+    return [v["num"] for v in data["versions"] if not v["yanked"]]  # newest first
+
+
+def main():
+    max_steps = int(sys.argv[sys.argv.index("--max-steps") + 1]) if "--max-steps" in sys.argv else 40
+    tried = {}
+    for step in range(max_steps):
+        out = subprocess.run(["cargo", "fetch", "--target", TARGET], capture_output=True, text=True)
+        if out.returncode == 0:
+            print(f"fetch OK after {step} downgrade(s)")
+            return 0
+        m = FAIL_RE.search(out.stderr)
+        if not m:
+            print(out.stderr[-2000:])
+            return 1
+        crate, ver = m.group(1), m.group(2)
+        candidates = [v for v in versions(crate) if "-" not in v or "-" in ver]
+        older = candidates[candidates.index(ver) + 1:] if ver in candidates else []
+        older = [v for v in older if v not in tried.get(crate, set())]
+        ok = False
+        for v in older[:6]:
+            tried.setdefault(crate, set()).add(v)
+            up = subprocess.run(
+                ["cargo", "update", "-p", f"{crate}@{ver}", "--precise", v],
+                capture_output=True, text=True,
+            )
+            if up.returncode == 0:
+                print(f"blocked {crate} {ver} -> {v}")
+                ok = True
+                break
+        if not ok:
+            print(f"cannot downgrade {crate} {ver} (exact pin or no older compatible version)")
+            print(up.stderr[-800:] if older else "")
+            return 2
+    print("gave up: too many steps")
+    return 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

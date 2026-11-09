@@ -30,10 +30,11 @@ status = "partial"
 upstream = [
   "src/vs/editor/common/model/pieceTreeTextBuffer/**",
   "src/vs/editor/test/common/model/pieceTreeTextBuffer/**",
+  "src/vs/editor/test/common/model/linesTextBuffer/**",
 ]
-rust = ["crates/vsr-text/src/lib.rs", "crates/vsr-text/tests/buffer.rs"]
+rust = ["crates/vsr-text/src/lib.rs", "crates/vsr-text/tests/buffer.rs", "crates/vsr-text/tests/upstream_piece_tree.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "Piece tree text buffer. vsr-text currently uses a line vector behind the same API (ADR-0005); the real piece tree is still to port. Port pieceTreeTextBuffer.test.ts as Rust tests."
+notes = "Piece tree text buffer. vsr-text uses a line vector behind the same API (ADR-0005). 52 upstream tests ported and passing; 23 #[ignore]d until TextBuffer gets raw-offset insert/delete (offsets between \\r and \\n)."
 
 [[port]]
 id = "editor-core-position-range"
@@ -48,12 +49,12 @@ notes = "1-based line/column Position and Range value types."
 
 [[port]]
 id = "theme-dark-modern"
-status = "planned"
+status = "partial"
 upstream = [
   "extensions/theme-defaults/themes/dark_modern.json",
   "extensions/theme-defaults/themes/dark_plus.json",
   "extensions/theme-defaults/themes/dark_vs.json",
 ]
-rust = ["crates/vsr-theme"]   # not created yet
+rust = ["crates/vsr-app/src/theme.rs"]   # moves to vsr-platform theme service later
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "Default theme. dark_modern includes dark_plus which includes dark_vs, so all three define the result."
+notes = "Workbench colors hard-coded from dark_modern.json in vsr-app. dark_modern includes dark_plus which includes dark_vs, so all three define the result."

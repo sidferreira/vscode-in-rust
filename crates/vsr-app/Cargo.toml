@@ -1,0 +1,16 @@
+[package]
+name = "vsr-app"
+description = "The vscode-rust desktop binary (native workbench window)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "vscode-rust"
+path = "src/main.rs"
+
+[dependencies]
+vsr-text.workspace = true
+# UI: egui/eframe (fallback per ADR-0007; gpui-kit blocked by the package firewall today).
+eframe = "0.37.0"

@@ -150,13 +150,16 @@ impl TextBuffer {
         Position::new(p.line, snapped)
     }
 
+    /// Raw UTF-16 offset of a (line, column) pair. Like the buffer's `getOffsetAt`
+    /// this does not clamp the column: one past the end of a line is the first
+    /// unit of its terminator. Clamping is `TextModel`'s job (`validate_position`).
     pub fn offset_at(&self, p: Position) -> usize {
-        let p = self.validate_position(p);
-        let before: usize = self.lines[..p.line - 1]
+        let line = p.line.clamp(1, self.line_count());
+        let before: usize = self.lines[..line - 1]
             .iter()
             .map(|l| utf16_len(&l.text) + l.eol.len())
             .sum();
-        before + p.column - 1
+        before + p.column.saturating_sub(1)
     }
 
     pub fn position_at(&self, offset: usize) -> Position {
@@ -177,24 +180,13 @@ impl TextBuffer {
         unreachable!("buffer always has at least one line")
     }
 
+    /// The raw text between two positions, terminators included. Columns are not
+    /// clamped (see `offset_at`), so a column past a line's end includes its EOL.
     pub fn value_in_range(&self, r: Range) -> String {
-        let start = self.validate_position(r.start);
-        let end = self.validate_position(r.end);
-        let (sb, _) = utf16_col_to_byte(&self.lines[start.line - 1].text, start.column);
-        let (eb, _) = utf16_col_to_byte(&self.lines[end.line - 1].text, end.column);
-        if start.line == end.line {
-            return self.lines[start.line - 1].text[sb..eb].to_string();
-        }
-        let mut s = String::new();
-        let first = &self.lines[start.line - 1];
-        s.push_str(&first.text[sb..]);
-        s.push_str(first.eol);
-        for l in &self.lines[start.line..end.line - 1] {
-            s.push_str(&l.text);
-            s.push_str(l.eol);
-        }
-        s.push_str(&self.lines[end.line - 1].text[..eb]);
-        s
+        let text = self.value();
+        let start = self.offset_at(r.start);
+        let end = self.offset_at(r.end);
+        utf16_slice(&text, start, end).to_string()
     }
 
     /// Replace `range` with `text`.
@@ -223,7 +215,26 @@ impl TextBuffer {
         last.text.push_str(suffix);
         last.eol = tail_eol;
 
-        self.lines.splice(start.line - 1..end.line, new_lines);
+        let first = start.line - 1;
+        let new_count = new_lines.len();
+        self.lines.splice(first..end.line, new_lines);
+        // Seams: the line before the edit and the last inserted line.
+        self.join_split_crlfs(first.saturating_sub(1), first + new_count - 1);
+    }
+
+    /// In the raw text `\r\n` is one break, whatever edits produced it. An edit can
+    /// put a lone `\r` break directly before a `\n` (an empty line ending in `\n`);
+    /// merge those back into one CRLF line break. Checks the pairs `(i, i + 1)` for
+    /// `i` in `from..=to`.
+    fn join_split_crlfs(&mut self, from: usize, to: usize) {
+        let mut i = from;
+        while i <= to && i + 1 < self.lines.len() {
+            if self.lines[i].eol == "\r" && self.lines[i + 1].text.is_empty() && self.lines[i + 1].eol == "\n" {
+                self.lines[i].eol = "\r\n";
+                self.lines.remove(i + 1);
+            }
+            i += 1;
+        }
     }
 }
 
@@ -252,6 +263,23 @@ fn split_lines(text: &str) -> Vec<Line> {
 
 fn utf16_len(s: &str) -> usize {
     s.chars().map(char::len_utf16).sum()
+}
+
+/// Slice `s` by UTF-16 unit offsets, clamped to the string. A bound that falls
+/// inside a surrogate pair is rounded up to the next character.
+fn utf16_slice(s: &str, start: usize, end: usize) -> &str {
+    let to_byte = |units: usize| {
+        let mut seen = 0;
+        for (byte, ch) in s.char_indices() {
+            if seen >= units {
+                return byte;
+            }
+            seen += ch.len_utf16();
+        }
+        s.len()
+    };
+    let (a, b) = (to_byte(start), to_byte(end));
+    if a >= b { "" } else { &s[a..b] }
 }
 
 /// Map a 1-based UTF-16 column to a byte index. Returns the byte index and the

@@ -59,3 +59,34 @@ Crates are created when they get their first real code, not as empty shells.
 uses as `COLOR_THEME_DARK_INITIAL_COLORS`. Note v1.147 defaults to "Dark 2026" with the
 `modernUI` layout (activity bar 36px, tabs 32px); we start with the classic metrics
 (48 / 35 / 22) and revisit.
+
+## ADR-0007 — UI framework: egui/eframe 0.37 now, gpui later if possible (2026-11-09)
+
+**Research pick** (`docs/research/ui-framework.md`): gpui via GPUI Kit 0.9.1 (Zed's engine plus
+Dock/Tabs/Tree/VirtualList/editor widgets). Verified on crates.io: official `gpui` is stuck at
+0.2.2; `gpui-kit` and `gpui-pre` (weekly Zed-main snapshots) are published by `huacnlee`
+(longbridge gpui-component maintainer), not by Zed. `gpui-kit` pins `gpui-pre =0.3.12` and
+already enables `runtime_shaders`, so no Metal Toolchain is needed.
+
+**Blocker.** The machine's cargo registry goes through a corporate Nexus firewall that
+quarantines some crate versions (403 "Requested item is quarantined"): `arc-swap 1.9.4`,
+`gpui-pre-ios 0.3.12` (an exact pin, so it cannot be stepped back), `notify-rust 4.19.0`, `uuid 1.29.1`.
+
+**Decision.** Ship the first window on the fallback, **eframe/egui 0.37.0** (plain crates.io
+release, wgpu). `scripts/cargo-firewall-fetch` fetches only host-target deps and steps blocked
+crates back to the previous allowed version, never routing around the proxy.
+
+**Revisit.** Several blocked crates (`gpui-pre-ios`, `notify-rust`) are probably non-macOS
+target deps that `cargo fetch` pulls only because it fetches every platform by default. A
+host-only fetch may unblock gpui. Keep UI-free state in `model.rs`-style modules so a framework
+switch only rewrites the view layer.
+
+## ADR-0008 — First window scope (2026-11-09)
+
+`vsr-app` (binary `vscode-rust [folder]`): title bar, activity bar (Explorer/Search/SCM/
+Extensions, click the active view to toggle the side bar), resizable Explorer tree (folders
+first, case-insensitive, `.git` excluded), tabs (open right of active, close/middle-click,
+focus moves like VS Code), read-only virtualised text view via `vsr-text` with line numbers,
+status bar (line count, encoding, EOL, language). Dark Modern colors, classic metrics. Editing,
+cursor and syntax highlighting are next. 52 upstream piece-tree tests pass; 23 are `#[ignore]`d
+until `TextBuffer` has raw-offset insert/delete.

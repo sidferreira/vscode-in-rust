@@ -23,6 +23,7 @@ pub const SETTINGS_GEAR: char = '\u{EB51}';
 pub const CHEVRON_RIGHT: char = '\u{EAB6}';
 pub const CHEVRON_DOWN: char = '\u{EAB4}';
 pub const CLOSE: char = '\u{EA76}';
+pub const LOCK: char = '\u{EA75}';
 pub const GIT_BRANCH: char = '\u{EC6F}';
 pub const ERROR: char = '\u{EA87}';
 pub const WARNING: char = '\u{EA6C}';

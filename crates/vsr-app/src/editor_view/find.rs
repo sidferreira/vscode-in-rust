@@ -483,6 +483,9 @@ fn navigate<T: EditorHost>(this: &mut T, forward: bool, from_input: bool, window
 
 fn replace_one<T: EditorHost>(this: &mut T, window: &mut Window, cx: &mut Context<T>) {
     with_editor(this, |e, view| {
+        if e.is_read_only() {
+            return; // `files.readonly*` (ADR-0034)
+        }
         if let Some(m) = &mut view.find.model {
             m.replace(&mut e.editor);
         }
@@ -492,6 +495,9 @@ fn replace_one<T: EditorHost>(this: &mut T, window: &mut Window, cx: &mut Contex
 
 fn replace_all<T: EditorHost>(this: &mut T, window: &mut Window, cx: &mut Context<T>) {
     with_editor(this, |e, view| {
+        if e.is_read_only() {
+            return; // `files.readonly*` (ADR-0034)
+        }
         if let Some(m) = &mut view.find.model {
             m.replace_all(&mut e.editor);
         }

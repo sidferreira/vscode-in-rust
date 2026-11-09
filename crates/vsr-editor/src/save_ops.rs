@@ -4,9 +4,8 @@
 //! upstream: src/vs/editor/common/commands/trimTrailingWhitespaceCommand.ts @ 50e1350fc78d
 //!
 //! Both are ordinary undoable edits (one undo step each) that keep the selection. Not ported:
-//! `files.trimTrailingWhitespaceInRegexAndStrings` (needs tokens), `files.trimFinalNewlines`,
-//! and the auto-save variant that skips the lines the caret is on (`cursors` is supported here
-//! but the app only saves manually).
+//! `files.trimTrailingWhitespaceInRegexAndStrings` (needs tokens). The auto-save variants skip the
+//! lines the caret is on (`cursors`); a manual save passes `&[]`.
 
 use vsr_text::{Position, Range};
 
@@ -60,6 +59,27 @@ impl Editor {
         let end = Position::new(last, self.buffer.line_max_column(last));
         let eol = self.buffer.eol().as_str().to_string();
         self.apply_edits_keeping_selection(vec![(Range::new(end, end), eol)])
+    }
+
+    /// Removes the empty lines after the last line with content, so the file ends with exactly one
+    /// line break (upstream `TrimFinalNewLinesParticipant`). On an auto save, lines up to the
+    /// caret (`cursors`) are left alone. One undo step; returns whether anything changed.
+    pub fn trim_final_newlines(&mut self, cursors: &[Position]) -> bool {
+        let line_count = self.buffer.line_count();
+        if line_count <= 1 {
+            return false;
+        }
+        let protected = cursors.iter().map(|c| c.line).max().unwrap_or(0);
+        let last_non_empty = (1..=line_count).rev().find(|&l| self.buffer.line_length(l) > 0).unwrap_or(0);
+        let from = (last_non_empty + 1).max(protected + 1);
+        if from > line_count {
+            return false;
+        }
+        let range = Range::new(Position::new(from, 1), Position::new(line_count, self.buffer.line_max_column(line_count)));
+        if self.buffer.offset_at(range.start) == self.buffer.offset_at(range.end) {
+            return false;
+        }
+        self.apply_edits_keeping_selection(vec![(range, String::new())])
     }
 
     /// Applies non-overlapping edits (given in document order) as one undo step. The selection is

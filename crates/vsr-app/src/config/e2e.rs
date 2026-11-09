@@ -15,7 +15,7 @@ use serde_json::json;
 use super::{AppConfig, POLL_INTERVAL};
 use crate::Workbench;
 
-fn unique_dir(name: &str) -> PathBuf {
+pub(super) fn unique_dir(name: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
@@ -24,14 +24,14 @@ fn unique_dir(name: &str) -> PathBuf {
     dir
 }
 
-struct Fixture {
-    dir: PathBuf,
-    settings: PathBuf,
+pub(super) struct Fixture {
+    pub(super) dir: PathBuf,
+    pub(super) settings: PathBuf,
 }
 
 /// A workbench over a temp folder with `files`, whose configuration lives in `<dir>/settings.json`
 /// (written first from `initial` when given).
-fn workbench<'a>(
+pub(super) fn workbench<'a>(
     cx: &'a mut TestAppContext,
     name: &str,
     initial: Option<&str>,
@@ -60,14 +60,14 @@ fn workbench<'a>(
 }
 
 /// Lets the settings-file watcher run `n` times (a change is applied on the second sighting).
-fn ticks(cx: &mut VisualTestContext, n: usize) {
+pub(super) fn ticks(cx: &mut VisualTestContext, n: usize) {
     for _ in 0..n {
         cx.executor().advance_clock(POLL_INTERVAL);
         cx.run_until_parked();
     }
 }
 
-fn open_file(wb: &Entity<Workbench>, cx: &mut VisualTestContext, path: &Path) {
+pub(super) fn open_file(wb: &Entity<Workbench>, cx: &mut VisualTestContext, path: &Path) {
     let path = path.to_path_buf();
     wb.update(cx, |wb, cx| {
         wb.open(&path);
@@ -76,7 +76,7 @@ fn open_file(wb: &Entity<Workbench>, cx: &mut VisualTestContext, path: &Path) {
     cx.run_until_parked();
 }
 
-fn set(cx: &mut VisualTestContext, key: &str, value: serde_json::Value) {
+pub(super) fn set(cx: &mut VisualTestContext, key: &str, value: serde_json::Value) {
     cx.update(|_, cx| AppConfig::set_value(cx, key, Some(value))).unwrap();
     cx.run_until_parked();
 }
@@ -85,7 +85,7 @@ fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> gpui_kit::Bound
     cx.debug_bounds(selector).unwrap_or_else(|| panic!("{selector} is not rendered"))
 }
 
-fn editor_value(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> String {
+pub(super) fn editor_value(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> String {
     wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().buffer().value())
 }
 

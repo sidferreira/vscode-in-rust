@@ -83,6 +83,31 @@ fn final_newline_is_skipped_for_empty_or_whitespace_last_line_and_undoable() {
 }
 
 #[test]
+fn trim_final_newlines_keeps_one_line_break() {
+    let mut ed = editor("a\n\n\n");
+    ed.mark_saved();
+    assert!(ed.trim_final_newlines(&[]));
+    assert_eq!(ed.buffer().value(), "a\n");
+    assert!(ed.undo(), "one undo step");
+    assert_eq!(ed.buffer().value(), "a\n\n\n");
+}
+
+#[test]
+fn trim_final_newlines_leaves_a_single_break_and_empty_files_alone() {
+    assert!(!editor("a\n").trim_final_newlines(&[]));
+    assert!(!editor("a").trim_final_newlines(&[]));
+    assert!(!editor("").trim_final_newlines(&[]));
+}
+
+#[test]
+fn trim_final_newlines_on_an_auto_save_keeps_the_caret_line() {
+    // Lines: "a", "", "", "". The caret is on line 2, so the break after it stays.
+    let mut ed = editor("a\n\n\n");
+    assert!(ed.trim_final_newlines(&[Position::new(2, 1)]));
+    assert_eq!(ed.buffer().value(), "a\n\n");
+}
+
+#[test]
 fn set_options_changes_tab_behaviour() {
     let mut ed = editor("");
     ed.set_options(EditorOptions { tab_size: 2, insert_spaces: true });

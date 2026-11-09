@@ -18,6 +18,9 @@
 
 #[cfg(test)]
 mod e2e;
+#[cfg(test)]
+mod e2e_files;
+pub mod files;
 pub mod glob;
 pub mod minimap;
 pub mod settings;

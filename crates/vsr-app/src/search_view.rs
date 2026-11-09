@@ -1276,22 +1276,25 @@ impl crate::Workbench {
     /// bulk-edits the text model and saves it; any other file is rewritten on disk. Tells the view
     /// what happened so it can update its results.
     pub(crate) fn apply_search_replace(&mut self, req: &ReplaceRequest, cx: &mut Context<Self>) {
-        let transforms = crate::model::SaveTransforms {
-            trim_trailing_whitespace: self.editor_settings.trim_trailing_whitespace,
-            insert_final_newline: self.editor_settings.insert_final_newline,
-        };
+        let transforms = self.editor_settings.save_transforms(false);
         let mut outcomes = Vec::with_capacity(req.files.len());
         for f in &req.files {
-            let outcome = match self.editors.open.iter_mut().find(|e| e.path == f.path) {
-                Some(e) => {
-                    let n = replace::replace_in_editor(&mut e.editor, &f.ranges, &req.pattern, req.preserve_case);
-                    let error = if n > 0 { e.save_with(transforms).err().map(|err| err.to_string()) } else { None };
-                    FileOutcome { path: f.path.clone(), replaced: n, error }
-                }
-                None => match replace::replace_in_file(&f.path, &f.ranges, &req.pattern, req.preserve_case) {
+            // `files.readonly*` (ADR-0034): a read-only file is not changed, open or not.
+            let read_only = match self.editors.open.iter().find(|e| e.path == f.path) {
+                Some(e) => e.is_read_only(),
+                None => self.editors.read_only.is_read_only(&f.path),
+            };
+            let outcome = if read_only {
+                FileOutcome { path: f.path.clone(), replaced: 0, error: Some("the file is read-only".to_string()) }
+            } else if let Some(e) = self.editors.open.iter_mut().find(|e| e.path == f.path) {
+                let n = replace::replace_in_editor(&mut e.editor, &f.ranges, &req.pattern, req.preserve_case);
+                let error = if n > 0 { e.save_with(transforms).err().map(|err| err.to_string()) } else { None };
+                FileOutcome { path: f.path.clone(), replaced: n, error }
+            } else {
+                match replace::replace_in_file(&f.path, &f.ranges, &req.pattern, req.preserve_case) {
                     Ok(n) => FileOutcome { path: f.path.clone(), replaced: n, error: None },
                     Err(error) => FileOutcome { path: f.path.clone(), replaced: 0, error: Some(error) },
-                },
+                }
             };
             outcomes.push(outcome);
         }

@@ -7300,6 +7300,14 @@ name = "vsr-text"
 version = "0.1.0"
 
 [[package]]
+name = "vsr-theme"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "vsr-settings",
+]
+
+[[package]]
 name = "vswhom"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

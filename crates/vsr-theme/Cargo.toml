@@ -1,0 +1,11 @@
+[package]
+name = "vsr-theme"
+description = "UI-free theme service data for rscode: VS Code colour themes (JSONC, include chains, token colours), the colour registry defaults and theme selection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json = "1"
+vsr-settings.workspace = true

@@ -1,7 +1,7 @@
 //! Strips comments and trailing commas from JSONC text so `serde_json` can parse it.
 
 /// Removes `//` and `/* */` comments outside strings, then trailing commas before `}` or `]`.
-pub(crate) fn strip_jsonc(input: &str) -> String {
+pub fn strip_jsonc(input: &str) -> String {
     remove_trailing_commas(&remove_comments(input))
 }
 

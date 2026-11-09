@@ -48,16 +48,76 @@ synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "1-based line/column Position and Range value types."
 
 [[port]]
-id = "theme-dark-modern"
+id = "theme-defaults"
 status = "partial"
 upstream = [
-  "extensions/theme-defaults/themes/dark_modern.json",
-  "extensions/theme-defaults/themes/dark_plus.json",
-  "extensions/theme-defaults/themes/dark_vs.json",
+  "extensions/theme-defaults/package.json",
+  "extensions/theme-defaults/package.nls.json",
+  "extensions/theme-defaults/themes/**",
 ]
-rust = ["crates/vsr-app/src/theme.rs"]   # moves to vsr-platform theme service later
+rust = ["crates/vsr-theme/src/catalog.rs", "crates/vsr-theme/assets/themes", "crates/vsr-app/src/theme.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "Workbench colors hard-coded from dark_modern.json in vsr-app. dark_modern includes dark_plus which includes dark_vs, so all three define the result."
+notes = "The built-in themes (ADR-0037): the ten theme JSON files are bundled unchanged in vsr-theme (MIT, Microsoft) and loaded with their include chains; theme.rs in vsr-app is the mapping of its painted fields to colour keys. Not bundled: the file icon theme (fileicons/)."
+
+[[port]]
+id = "theme-service"
+status = "partial"
+upstream = [
+  "src/vs/workbench/services/themes/common/colorThemeData.ts",
+  "src/vs/workbench/services/themes/common/themeCompatibility.ts",
+  "src/vs/workbench/services/themes/common/themeConfiguration.ts",
+  "src/vs/workbench/services/themes/common/hostColorSchemeService.ts",
+  "src/vs/workbench/services/themes/common/workbenchThemeService.ts",
+  "src/vs/workbench/services/themes/test/common/colorThemeData.test.ts",
+  "src/vs/workbench/services/themes/test/common/workbenchThemeService.test.ts",
+]
+rust = [
+  "crates/vsr-theme/src/theme.rs",
+  "crates/vsr-theme/src/selection.rs",
+  "crates/vsr-theme/tests/upstream_workbench_theme_service.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "ColorThemeData loading (JSONC, include chains, colors, tokenColors, semanticTokenColors, legacy settings array), colorCustomizations and tokenColorCustomizations (global and [Theme] blocks with * wildcards), the tokenColors getter handed to the highlighter, theme selection by workbench.colorTheme / preferred*ColorTheme / autoDetectColorScheme / autoDetectHighContrast, migrateThemeSettingsId. 4 of workbenchThemeService.test.ts ported. Not ported: tmTheme (plist) files, theme storage, transient colours (the colorThemeData.test.ts tests are about them), token style resolution (getTokenStyle) and scope matching (the syntax highlighter's)."
+
+[[port]]
+id = "theme-color-registry"
+status = "partial"
+upstream = [
+  "src/vs/platform/theme/common/colorUtils.ts",
+  "src/vs/platform/theme/common/colorRegistry.ts",
+  "src/vs/platform/theme/common/colors/**",
+  "src/vs/workbench/common/theme.ts",
+  "src/vs/editor/common/core/editorColorRegistry.ts",
+  "src/vs/workbench/contrib/preferences/common/settingsEditorColorRegistry.ts",
+  "src/vs/editor/contrib/wordHighlighter/browser/highlightDecorations.ts",
+  "src/vs/editor/contrib/bracketMatching/browser/bracketMatching.ts",
+  "src/vs/editor/contrib/folding/browser/foldingDecorations.ts",
+  "src/vs/editor/contrib/peekView/browser/peekView.ts",
+  "src/vs/editor/contrib/suggest/browser/suggestWidget.ts",
+  "src/vs/editor/contrib/parameterHints/browser/parameterHintsWidget.ts",
+  "src/vs/editor/contrib/gotoError/browser/gotoErrorWidget.ts",
+  "src/vs/editor/contrib/linkedEditing/browser/linkedEditing.ts",
+  "src/vs/editor/contrib/placeholderText/browser/placeholderText.contribution.ts",
+  "src/vs/workbench/contrib/scm/common/quickDiff.ts",
+  "src/vs/platform/theme/test/common/colorUtils.test.ts",
+]
+rust = [
+  "crates/vsr-theme/src/registry.rs",
+  "crates/vsr-theme/tests/upstream_color_utils.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "The colour registry defaults per theme type (611 colours) generated from the registerColor calls by scripts/gen-color-defaults (it fails on any construct it does not know; add a file to its SOURCES list when a key is missing), evaluated with the semantics of resolveColorValue / executeTransform (transparent, lighten, darken, opacity, opaque, mix, oneOf, ifDefinedThenElse, lessProminent). The 3 colorUtils.test.ts tests are ported. Not ported: the JSON schema side of the registry, extension-contributed colours (colorExtensionPoint.ts)."
+
+[[port]]
+id = "base-color"
+status = "partial"
+upstream = [
+  "src/vs/base/common/color.ts",
+  "src/vs/base/test/common/color.test.ts",
+]
+rust = ["crates/vsr-theme/src/color.rs", "crates/vsr-theme/tests/upstream_color.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Color, RGBA, HSLA (exact arithmetic: truncated channels, three-decimal rounding), lighten/darken/transparent/mix/blend/makeOpaque, relative luminance, getLighterColor/getDarkerColor, hex and rgb()/rgba() parsing. 18 of the color.test.ts tests ported. Not ported: HSVA, ensureContrast, named CSS keywords, HSL formatting."
 
 [[port]]
 id = "workbench-layout"

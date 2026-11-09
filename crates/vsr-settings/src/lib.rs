@@ -5,7 +5,7 @@
 //! regenerates the settings asset.
 
 mod configuration;
-mod jsonc;
+pub mod jsonc;
 mod registry;
 mod schema;
 mod title;

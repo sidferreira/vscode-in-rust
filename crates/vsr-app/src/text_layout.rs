@@ -1,7 +1,7 @@
 //! Pure line-layout helpers: tab expansion and the mapping between model columns (1-based,
 //! UTF-16, as `vsr-text` uses) and positions in the expanded text that gpui shapes.
 //!
-//! upstream: src/vs/editor/common/cursor/cursorColumns.ts @ 50e1350fc78d
+//! Column math follows `src/vs/editor/common/core/cursorColumns.ts` (see `vsr-editor`).
 //!
 //! Nothing here touches gpui: the pixel side is injected as a width function (a shaped line's
 //! `x_for_index` in the app, a fixed-width stub in tests).

@@ -199,3 +199,24 @@ fn status_texts_follow_the_caret(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("shift-down");
     assert_eq!(status(&wb, cx).0, "Ln 2, Col 3 (5 selected)");
 }
+
+#[gpui::test]
+fn editing_a_10k_line_file_stays_responsive(cx: &mut TestAppContext) {
+    let dir = unique_dir("big");
+    let text: String = (1..=10_000).map(|i| format!("line {i} lorem ipsum dolor sit amet\n")).collect();
+    fs::write(dir.join("big.txt"), &text).unwrap();
+    let (wb, cx) = open_workbench(cx, &dir, "big.txt");
+
+    cx.simulate_keystrokes("cmd-down");
+    assert_eq!(caret(&wb, cx), (10_001, 1));
+    let start = std::time::Instant::now();
+    for _ in 0..20 {
+        cx.simulate_input("ab");
+        cx.simulate_keystrokes("enter");
+    }
+    let per_key = start.elapsed() / 60;
+    eprintln!("10k-line file: {per_key:?} per key (debug build, incl. layout and paint)");
+    assert!(value(&wb, cx).ends_with("ab\nab\n"));
+    // Generous bound for an unoptimised build on a loaded machine; catches O(n^2) regressions.
+    assert!(per_key < std::time::Duration::from_millis(100), "{per_key:?} per key");
+}

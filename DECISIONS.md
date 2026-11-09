@@ -957,6 +957,111 @@ in `upstream/settings.toml`.
   view-line cursor rules (`vsr-editor/tests/wrap.rs`), the wrapping column and row geometry (`wrap.rs`), the
   settings, and headless E2E in `editor_view/wrap_e2e.rs` (scenarios in `tests/e2e-scenarios/preferences.md`).
 
+## ADR-0038 — Languages and syntax highlighting: our own TextMate engine on Oniguruma (2026-11-09)
+
+rscode needs the language of a file (status bar, `files.associations`, Change Language Mode) and
+VS Code's own highlighting, which is TextMate grammars (`*.tmLanguage.json`) tokenized by
+vscode-textmate and coloured by the theme's `tokenColors`. Three crates, plus app glue:
+
+- `vsr-languages`: the language registry and file associations (ports of `languagesRegistry.ts`,
+  `languagesAssociations.ts`, with all 23 of their tests), and the data `scripts/bundle-grammars --clone`
+  copies from the upstream clone: every built-in extension's `contributes.languages` (83 languages),
+  34 JSON grammars for rust, javascript/jsx, typescript/tsx (+ the jsdoc injections), json/jsonc/jsonl,
+  markdown, python, shell, css, html, yaml, xml/xsl, c, cpp, cuda-cpp, go and java, and the Dark Modern theme
+  chain (dark_vs, dark_plus, dark_modern). Provenance and licence of every grammar: `data/NOTICES.md`
+  (generated from each extension's `cgmanifest.json` and `ThirdPartyNotices.txt`; MIT except the TextMate
+  bundles for html and c, which carry the "TextMate Bundle License"). There is no `toml` or `kotlin` language
+  in the clone (neither is a built-in VS Code extension), so rscode does not register them either; the old
+  hard-coded "TOML" label in the status bar was a fidelity bug.
+- `vsr-textmate`: the grammar engine and theme matching (UI free).
+- `vsr-syntax`: the service (language of a file, grammar per language, styles under the current theme),
+  per-document incremental tokens and the background tokenizer, and the bundled Dark Modern token colors
+  behind `TokenColorsProvider`, the trait the theme service will implement instead.
+- `vsr-app`: `syntax.rs` (tokenizer per editor, token runs to gpui highlights), `language_mode.rs`
+  (Change Language Mode and the repaint poll), the rows of the editor and the minimap.
+
+### Engine decision (researched 2026-11-09)
+
+| option | verdict |
+|---|---|
+| (a) a Rust vscode-textmate port from crates.io (`irosashi` 0.3, `ferriki-textmate` 1.3, `shiki` 0.0.7) | Maintained for weeks, 0.6k to 6k downloads each, one author, API shaped around whole-document highlighting. `irosashi` ("byte-identical to vscode-textmate", on `ferroni`, a pure Rust Oniguruma port) looks closest: it has a line-by-line `Session` and a comparable `StateStack`. Its docs do not say whether `while` rules, `injectTo` or `injectionSelector` are supported, and it resolves colours itself instead of exposing scope stacks. |
+| (b) `syntect` | Loads `.tmLanguage` plists and `.sublime-syntax`, not VS Code's JSON grammars (a conversion step would be ours to build and keep in sync). Its engine follows Sublime semantics: no `while` rules, `applyEndPatternLast` and `injectionSelector` are approximated, and its scope selectors are its own. Fidelity with VS Code's grammars is a known gap, which is the whole point of this feature. |
+| (c) tree-sitter + `tree-sitter-highlight` | Fast and incremental, but a different grammar set (queries and parsers per language, several C crates to build) and colours only approximate a VS Code theme, because VS Code themes select TextMate scopes. Zed and Helix accept that; rscode's goal is VS Code's own colours. |
+| (d) our own engine on `onig` | Chosen. |
+
+Reasons: it runs VS Code's own grammars with the regex flavour they were written for (`onig` builds through the
+package proxy in 16 s: `cc` and the vendored Oniguruma, no system library); the engine is about 1,100 lines
+that follow vscode-textmate's algorithm one to one (read from microsoft/vscode-textmate `main` on 2026-11-09:
+`theme.ts`, and its tests `themes.test.ts` and `matcher.test.ts`, verbatim; the tokenizer, `rule.ts` and
+`grammar.ts` from the documented algorithm), and it exposes exactly what editing needs and no crate gave:
+a rule stack with structural equality per line (for re-tokenizing only until the state converges), interned
+scope ids (styles resolved per id and cached, so a theme change does not re-tokenize), standard token types
+(`trimTrailingWhitespaceInRegexAndStrings`) and `injectTo`. 22 grammars tokenize real code in the tests, with
+the scopes checked, and 18 + 16 + 2 tests pin the engine, the theme and the matchers. `irosashi` remains the
+thing to try if the engine ever needs replacing: a differential test of its tokens against ours would be the
+first step. Nothing in `vsr-languages`, the incremental store or the app depends on the engine's internals.
+
+### How it works
+
+- **Regexes.** vscode-oniguruma's setup: UTF-8, `ONIG_OPTION_CAPTURE_GROUP`, the Oniguruma syntax, a search
+  always on the whole line (plus the `\n` vscode-textmate appends) with a start offset, so `\G`, `\A` and
+  look-behinds see the text before the start. `\A` and `\G` become `\uFFFF` in the variants where they may not
+  match (four precomputed variants per source), `\z` is rewritten, back references in `end` and `while` are
+  resolved against the begin captures (escaped) and cached per resolved source. A scanner is a list of
+  patterns: the leftmost match wins, ties go to the earlier one. A per-line cache remembers each regex's last
+  result (valid for any later start before its match start, and for no match), which made tokenizing 2.8
+  times faster; regexes with `\G` are never cached.
+- **Rules** are compiled eagerly into an arena (`include` of `#name`, `$self`, `$base`, `scope`, `scope#name`,
+  nested repositories, `injections`, `injectTo` grammars) and memoized by the raw rule's `Arc` pointer, the
+  same identity vscode-textmate gets from the `id` it stamps on raw objects. Regexes compile lazily.
+- **Tokens.** `Token { start (byte), scope id }`. Offsets are UTF-8 bytes of the line; the app maps them to
+  gpui's expanded text (tabs, wrapped rows) in `syntax::highlights_for_row` and to UTF-16 for the minimap.
+- **Incremental.** `DocumentTokens` keeps text, tokens and start/end states per line. `sync` finds the first
+  and last differing lines, marks the middle dirty and keeps the rest. Tokenizing resumes at the first invalid
+  line and skips ahead as soon as a stored line has the same text and the same start state (upstream's
+  `TokenizationStateStore`). Tests: an edit that does not change the state re-tokenizes one line; opening a
+  block comment re-tokenizes to the end of the file; undoing it converges 100 lines later; incremental equals a
+  full run after a series of edits. A `BackgroundTokenizer` runs the rest on a thread in 4 ms slices;
+  the editor shows a line's old tokens until new ones exist. A repaint poll (60 ms) runs while it is busy.
+  `editor.maxTokenizationLineLength` (default 20,000): longer lines are one token and keep the state.
+- **Theme.** vscode-textmate's `theme.ts`: rules with parent scopes and `>`, the trie with inheritance,
+  specificity ordering; each scope's match overrides only what it sets (foreground, background, font style:
+  bold, italic, underline, strikethrough) and merges onto its parent stack. All of `themes.test.ts` that does
+  not need its fixture directory and all of `matcher.test.ts` are ported.
+- **Editor.** `rows()` draws the line with `StyledText::with_highlights`; positions still come from the
+  shaped plain text, which is exact for the monospace fonts the editor uses (bold and italic keep the advance).
+  The minimap draws each character in its token colour (`render_lines_colored`).
+- **Language of a file.** `files.associations` (configured, wins), then the built-in file names, patterns,
+  extensions (longest wins, the last registered wins ties) and first line; plain text when nothing matches.
+  `Editors` owns a `SyntaxService`, so tests do not share associations. Editors whose language was picked by hand
+  keep it when settings change.
+
+### Settings
+
+Wired (group "Languages"): `files.associations` (live), `editor.maxTokenizationLineLength` (live),
+`files.trimTrailingWhitespaceInRegexAndStrings` (`false` keeps trailing whitespace that starts inside a string
+or regex token, and in lines the tokenizer has not reached yet, like upstream). `files.defaultLanguage` stays
+blocked, reason rewritten to "needs untitled editors": it is the language of new untitled files, which rscode
+does not have. `editor.semanticHighlighting*` and `workbench.editor.languageDetection*` stay blocked.
+
+### Numbers (release build, Apple silicon, `editorOptions.ts`: 7,084 lines, 259 KB)
+
+Grammar build 3 ms (rule graph; regexes compile on first use). Tokenizing the whole file: 472 ms cold (includes
+compiling the regexes the file needs), 256 ms warm: 1.0 MB/s, 27,700 lines/s, about 36 us per line. A single
+edited line re-tokenizes in well under a millisecond. Before the per-line regex cache it was 0.2 MB/s.
+
+### Not done
+
+Encoded token metadata (language id and balanced-bracket flags per token), `embeddedLanguages` per token (the
+language of embedded code, for bracket and comment rules), `tokenTypes` for TS template expressions (the bundled
+grammars' `tokenTypes` selectors are applied, the default scope-name regexp is the rest), the tokenization time
+limit, the JavaScript regular expression grammar (it is a plist: `source.js.regexp` includes resolve to nothing,
+so regex literal contents are one scope), injections declared in a grammar's `injections` are ordered by selector
+name rather than document order (serde_json's map is sorted; only ties between equal priorities are affected),
+semantic highlighting, language configuration (brackets, comments, auto-closing) and the "Configure File
+Association" entries of Change Language Mode. Tokenizing off the UI thread means the first paint of a big file
+shows plain text for a moment.
+
 ## ADR-0040 — Session restore, hot exit and the Welcome page (2026-11-09)
 
 User's choice (2026-11-09): the Welcome page becomes the startup default, and unsaved text survives quitting.

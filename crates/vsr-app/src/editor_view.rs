@@ -26,8 +26,8 @@
 mod decorations;
 pub(crate) mod find;
 mod minimap;
+pub(crate) mod wrap;
 mod view_state; // restoreViewState: scroll, selection, word wrap (ADR-0040)
-mod wrap;
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -884,6 +884,7 @@ fn rows(
     brackets: Option<(Position, Position)>,
     wrap_indicator: Option<usize>,
 ) -> Vec<AnyElement> {
+    e.sync_syntax(); // tokens follow the buffer (ADR-0038)
     let buf = e.buffer();
     let sel = e.editor.selection();
     let tab = e.editor.options().tab_size;
@@ -1037,7 +1038,18 @@ fn rows(
                         .debug_selector(|| format!("bracket:{line}:{col}")),
                 );
             }
-            text_box = text_box.text_color(to_gpui(t.editor_fg)).child(expanded);
+            // Syntax highlighting (ADR-0038): the token colors and font styles of the line.
+            let highlights = e
+                .syntax()
+                .and_then(|d| d.style_runs(line, text))
+                .map(|runs| crate::syntax::highlights_for_row(text, &runs, &seg, tab, seg.first && seg.last))
+                .unwrap_or_default();
+            text_box = text_box.text_color(to_gpui(t.editor_fg));
+            text_box = if highlights.is_empty() {
+                text_box.child(expanded.clone())
+            } else {
+                text_box.child(gpui_kit::StyledText::new(expanded.clone()).with_highlights(highlights))
+            };
             if has_caret {
                 // The caret's column in the row's text (`caret_view` includes the continuation indent).
                 let col = caret_view.map_or(sel.active.column, |(_, vcol)| vcol);

@@ -30,6 +30,9 @@ scripts/cargo-firewall-fetch     # fetch deps through the package firewall
 | `vsr-find` | editor Find / Replace model: matches, N of M, next/prev, replace one/all (UI-free) | `src/vs/editor/contrib/find/browser/{findModel,findState,replacePattern}.ts` |
 | `vsr-settings` | settings registry, `settings.json`, effective configuration (defaults + user, change events) | `src/vs/platform/configuration/common/*`, `workbench/contrib/preferences` |
 | `vsr-theme` | VS Code colour themes from their JSON (include chains, token colours, customisations), colour registry defaults, theme selection (UI-free) | `src/vs/workbench/services/themes`, `src/vs/platform/theme`, `src/vs/base/common/color.ts`, `extensions/theme-defaults` |
+| `vsr-languages` | language registry, file name / extension / first line associations, bundled language, grammar and Dark Modern theme data (ADR-0038) | `src/vs/editor/common/services/{languagesRegistry,languagesAssociations}.ts`, `extensions/*/package.json` |
+| `vsr-textmate` | TextMate grammar engine (vscode-textmate semantics on Oniguruma), scope selectors, theme scope matching (UI-free) | `src/vs/workbench/services/textMate`, microsoft/vscode-textmate |
+| `vsr-syntax` | syntax highlighting service: grammar per language, incremental per-line tokens (background thread), token styles | `src/vs/editor/common/model/tokens` |
 | `vsr-app` | native workbench window (gpui via gpui-kit); `RSCODE_USER_DATA_DIR=<dir>` redirects settings.json to `<dir>/User/` | `src/vs/workbench/browser/layout.ts`, `dark_modern.json` |
 
 ## Third-party assets
@@ -40,5 +43,13 @@ scripts/cargo-firewall-fetch     # fetch deps through the package firewall
   [microsoft/vscode-codicons](https://github.com/microsoft/vscode-codicons) (`@vscode/codicons` 0.0.46-49),
   licensed [CC BY 4.0](crates/vsr-app/assets/codicon-LICENSE.txt). Modified: 'm' mapped to
   the blank glyph so gpui loads the font ([notice](crates/vsr-app/assets/codicon-NOTICE.md)).
+- **TextMate grammars and themes** (`crates/vsr-languages/data`): copied unmodified from VS Code's built-in
+  extensions (Microsoft, MIT) by `scripts/bundle-grammars`. Each grammar comes from the upstream repository named
+  in its extension's `cgmanifest.json` (for example TypeScript-TmLanguage, MagicPython, rust-syntax,
+  better-shell-syntax, better-cpp-syntax: MIT; the html and c grammars come from TextMate bundles under the
+  "TextMate Bundle License"). Repositories, commits and licence texts:
+  [crates/vsr-languages/data/NOTICES.md](crates/vsr-languages/data/NOTICES.md).
+- **Oniguruma** (BSD-2-Clause, K. Kosako) through the [`onig`](https://crates.io/crates/onig) crate (MIT) runs
+  those grammars' regular expressions.
 - **App icon** (`resources/darwin/rscode.icns`): original copper ribbon mark drawn by
   `scripts/make-app-icon.swift`, with Ferris the crab (CC0, rustacean.net). See `resources/icon-src/`.

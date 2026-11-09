@@ -173,6 +173,7 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
     r.register(D::new("workbench.action.openSettings", "Open Settings (UI)").category("Preferences").f1(), action(OpenSettings, Workbench));
     r.register(D::new("workbench.action.selectTheme", "Color Theme").category("Preferences").f1(), action(SelectTheme, Workbench));
     r.register(D::new("workbench.action.clearCommandHistory", "Clear Command History").f1(), action(ClearCommandHistory, Workbench));
+    r.register(D::new("workbench.action.editor.changeLanguageMode", "Change Language Mode").f1(), action(crate::language_mode::ChangeLanguageMode, Workbench));
     r.register(D::new("workbench.action.quit", "Quit"), action(Quit, Workbench));
     // Help: Welcome opens the Welcome page (upstream registers it as `workbench.action.openWalkthrough`).
     r.register(D::new(welcome::COMMAND_ID, "Welcome").category("Help").f1().description("Opens the Welcome page."), action(ShowWelcome, Workbench));

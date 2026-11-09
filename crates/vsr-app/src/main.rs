@@ -12,11 +12,13 @@ mod editor_view;
 mod explorer; // file watcher, explorer file operations (ADR-0039)
 mod icons;
 mod keymap;
+mod language_mode; // Change Language Mode, syntax repaint poll (ADR-0038)
 mod model;
 mod quick_access; // Command Palette, Go to Line, help on the Quick Pick (ADR-0030)
 mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
 mod search_view; // Search view (ADR-0023)
+mod syntax; // syntax highlighting glue (ADR-0038)
 mod session; // session restore, hot exit (ADR-0040)
 mod settings_view; // Settings editor (ADR-0017)
 mod text_layout;
@@ -76,6 +78,7 @@ fn main() {
         search_view::init(cx); // Shift+Cmd+F and Search view bindings
         quick_open::init(cx); // Cmd+P
         commands::init(cx); // command registry; Shift+Cmd+P, F1, Cmd+B, Shift+Cmd+E, Ctrl+G
+        language_mode::init(cx); // Cmd+K M
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -197,6 +200,8 @@ struct Workbench {
     search: Option<Entity<SearchView>>,
     /// Quick Open (Cmd+P) state.
     quick: quick_open::QuickOpenState,
+    /// Change Language Mode picker and the syntax repaint poll (ADR-0038).
+    lang: language_mode::LanguageUi,
     /// Root focus handle so workbench-level actions (Cmd+,) dispatch even before anything is focused.
     focus: Option<FocusHandle>,
     /// `files.autoSave` timers and triggers (ADR-0034).
@@ -265,12 +270,14 @@ impl Workbench {
             applied_window_title: None,
             search: None,
             quick: Default::default(),
+            lang: Default::default(),
             focus: None,
             auto_save: Default::default(),
             branch: git_branch(&root),
             error: None,
         };
         wb.resolve_editor_font(cx);
+        wb.apply_language_settings(cx);
         wb.children.insert(root.clone(), wb.list(&root));
         match watcher.watch(&root) {
             Ok(mut changes) => {
@@ -328,6 +335,7 @@ impl Workbench {
         self.editors.apply_settings(EditorGroupSettings::from_configuration(configuration));
         self.editors.default_eol = new_settings.eol;
         self.editors.apply_read_only(ReadonlyRules::from_configuration(configuration, &self.root));
+        self.apply_language_settings(cx);
 
         let old_options = self.editor_settings.editor_options();
         if new_settings.font_families != self.editor_settings.font_families {
@@ -682,7 +690,7 @@ impl Workbench {
             vars.active_editor_short = e.title.clone();
             vars.active_editor_medium = relative(&e.path);
             vars.active_editor_long = e.path.display().to_string();
-            vars.active_editor_language_id = window_title::language_id(language_of(&e.path));
+            vars.active_editor_language_id = e.language_id().to_string();
             vars.active_folder_short = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             vars.active_folder_medium = relative(folder);
             vars.active_folder_long = folder.display().to_string();
@@ -776,7 +784,7 @@ impl Workbench {
                 .child(item().child(format!("{} lines", e.buffer().line_count())))
                 .child(item().child("UTF-8"))
                 .child(item().child(e.eol_label()))
-                .child(item().child(language_of(&e.path)));
+                .child(item().id("status-language").child(self.editors.language_name(e)));
         }
         right = right.child(
             item()
@@ -1294,6 +1302,7 @@ impl Render for Workbench {
         // so this runs on the frame that shows the dirty state.
         self.editors.pin_dirty_preview();
         self.auto_save_tick(window, cx);
+        self.poll_syntax(cx);
         self.session_render_hook(window, cx);
         // The OS window title and the dirty dot (macOS shows it in the close button).
         let title = self.window_title(cx);
@@ -1396,6 +1405,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &welcome::ShowWelcome, _, cx| this.open_welcome(cx)))
             .on_action(cx.listener(|this, _: &commands::ClearCommandHistory, _, cx| this.clear_command_history(cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleReadonlyInSession, _, cx| this.toggle_read_only_in_session(cx)))
+            .on_action(cx.listener(|this, _: &language_mode::ChangeLanguageMode, window, cx| this.show_language_picker(window, cx)))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {
@@ -1426,6 +1436,7 @@ impl Render for Workbench {
             .children(self.quit_prompt_bar(cx))
             .when(layout.status_bar_visible, |d| d.child(self.status_bar()))
             .children(self.quick.view())
+            .children(self.lang.view())
     }
 }
 
@@ -1454,17 +1465,4 @@ fn folder_name(p: &Path) -> String {
     p.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| p.display().to_string())
-}
-
-fn language_of(p: &Path) -> &'static str {
-    match p.extension().and_then(|e| e.to_str()).unwrap_or("") {
-        "rs" => "Rust",
-        "md" => "Markdown",
-        "toml" => "TOML",
-        "ts" => "TypeScript",
-        "js" => "JavaScript",
-        "json" => "JSON",
-        "py" => "Python",
-        _ => "Plain Text",
-    }
 }

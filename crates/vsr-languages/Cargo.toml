@@ -1,0 +1,13 @@
+[package]
+name = "vsr-languages"
+description = "Language registry (ids, names, file associations) and the bundled VS Code grammar/theme data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+globset = "0.4"
+onig = { version = "6", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

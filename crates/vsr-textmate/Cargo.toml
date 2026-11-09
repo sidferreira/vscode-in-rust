@@ -1,0 +1,12 @@
+[package]
+name = "vsr-textmate"
+description = "TextMate grammar engine (vscode-textmate semantics) and theme scope matching"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+onig = { version = "6", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

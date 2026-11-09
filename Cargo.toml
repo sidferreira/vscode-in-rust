@@ -17,3 +17,6 @@ vsr-quickinput = { path = "crates/vsr-quickinput" }
 vsr-find = { path = "crates/vsr-find" }
 vsr-commands = { path = "crates/vsr-commands" }
 vsr-theme = { path = "crates/vsr-theme" }
+vsr-languages = { path = "crates/vsr-languages" }
+vsr-textmate = { path = "crates/vsr-textmate" }
+vsr-syntax = { path = "crates/vsr-syntax" }

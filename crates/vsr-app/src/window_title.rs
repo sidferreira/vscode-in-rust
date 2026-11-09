@@ -132,15 +132,6 @@ impl Variables {
     }
 }
 
-/// The language id upstream reports for `activeTextEditorLanguageId`: lower case, `plaintext` for
-/// files with no known language.
-pub fn language_id(language_name: &str) -> String {
-    match language_name {
-        "Plain Text" => "plaintext".to_string(),
-        other => other.to_lowercase(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,11 +241,5 @@ mod tests {
         assert_eq!(vars.expand(Some("${activeEditorShort}${separator}${rootName}"), Some(" | ")), "a.rs | proj");
         // Unknown variables expand to nothing.
         assert_eq!(vars.expand(Some("${nope}${activeEditorShort}"), None), "a.rs");
-    }
-
-    #[test]
-    fn language_ids_are_lower_case() {
-        assert_eq!(language_id("Rust"), "rust");
-        assert_eq!(language_id("Plain Text"), "plaintext");
     }
 }

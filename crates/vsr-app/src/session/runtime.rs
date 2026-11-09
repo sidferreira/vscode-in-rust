@@ -240,7 +240,9 @@ impl Workbench {
     fn build_editor(&self, path: &Path) -> Option<OpenEditor> {
         let bytes = fs::read(path).ok()?;
         let text = String::from_utf8_lossy(&bytes);
-        Some(OpenEditor::from_text(path, &text, self.editors.options, self.editors.default_eol, self.editors.read_only.is_read_only(path)))
+        let mut editor = OpenEditor::from_text(path, &text, self.editors.options, self.editors.default_eol, self.editors.read_only.is_read_only(path));
+        self.editors.init_language(&mut editor, &text);
+        Some(editor)
     }
 
     /// Opens the saved tabs in their order (files that are gone are skipped). Returns their view states.
@@ -288,7 +290,11 @@ impl Workbench {
             let editor = match self.build_editor(&path) {
                 Some(e) => e,
                 // The file is gone from disk: the text comes back in a buffer that saves it again.
-                None => OpenEditor::from_text(&path, "", self.editors.options, self.editors.default_eol, false),
+                None => {
+                    let mut e = OpenEditor::from_text(&path, "", self.editors.options, self.editors.default_eol, false);
+                    self.editors.init_language(&mut e, "");
+                    e
+                }
             };
             self.editors.open.push(editor);
             self.editors.mru.push(path.clone());

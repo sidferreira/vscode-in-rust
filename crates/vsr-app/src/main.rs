@@ -31,6 +31,7 @@ use gpui_kit::*;
 use config::glob::ExcludeMatcher;
 use config::settings::{
     ActivityBarLocation, EditorGroupSettings, EditorSettings, LayoutSettings, OpenSource, ShowTabs, SideBarLocation,
+    StartupEditor, startup_editor,
 };
 use config::AppConfig;
 use editor_view::{EditorHost, EditorView};
@@ -207,12 +208,14 @@ impl Workbench {
             }
         })
         .detach();
-        // Open a README if there is one, so the first launch shows real text.
-        for name in ["README.md", "Cargo.toml"] {
-            let p = root.join(name);
-            if p.is_file() {
-                wb.open(&p);
-                break;
+        // `workbench.startupEditor: readme` opens the folder's README (none if it has none).
+        if startup_editor(AppConfig::get(cx).configuration()) == StartupEditor::Readme {
+            for name in ["README.md", "README"] {
+                let p = root.join(name);
+                if p.is_file() {
+                    wb.open(&p);
+                    break;
+                }
             }
         }
         wb

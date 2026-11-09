@@ -568,6 +568,20 @@ fn window_title_and_separator_apply_live_to_the_window(cx: &mut TestAppContext) 
     assert_eq!(window_title_of(&wb, cx), format!("Settings - {folder}"));
 }
 
+// ---- workbench.startupEditor ----------------------------------------------------------------
+
+#[gpui_kit::test]
+fn startup_editor_readme_opens_the_readme_and_the_default_opens_nothing(cx: &mut TestAppContext) {
+    let (wb, cx, _f) = workbench(cx, "startup-readme", Some(r#"{ "workbench.startupEditor": "readme" }"#), &[("README.md", "# hi"), ("Cargo.toml", "")]);
+    assert_eq!(tab_titles(&wb, cx), ["README.md"]);
+}
+
+#[gpui_kit::test]
+fn startup_editor_default_is_the_welcome_page_which_rscode_does_not_have_yet(cx: &mut TestAppContext) {
+    let (wb, cx, _f) = workbench(cx, "startup-default", None, &[("README.md", "# hi")]);
+    assert!(tab_titles(&wb, cx).is_empty(), "no README is opened: there is no Welcome page to open instead");
+}
+
 // ---- window.zoomLevel and the zoom commands -------------------------------------------------
 
 #[gpui_kit::test]

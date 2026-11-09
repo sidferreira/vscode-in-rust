@@ -26,6 +26,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "window.zoomLevel",
         ],
     ),
+    ("Startup", &["workbench.startupEditor"]),
     ("Explorer", &["files.exclude"]),
     (
         "Editor text",
@@ -171,6 +172,7 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     }
     out.push_str("## Known differences from VS Code\n\n");
     out.push_str("- Out-of-range numbers are clamped to the schema's minimum and maximum (as `editorOptions.ts` does); a value of the wrong type or outside an enum falls back to the default.\n");
+    out.push_str("- `workbench.startupEditor` is read once, at startup (as upstream). `welcomePage`, `welcomePageInEmptyWorkbench`, `newUntitledFile`, `terminal` and `agentSessionsWelcomePage` open nothing: there is no Welcome page, untitled file or terminal yet (ADR-0035).\n");
     out.push_str("- `window.zoomLevel` scales the editor text only (1.2 per level, as upstream). The title bar, side bars and tabs keep their pixel sizes until the UI has a whole-window scale (ADR-0035).\n");
     out.push_str("- `editor.cursorBlinking`: `smooth`, `phase` and `expand` blink like `blink`; `solid` does not blink.\n");
     out.push_str("- `editor.lineNumbers: interval` shows a number on every 10th line and on the caret line.\n");

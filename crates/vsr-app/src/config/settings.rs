@@ -455,6 +455,26 @@ pub struct LayoutSettings {
     pub compact_tabs: bool,
 }
 
+/// `workbench.startupEditor`: what opens when the app starts with no editor restored. rscode has
+/// no Welcome page, no untitled files and no terminal yet, so those values open nothing (their
+/// behaviour is listed in ADR-0035). `Readme` opens the folder's README when there is one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StartupEditor {
+    None,
+    WelcomePage,
+    Readme,
+    NewUntitledFile,
+    WelcomePageInEmptyWorkbench,
+    Terminal,
+    AgentSessionsWelcomePage,
+}
+
+/// The configured `workbench.startupEditor` (read once at startup, as upstream does).
+pub fn startup_editor(c: &Configuration) -> StartupEditor {
+    c.get_enum("workbench.startupEditor").unwrap_or(StartupEditor::WelcomePage)
+}
+
 /// `window.density.editorTabHeight`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -677,6 +697,14 @@ mod tests {
             command_center: true,
             compact_tabs: false,
         });
+    }
+
+    #[test]
+    fn startup_editor_values() {
+        assert_eq!(startup_editor(&config("")), StartupEditor::WelcomePage, "upstream default");
+        assert_eq!(startup_editor(&config(r#"{ "workbench.startupEditor": "readme" }"#)), StartupEditor::Readme);
+        assert_eq!(startup_editor(&config(r#"{ "workbench.startupEditor": "none" }"#)), StartupEditor::None);
+        assert_eq!(startup_editor(&config(r#"{ "workbench.startupEditor": "bogus" }"#)), StartupEditor::WelcomePage);
     }
 
     #[test]

@@ -468,3 +468,54 @@ moment: launching rscode or any GUI binary (including `--background`), AppleScri
 Events UI scripting, screenshots, anything that opens a window or could change focus. To try a
 build, the user runs `scripts/rscode` themselves. The off-screen rendering checks planned in
 ADR-0024 are only acceptable if they render through gpui's test platform with no OS window.
+
+## ADR-0027 — Editor Find widget: a UI-free `vsr-find` model and an `EditorView` overlay (2026-11-09)
+
+**Context.** Cmd+F (Find / Replace in the current file) was next after Search (ROADMAP). Upstream
+splits it into `findModel.ts` (matches, navigation, replace, driven by `FindReplaceState`),
+`findDecorations.ts`, `replacePattern.ts`, the `FindController` that seeds and starts it and
+`findWidget.ts` (DOM).
+
+**Decisions.**
+- **New crate `vsr-find`** (UI free; depends on `vsr-text`, `vsr-editor`, `vsr-search`, `regex`). Not a
+  module in `vsr-editor`: that crate is the cursor core (ADR-0013) and find needs a regex engine and
+  the Search view's query semantics. Parts: `search` (compile + match with captures, per line or
+  multiline), `replace_pattern` (a port of `replacePattern.ts` and `buildReplaceStringWithCasePreserved`),
+  `model` (`FindModel`, `FindState`, seeding and scope helpers).
+- **Same query semantics as the Search view** by importing `vsr_search::query::regex_source`
+  (literal escaping, regex, whole word as `\b`, `\n` making a search multiline) without smart case.
+  Consequence: Rust `regex` syntax, so no look-around or backreferences, as documented for Search
+  (ADR-0023). `fancy-regex` was available in the registry cache but would make Find and Search disagree.
+- **No decorations.** Upstream tracks matches as model decorations and re-searches 100 ms after an
+  edit. Here the matches are a sorted `Vec<Range>` recomputed when `Editor::version()` changes (a
+  `sync` call per frame); `matchBeforePosition` / `matchAfterPosition` / `getCurrentMatchesPosition`
+  are ported over that list, including the zero-width "stuck" handling and `loop` gating
+  (`canNavigateForward/Back`). Highlighting caps at `MATCHES_LIMIT` (19999, label `19999+`), find
+  operations do not. A find scope moves with the model's own replaces only.
+- **Replace All is one undo step**: `Editor::replace_ranges` (new, in `vsr-editor`) applies the
+  edits from the end of the document and records one undo group; selection and scope are tracked
+  through the edits like upstream's `ReplaceAllCommand`.
+- **The widget lives in `EditorView`** (`editor_view/find.rs`), not as its own entity: every
+  command needs the active document (`Editors`) next to the widget state, and both are reached
+  through the existing `EditorHost` trait, so `main.rs` is untouched. The two text boxes are
+  `gpui-component` inputs. The editor surface and the overlay sit under one `EditorFind` key
+  context so Cmd+F / Cmd+G / Escape / Alt+Cmd+C,W,R,L,P work from both; Enter in the Find box
+  comes from the input's `PressEnter` event (the input propagates Enter, a binding would fire twice).
+  Escape closes it and focuses the editor.
+- **Keys (macOS):** Cmd+F, Alt+Cmd+F (replace row; seeds only a non-empty single-line selection),
+  Cmd+G / Shift+Cmd+G / F3, Enter / Shift+Enter in the Find box, Enter (replace one) and Cmd+Enter
+  (replace all) in the Replace box, Alt+Cmd+Enter replace all, Cmd+Shift+1 replace one, Cmd+E use
+  selection for find, Alt+Cmd+C / W / R / L / P toggles, Escape.
+- **Settings wired** (`editor.find.*`): `seedSearchStringFromSelection`, `autoFindInSelection`, `loop`,
+  `cursorMoveOnType`, `findOnType`, `closeOnResult`. Not wired: `addExtraSpaceOnTop` (would shift the
+  list's hit-testing), `globalFindClipboard`, `history`, `replaceHistory`.
+- **Tests.** `replacePattern.test.ts` (8) and 35 of the 44 `findModel.test.ts` tests ported
+  (`findTest(...)` is now recognised as a test wrapper by `scripts/test-port`); not ported: the
+  decorations test, 2 `selectAllMatches` (one cursor) and the 6 look-ahead replace tests. 15 headless
+  gpui E2E tests (`editor_view/find_e2e.rs`) drive the real workbench: Cmd+F seeding and "2 of 5",
+  Enter / Shift+Enter, Escape focus, Alt+Cmd+F replace all and a single Cmd+Z, regex `$1` / `\u`,
+  find in selection, the settings.
+
+**Not implemented:** select all occurrences (single cursor), find history, global find clipboard,
+`addExtraSpaceOnTop`, the options-only widget shown when closed, resizing the widget, overview ruler
+marks, Tab order between the widget buttons, `find.test.ts` / `findController.test.ts` ports.

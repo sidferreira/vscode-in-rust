@@ -146,6 +146,46 @@ synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Editable gpui editor surface (ADR-0018): blinking line cursor, selection and current-line highlight, active line number, key table for macOS defaults, platform text input (typing, IME marking). Not ported: smooth/phase/expand cursor styles, multi-cursor, overview ruler, selection rounded corners, glyph margin, word wrap. text_layout.rs (pixel/column mapping, adapts common/core/cursorColumns.ts) and editor_view/e2e.rs are ours and carry no header."
 
 [[port]]
+id = "editor-find-model"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/find/browser/findModel.ts",
+  "src/vs/editor/contrib/find/browser/findState.ts",
+  "src/vs/editor/contrib/find/browser/findDecorations.ts",
+  "src/vs/editor/contrib/find/browser/replacePattern.ts",
+  "src/vs/editor/contrib/find/browser/replaceAllCommand.ts",
+  "src/vs/editor/contrib/find/test/browser/findModel.test.ts",
+  "src/vs/editor/contrib/find/test/browser/replacePattern.test.ts",
+  "src/vs/editor/common/commands/replaceCommand.ts",
+  "src/vs/base/common/search.ts",
+]
+rust = [
+  "crates/vsr-find/src/lib.rs",
+  "crates/vsr-find/src/model.rs",
+  "crates/vsr-find/src/replace_pattern.rs",
+  "crates/vsr-find/src/search.rs",
+  "crates/vsr-find/tests/upstream_find_model.rs",
+  "crates/vsr-find/tests/upstream_replace_pattern.rs",
+  "crates/vsr-editor/src/replace_ops.rs",
+  "crates/vsr-editor/tests/replace_ops.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "UI-free find/replace model (ADR-0027): matches over a TextBuffer, N of M, next/prev with wrap, replace one/all as one undo step, replace patterns ($1, \\u, preserve case), find scopes. Query semantics shared with vsr-search (Rust regex: no look-around). 43 upstream tests ported (all 8 of replacePattern.test.ts, 35 of findModel.test.ts). Not ported from findModel.test.ts: decorations ('removes its decorations'), the 2 selectAllMatches tests (one cursor), and the 6 look-ahead replace tests (no look-around in Rust regex). Matches are a sorted Vec recomputed per editor version instead of decorations."
+
+[[port]]
+id = "editor-find-widget"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/find/browser/findWidget.ts",
+  "src/vs/editor/contrib/find/browser/findWidget.css",
+  "src/vs/editor/contrib/find/browser/findController.ts",
+  "src/vs/editor/contrib/find/browser/findOptionsWidget.ts",
+]
+rust = ["crates/vsr-app/src/editor_view/find.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Find widget on gpui (ADR-0027): top-right overlay, Match Case / Whole Word / Regex / Preserve Case toggles, N of M, prev/next, find in selection, replace row, highlights of all matches and the current one, Cmd+F / Alt+Cmd+F / Cmd+G / Enter / Escape / Alt+Cmd+C,W,R,L,P. Settings: editor.find.seedSearchStringFromSelection, autoFindInSelection, loop, cursorMoveOnType, findOnType, closeOnResult. Not ported: select all occurrences (one cursor), find history, global find clipboard, addExtraSpaceOnTop, options-only widget when closed, resizing, overview ruler marks; find.test.ts and findController.test.ts (need the editor contribution harness). find_e2e.rs is ours."
+
+[[port]]
 id = "configuration"
 status = "partial"
 upstream = [

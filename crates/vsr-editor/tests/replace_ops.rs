@@ -1,3 +1,5 @@
+//! upstream: src/vs/editor/contrib/find/browser/replaceAllCommand.ts @ 50e1350fc78d
+//!
 //! `Editor::replace_ranges` (one undo step, selection tracking), `set_selection`, `word_at`.
 
 use vsr_editor::{Editor, EditorOptions, Position, Range, Selection};

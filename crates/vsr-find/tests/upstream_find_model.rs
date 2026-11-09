@@ -531,7 +531,7 @@ fn replace_all_bla() {
     assert_eq!(line(&ed, 11), "// ciaociaociaociao");
 }
 
-// upstream: FindModel > replaceAll bla with \\t\\n
+// upstream: FindModel > replaceAll bla with \t\n
 #[test]
 fn replace_all_bla_with_tab_and_newline() {
     let mut ed = fixture();

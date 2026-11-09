@@ -3,7 +3,6 @@
 //!
 //! upstream: src/vs/editor/contrib/find/browser/replaceAllCommand.ts @ 50e1350fc78d
 //! upstream: src/vs/editor/common/commands/replaceCommand.ts @ 50e1350fc78d
-//! upstream: src/vs/editor/common/model/textModel.ts @ 50e1350fc78d (`getWordAtPosition`)
 //!
 //! `replace_ranges` is upstream's `ReplaceAllCommand`: every range is replaced in one
 //! group, the selection is tracked through the edits (a point inside a replaced range snaps to the

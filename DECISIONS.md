@@ -335,7 +335,7 @@ generated from it by a test): `workbench.sideBar.location` (side bar and its sas
 of the editor, the activity bar stays on the side bar's outer edge, as in `layout.ts`),
 `workbench.activityBar.location` (`default`, `hidden`; `top`/`bottom` are a horizontal strip in the
 side bar column), `workbench.statusBar.visible`, `workbench.editor.showTabs`, `workbench.tree.indent`,
-`files.exclude` (own glob matcher, `config/glob.rs`; `when: $(basename)` supported), `editor.fontSize`,
+`files.exclude` (merged with the default like upstream, so showing `.git` takes `"**/.git": false`; own glob matcher, `config/glob.rs`; `when: $(basename)` supported), `editor.fontSize`,
 `fontFamily` (first installed family), `fontWeight`, `lineHeight` (0 is 1.5 x font size, rounded,
 at least 8, values below 8 are multiples, as `fontInfo.ts`), `tabSize`, `insertSpaces`, `lineNumbers`
 (`relative`, `interval` included), `renderLineHighlight`, `cursorStyle` (all six), `cursorBlinking`,
@@ -346,7 +346,7 @@ the list.
 
 **Differences from upstream.** `cursorBlinking: smooth|phase|expand` blink like `blink`; no
 `editor.detectIndentation`; `files.exclude` patterns match the path relative to the opened folder
-only; `window.title` is not wired; `trimTrailingWhitespace` has no regex/string exemption and the
+only; `window.title` is not wired; with `activityBar.location: top|bottom` hiding the side bar leaves no control to bring it back (no Cmd+B yet); `trimTrailingWhitespace` has no regex/string exemption and the
 auto-save cursor-line rule exists in the core but is unused (no auto save).
 
 Testing: `config/e2e.rs` (headless, see `docs/testing.md`) covers the side bar and activity bar

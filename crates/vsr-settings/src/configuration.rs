@@ -6,6 +6,9 @@
 //! Layering mirrors upstream's `Configuration` for the default and user layers (the workspace
 //! layer is not ported yet): a user value wins over the registered default.
 //!
+//! Object-valued settings (`files.exclude`) deep-merge the default and the user value, like
+//! upstream's `mergeContents`: the user adds entries or overrides one (`"**/.git": false`).
+//!
 //! Differences from upstream, on purpose:
 //! - Upstream stores user values as written and leaves validation to each consumer (for example
 //!   `EditorIntOption.clampedInt` in `editorOptions.ts`). Here validation is done once, against
@@ -141,12 +144,32 @@ impl Configuration {
                 }
                 Some(r) => {
                     if let Some(valid) = validate(&r.kind, value) {
-                        self.effective.insert(key.to_string(), valid);
+                        // Upstream `mergeContents`: objects from both layers merge recursively.
+                        let merged = match (&r.default, valid) {
+                            (Value::Object(d), Value::Object(u)) => {
+                                let mut base = d.clone();
+                                merge_objects(&mut base, u);
+                                Value::Object(base)
+                            }
+                            (_, valid) => valid,
+                        };
+                        self.effective.insert(key.to_string(), merged);
                     }
                 }
             }
         }
         self.user = user;
+    }
+}
+
+fn merge_objects(base: &mut serde_json::Map<String, Value>, over: serde_json::Map<String, Value>) {
+    for (k, v) in over {
+        match (base.get_mut(&k), v) {
+            (Some(Value::Object(b)), Value::Object(o)) => merge_objects(b, o),
+            (_, v) => {
+                base.insert(k, v);
+            }
+        }
     }
 }
 

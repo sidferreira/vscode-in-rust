@@ -80,7 +80,7 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- Out-of-range numbers are clamped to the schema's minimum and maximum (as `editorOptions.ts` does); a value of the wrong type or outside an enum falls back to the default.\n");
     out.push_str("- `editor.cursorBlinking`: `smooth`, `phase` and `expand` blink like `blink`; `solid` does not blink.\n");
     out.push_str("- `editor.lineNumbers: interval` shows a number on every 10th line and on the caret line.\n");
-    out.push_str("- `files.exclude` supports `true`/`false` and `when` with `$(basename)`; patterns are matched against the path relative to the opened folder.\n");
+    out.push_str("- `files.exclude` merges with the default (object settings deep-merge, as `mergeContents`) and supports `true`/`false` and `when` with `$(basename)`; patterns are matched against the path relative to the opened folder.\n");
     out.push_str("- `workbench.activityBar.location: top` and `bottom` show the view icons as a horizontal strip in the side bar (no title bar integration).\n");
     out.push_str("- `editor.detectIndentation` is not implemented: `editor.tabSize` and `editor.insertSpaces` always apply.\n");
     out

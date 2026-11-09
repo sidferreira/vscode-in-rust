@@ -312,8 +312,11 @@ fn files_exclude_applies_to_the_explorer(cx: &mut TestAppContext) {
     assert!(!names(&wb, cx).contains(&".git".to_string()));
     set(cx, "files.exclude", json!({ "**/*.log": true }));
     let shown = names(&wb, cx);
-    assert!(shown.contains(&".git".to_string()), "the user's map replaces the default: {shown:?}");
+    assert!(!shown.contains(&".git".to_string()), "the user's map merges with the default: {shown:?}");
     assert!(!shown.contains(&"b.log".to_string()) && shown.contains(&"a.txt".to_string()));
+    // Showing .git again takes an explicit false.
+    set(cx, "files.exclude", json!({ "**/*.log": true, "**/.git": false }));
+    assert!(names(&wb, cx).contains(&".git".to_string()));
 }
 
 #[gpui_kit::test]

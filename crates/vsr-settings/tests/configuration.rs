@@ -114,3 +114,14 @@ fn invalid_to_valid_is_visible_in_get_value() {
     c.update_user(UserSettings::parse(r#"{ "workbench.sideBar.location": "right" }"#).unwrap());
     assert_eq!(c.get_str("workbench.sideBar.location"), Some("right"));
 }
+
+#[test]
+fn object_settings_deep_merge_default_and_user() {
+    let c = config(r#"{ "files.exclude": { "**/*.log": true } }"#);
+    let v = c.get_value("files.exclude").unwrap();
+    assert_eq!(v["**/.git"], json!(true), "default entries stay");
+    assert_eq!(v["**/*.log"], json!(true));
+    let c = config(r#"{ "files.exclude": { "**/.git": false } }"#);
+    assert_eq!(c.get_value("files.exclude").unwrap()["**/.git"], json!(false));
+    assert_eq!(c.get_value("files.exclude").unwrap()["**/.svn"], json!(true));
+}

@@ -204,7 +204,7 @@ impl EditorSettings {
 
     /// Width of the line cursor: `editor.cursorWidth`, or 2 when it is 0 (viewCursor.ts).
     pub fn line_cursor_width(&self) -> f32 {
-        if self.cursor_width > 0.0 { self.cursor_width } else { 2.0 }
+        if self.cursor_width > 0.0 { self.cursor_width.min(self.char_width()) } else { 2.0 }
     }
 }
 

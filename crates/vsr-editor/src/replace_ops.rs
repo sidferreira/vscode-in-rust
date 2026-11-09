@@ -9,12 +9,32 @@
 //! group, the selection is tracked through the edits (a point inside a replaced range snaps to the
 //! end of its replacement), and undo restores all of them and the old selection together.
 
-use vsr_text::{Position, Range};
+use vsr_text::{Position, Range, TextBuffer};
 
 use crate::cursor_columns::utf16_len;
 use crate::undo::Change;
 use crate::word_ops::{Class, class_of};
 use crate::{Editor, Selection};
+
+/// Moves a UTF-16 offset through the (sorted, non-overlapping) planned edits `(start, end, text)`.
+fn track(off: usize, plan: &[(usize, usize, &str)]) -> usize {
+    let mut off = off;
+    let mut shift: isize = 0;
+    for &(s, e, text) in plan {
+        let delta = utf16_len(text) as isize - (e - s) as isize;
+        if e <= off {
+            shift += delta;
+        } else if s < off {
+            // Inside a replaced range: snap to the end of the replacement.
+            off = e;
+            shift += delta;
+            break;
+        } else {
+            break;
+        }
+    }
+    (off as isize + shift).max(0) as usize
+}
 
 impl Editor {
     /// Sets the selection (both ends are clamped into the buffer). Starts a new undo group on
@@ -30,6 +50,12 @@ impl Editor {
     /// in any order. The selection follows the edits (see the module docs). Returns the number
     /// of edits applied. No-op edits (same text) are skipped; if none remain nothing is recorded.
     pub fn replace_ranges(&mut self, edits: &[(Range, String)]) -> usize {
+        self.replace_ranges_tracking(edits, &[]).0
+    }
+
+    /// Like [`Editor::replace_ranges`], and also moves `tracked` ranges (such as a find scope)
+    /// through the edits. Returns the number of edits and the moved ranges.
+    pub fn replace_ranges_tracking(&mut self, edits: &[(Range, String)], tracked: &[Range]) -> (usize, Vec<Range>) {
         let before = self.selection;
         // Resolve to UTF-16 offsets against the unedited buffer.
         let mut plan: Vec<(usize, usize, &str)> = edits
@@ -45,37 +71,21 @@ impl Editor {
             })
             .collect();
         if plan.is_empty() {
-            return 0;
+            return (0, tracked.to_vec());
         }
         plan.sort_by_key(|&(s, ..)| s);
 
-        // Track the selection ends through the edits, computed on the plain-text delta.
-        let track = |p: Position, buffer: &vsr_text::TextBuffer| -> usize {
-            let mut off = buffer.offset_at(p);
-            let mut shift: isize = 0;
-            for &(s, e, text) in &plan {
-                if e <= off {
-                    shift += utf16_len(text) as isize - (e - s) as isize;
-                } else if s < off {
-                    // Inside a replaced range: snap to the end of the replacement.
-                    off = e;
-                    shift += utf16_len(text) as isize - (e - s) as isize;
-                    break;
-                } else {
-                    break;
-                }
-            }
-            (off as isize + shift).max(0) as usize
-        };
-        let anchor_off = track(before.anchor, &self.buffer);
-        let active_off = track(before.active, &self.buffer);
+        let off = |p: Position, b: &TextBuffer| b.offset_at(b.validate_position(p));
+        let mut points = vec![track(off(before.anchor, &self.buffer), &plan), track(off(before.active, &self.buffer), &plan)];
+        for r in tracked {
+            points.push(track(off(r.start, &self.buffer), &plan));
+            points.push(track(off(r.end, &self.buffer), &plan));
+        }
 
         // Apply from the end of the document so earlier offsets stay valid.
         let mut changes = Vec::with_capacity(plan.len());
         for &(s, e, text) in plan.iter().rev() {
-            let start = self.buffer.position_at(s);
-            let end = self.buffer.position_at(e);
-            let range = Range::new(start, end);
+            let range = Range::new(self.buffer.position_at(s), self.buffer.position_at(e));
             let removed = self.buffer.value_in_range(range);
             let old_len = self.buffer.len_utf16();
             self.buffer.edit(range, text);
@@ -86,16 +96,15 @@ impl Editor {
             changes.push(Change { offset: s, removed, inserted });
         }
         let n = changes.len();
-        // Line-ending normalisation can change lengths; clamp via validate (offset_at is monotone).
+        // Line-ending normalisation can change lengths; positions are clamped into the buffer.
         let len = self.buffer.len_utf16();
-        self.selection = Selection {
-            anchor: self.buffer.position_at(anchor_off.min(len)),
-            active: self.buffer.position_at(active_off.min(len)),
-        };
+        let at = |o: usize| self.buffer.position_at(o.min(len));
+        self.selection = Selection { anchor: at(points[0]), active: at(points[1]) };
+        let moved: Vec<Range> = points[2..].chunks(2).map(|c| Range::new(at(c[0]), at(c[1]))).collect();
         self.leftover = 0;
         let after = self.selection;
         self.record_group(changes, before, after);
-        n
+        (n, moved)
     }
 
     /// The word at `p` (a run of characters that are neither whitespace nor word separators,
@@ -104,19 +113,20 @@ impl Editor {
     pub fn word_at(&self, p: Position) -> Option<Range> {
         let p = self.buffer.validate_position(p);
         let line = self.buffer.line_content(p.line);
+        let target = p.column - 1;
         let mut units = 0usize;
         let mut run: Option<(usize, usize)> = None; // (start, end) in UTF-16 units
-        let target = p.column - 1;
         let mut found = None;
         for ch in line.chars() {
             let w = ch.len_utf16();
             if class_of(ch) == Class::Word {
                 run = Some(run.map_or((units, units + w), |(s, _)| (s, units + w)));
-            } else if let Some(r) = run.take() {
-                if r.0 <= target && target <= r.1 {
-                    found = Some(r);
-                    break;
-                }
+            } else if let Some(r) = run.take()
+                && r.0 <= target
+                && target <= r.1
+            {
+                found = Some(r);
+                break;
             }
             units += w;
         }

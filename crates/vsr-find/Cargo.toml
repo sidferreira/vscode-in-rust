@@ -1,0 +1,13 @@
+[package]
+name = "vsr-find"
+description = "UI-free editor Find and Replace model (mirrors vs/editor/contrib/find)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+vsr-text.workspace = true
+vsr-editor.workspace = true
+vsr-search.workspace = true
+regex = "1"

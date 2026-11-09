@@ -13,3 +13,4 @@ vsr-text = { path = "crates/vsr-text" }
 vsr-editor = { path = "crates/vsr-editor" }
 vsr-settings = { path = "crates/vsr-settings" }
 vsr-search = { path = "crates/vsr-search" }
+vsr-find = { path = "crates/vsr-find" }

@@ -27,6 +27,7 @@ pub const WARNING: char = '\u{EA6C}';
 pub const BELL: char = '\u{EAA2}';
 pub const CHECK: char = '\u{EAB2}';
 pub const GEAR: char = '\u{EAF8}';
+pub const CIRCLE_FILLED: char = '\u{EA71}';
 
 /// Register the codicon TTF with gpui's text system.
 pub fn install(cx: &App) {

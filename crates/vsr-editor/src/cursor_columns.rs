@@ -11,6 +11,10 @@
 
 /// Length of `s` in UTF-16 code units.
 pub(crate) fn utf16_len(s: &str) -> usize {
+    // ASCII fast path (`is_ascii` is vectorised even in debug builds): hot on large buffers.
+    if s.is_ascii() {
+        return s.len();
+    }
     s.chars().map(char::len_utf16).sum()
 }
 

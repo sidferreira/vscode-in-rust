@@ -85,6 +85,10 @@ pub struct Theme {
     pub menu_bg: Rgba8,                       // menu.background
     pub menu_selection_bg: Rgba8,             // menu.selectionBackground
     pub menu_border: Rgba8,                   // menu.border
+    pub cursor: Rgba8,                 // editorCursor.foreground
+    pub selection_bg: Rgba8,           // editor.selectionBackground
+    pub inactive_selection_bg: Rgba8,  // editor.inactiveSelectionBackground
+    pub line_highlight_border: Rgba8,  // editor.lineHighlightBorder
 }
 
 impl Theme {
@@ -136,6 +140,12 @@ impl Theme {
             menu_bg: c("#1F1F1F"),
             menu_selection_bg: c("#0078D4"),
             menu_border: c("#454545"),
+            // Registry defaults for dark themes (editorColorRegistry.ts / editorColors.ts); dark_vs
+            // overrides the inactive selection.
+            cursor: c("#AEAFAD"),
+            selection_bg: c("#264F78"),
+            inactive_selection_bg: c("#3A3D41"),
+            line_highlight_border: c("#282828"),
         }
     }
 }

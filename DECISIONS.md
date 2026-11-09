@@ -175,7 +175,7 @@ scenarios in 15 areas, and no pixel tests. Three tiers (details in `docs/testing
    orphans (refs that no longer match upstream, i.e. renamed/deleted or mis-titled tests).
 2. **Headless E2E:** scenarios in `tests/e2e-scenarios/<area>.md` (ported from `test/smoke`), run
    via gpui's `TestAppContext` (simulate_keystrokes / simulate_click / dispatch_action /
-   run_until_parked). Needs the gpui `test-support` feature in vsr-app dev-deps (todo).
+   run_until_parked). The gpui `test-support` feature is a vsr-app dev-dependency since ADR-0018.
 3. **Visual regression:** `Window::render_to_image` (gpui test-support, offscreen on macOS),
    per-channel tolerance 2, 99% match. Baselines are rscode-window-only images in
    `tests/visual/baselines/` (gitignored) and are never committed or pushed without the user's
@@ -214,6 +214,51 @@ follows wheel scrolling but not scrollbar drags.
 Testing: first tier-2 headless E2E tests (`src/settings/e2e_tests.rs`) run the workbench in gpui's
 test platform; see `docs/testing.md` for the dependency workaround (gpui-kit `test-support` breaks
 lock resolution, so `gpui-pre`'s feature is enabled directly).
+
+## ADR-0018 — Editable editor: input model and view (2026-11-09)
+
+`OpenEditor` holds a `vsr_editor::Editor` (tab size 4, insert spaces). Save (Cmd+S) writes
+`buffer().value()` (the file's EOL is preserved) and calls `mark_saved()`; dirty is the core's
+version-vs-saved check, so undoing back to the saved text is clean again. Closing a dirty tab
+just closes it for now (no confirm dialog).
+
+**Input.** Two paths, like VS Code. (1) Commands: one gpui action, `Run(Command)`, bound from a data
+table (`keymap.rs`, macOS defaults) in key context `Editor`; the table is also what unit tests
+resolve against. Supported: arrows, Shift+arrows, Option+Left/Right (word start / word end, as VS
+Code on macOS), Cmd+Left/Right and Home/End (Home toggles first non-whitespace), Cmd+Up/Down, PageUp/Down,
+Backspace, Delete (Fn+Backspace), Enter, Tab, Cmd+A/C/X/V/Z/Shift+Z/S/W, copy and cut of the caret line when
+nothing is selected. (2) Text: the view registers a gpui `InputHandler` during paint (UTF-16 document
+offsets), so typing, dead keys and IME go through the platform text services. Composition is tracked
+as a marked range and replaced as a unit.
+
+**View.** The view stays a plain struct owned by the workbench and reaches documents through the
+`EditorHost` trait (one source of truth for tabs; no cross-entity ownership). Rows stay virtualised
+(`uniform_list`); only visible rows are shaped. Mouse x maps to a column by shaping the clicked line
+with gpui's text system (`text_layout::column_for_x` does the tab/UTF-16 math over an injected width
+function, unit-tested with a fixed-width stub). Click, Shift+click, drag, double click (word) and
+triple click (line) work. Rendering follows Dark Modern: 2px `editorCursor.foreground` line caret
+blinking at 500 ms (solid after any activity, hidden when unfocused), `editor.selectionBackground`
+(inactive colour when unfocused) with a stub at line breaks, current-line border box only while the
+selection is empty, brighter active line number. Dirty tabs show a filled circle (codicon
+circle-filled) until the close button is hovered; the title shows `● `; the status bar shows
+`Ln X, Col Y (N selected)` and `Spaces: 4` left of encoding/EOL/language.
+
+**Performance.** The widest-line cache is keyed by editor version and costs O(lines) per keystroke
+(line lengths only). `vsr-text` got an ASCII fast path for UTF-16 length and `value_in_range` no
+longer joins the whole buffer; a 10k-line file measures about 5 ms per keystroke in an unoptimised
+build, including layout and paint. Remaining known cost: the core's `offset_at`/`position_at`/`len_utf16`
+are O(chars) and run a handful of times per edit (the piece tree of ADR-0005 removes this).
+
+**Core change.** `Editor::move_word_end_right` (upstream `cursorWordRight`, WordEnd) was added because
+Option+Right on macOS moves to the end of a word; the existing `move_word_right` is word-start.
+
+**Testing.** First headless E2E suite (gpui `TestAppContext`, see `docs/testing.md`).
+
+**Known gaps.** Multi-cursor; word wrap; syntax colouring; horizontal scroll-to-caret and drag
+auto-scroll; word/line delete (Option/Cmd+Backspace), outdent (Shift+Tab), line moves, find; IME
+candidate-window placement is approximate and composition edits are separate undo steps; grapheme
+clusters; no confirm on closing a dirty tab; Cmd+W/S only act while the editor has focus; other cursor
+styles and `cursorSmoothCaretAnimation`.
 
 ## ADR-0019 — Platform scope: macOS desktop only; quit on last window (2026-11-09)
 

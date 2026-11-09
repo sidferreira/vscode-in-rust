@@ -20,6 +20,23 @@ regression options), `UPSTREAM.md` (sync workflow), `DECISIONS.md`.
   supports it), `pending` (needs a near-term feature such as editing, quick open or the settings
   editor), or `blocked-on-feature <x>` (far away, such as extensions, terminal, debug, chat).
   Only one scenario is `ready` today (workbench Launch).
+- **Headless E2E works** (tier 2). `crates/vsr-app` has `gpui = { package = "gpui-pre", version = "=0.3.11", features = ["test-support"] }`
+  as a dev-dependency, so `#[gpui::test] fn t(cx: &mut TestAppContext)` runs a real `Workbench` in a
+  headless window with real key dispatch, key contexts, bindings, the platform input handler and layout.
+  Notes from the first suite (`crates/vsr-app/src/editor_view/e2e.rs`, 8 tests: typing, Enter, undo, save,
+  CRLF, navigation, clipboard, unicode, mouse, status text, 10k-line file):
+  - The tests live in `src/` (not `tests/`) because `vsr-app` is a binary crate and `Workbench` is private
+    to it; moving the workbench into a lib would let them move to `tests/e2e_*.rs`.
+  - Enabling `gpui-kit`'s own `test-support` feature fails to resolve (`gpui-fast` wants `taffy =0.15.0`,
+    gpui-pre locks 0.15.1), hence the direct `gpui-pre` dev-dependency. The new transitive crates
+    (proptest and friends) pulled `fixedbitset 0.5.9`, which the package proxy quarantines, so
+    `Cargo.lock` pins it to 0.5.7 (`cargo update -p fixedbitset --precise 0.5.7`).
+  - Mount with `cx.add_window_view`, open a file, `cx.run_until_parked()` (paints a frame; the editor
+    takes focus during that frame), then `simulate_keystrokes("h e l l o enter cmd-z cmd-s")`.
+    Plain printable keys reach the editor through its input handler, like real typing; `simulate_input`
+    types text. Call `cx.simulate_mouse_move(p)` before `simulate_click(p)`: gpui hit-tests a mouse
+    down against the last mouse move.
+  - The headless text system shapes text, so click-to-column mapping is testable too.
 - **Visual** tests compare a rendered app window against a stored baseline image. Upstream has no
   pixel-diff tests for the workbench, so this tier is ours. Policy below.
 

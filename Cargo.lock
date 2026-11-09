@@ -7194,6 +7194,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "serde_json",
+ "vsr-editor",
  "vsr-settings",
  "vsr-text",
 ]

@@ -186,10 +186,23 @@ impl TextBuffer {
     /// The raw text between two positions, terminators included. Columns are not
     /// clamped (see `offset_at`), so a column past a line's end includes its EOL.
     pub fn value_in_range(&self, r: Range) -> String {
-        let text = self.value();
         let start = self.offset_at(r.start);
         let end = self.offset_at(r.end);
-        utf16_slice(&text, start, end).to_string()
+        // Only join the lines the range can touch (not the whole buffer): editing a large
+        // file calls this on every keystroke.
+        let first = r.start.line.clamp(1, self.line_count());
+        let base = self.offset_at(Position::new(first, 1));
+        let mut text = String::new();
+        let mut covered = base;
+        for l in &self.lines[first - 1..] {
+            text.push_str(&l.text);
+            text.push_str(l.eol);
+            covered += utf16_len(&l.text) + l.eol.len();
+            if covered >= end {
+                break;
+            }
+        }
+        utf16_slice(&text, start.saturating_sub(base), end.saturating_sub(base)).to_string()
     }
 
     /// Replace `range` with `text`.
@@ -295,6 +308,10 @@ fn split_lines(text: &str) -> Vec<Line> {
 }
 
 fn utf16_len(s: &str) -> usize {
+    // ASCII fast path (`is_ascii` is vectorised even in debug builds): hot on large buffers.
+    if s.is_ascii() {
+        return s.len();
+    }
     s.chars().map(char::len_utf16).sum()
 }
 

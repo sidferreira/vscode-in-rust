@@ -7,7 +7,12 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use vsr_editor::{Editor, EditorOptions};
 use vsr_text::{DefaultEol, Eol, TextBuffer};
+
+/// Editor options for opened files (macOS VS Code defaults: `editor.tabSize` 4,
+/// `editor.insertSpaces` true). Becomes settings-driven with `vsr-settings`.
+pub const EDITOR_OPTIONS: EditorOptions = EditorOptions { tab_size: 4, insert_spaces: true };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirEntry {
@@ -43,15 +48,42 @@ pub fn list_dir(dir: &Path) -> io::Result<Vec<DirEntry>> {
 pub struct OpenEditor {
     pub path: PathBuf,
     pub title: String,
-    pub buffer: TextBuffer,
+    pub editor: Editor,
 }
 
 impl OpenEditor {
+    pub fn from_text(path: &Path, text: &str) -> Self {
+        let title = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        Self {
+            path: path.to_path_buf(),
+            title,
+            editor: Editor::new(TextBuffer::new(text, DefaultEol::Lf, true), EDITOR_OPTIONS),
+        }
+    }
+
+    pub fn buffer(&self) -> &TextBuffer {
+        self.editor.buffer()
+    }
+
     pub fn eol_label(&self) -> &'static str {
-        match self.buffer.eol() {
+        match self.buffer().eol() {
             Eol::Lf => "LF",
             Eol::CrLf => "CRLF",
         }
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.editor.is_dirty()
+    }
+
+    /// Write the buffer to disk (`value()` already uses the file's EOL) and mark it clean.
+    pub fn save(&mut self) -> io::Result<()> {
+        fs::write(&self.path, self.editor.buffer().value())?;
+        self.editor.mark_saved();
+        Ok(())
     }
 }
 
@@ -71,15 +103,7 @@ impl Editors {
         }
         let bytes = fs::read(path)?;
         let text = String::from_utf8_lossy(&bytes);
-        let title = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
-        let editor = OpenEditor {
-            path: path.to_path_buf(),
-            title,
-            buffer: TextBuffer::new(&text, DefaultEol::Lf, true),
-        };
+        let editor = OpenEditor::from_text(path, &text);
         let at = self.active.map_or(self.open.len(), |i| i + 1);
         self.open.insert(at, editor);
         self.active = Some(at);
@@ -110,8 +134,11 @@ mod tests {
     use super::*;
 
     fn tmp_workspace(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("vsr-model-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        // Unique per call (no recursive cleanup of old runs; the OS clears temp).
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let dir = std::env::temp_dir().join(format!("vsr-model-{name}-{}-{nanos}", std::process::id()));
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::create_dir_all(dir.join(".git")).unwrap();
         fs::create_dir_all(dir.join("Docs")).unwrap();
@@ -174,7 +201,39 @@ mod tests {
         let mut ed = Editors::default();
         ed.open_file(&dir.join("A.md")).unwrap();
         let e = ed.active_editor().unwrap();
-        assert_eq!(e.buffer.line_count(), 3);
+        assert_eq!(e.buffer().line_count(), 3);
         assert_eq!(e.eol_label(), "CRLF");
+    }
+
+    #[test]
+    fn edit_makes_dirty_and_undo_to_saved_state_is_clean() {
+        let dir = tmp_workspace("dirty");
+        let mut ed = Editors::default();
+        ed.open_file(&dir.join("c.rs")).unwrap();
+        let e = &mut ed.open[0];
+        assert!(!e.is_dirty());
+        e.editor.type_text("x");
+        assert!(e.is_dirty());
+        e.editor.undo();
+        assert!(!e.is_dirty());
+    }
+
+    #[test]
+    fn save_round_trips_and_preserves_crlf() {
+        let dir = tmp_workspace("save");
+        let mut ed = Editors::default();
+        ed.open_file(&dir.join("A.md")).unwrap();
+        let e = &mut ed.open[0];
+        e.editor.type_text("hi");
+        e.editor.enter();
+        assert!(e.is_dirty());
+        e.save().unwrap();
+        assert!(!e.is_dirty());
+        assert_eq!(fs::read_to_string(dir.join("A.md")).unwrap(), "hi\r\na\r\nb\r\n");
+        // Edit after save is dirty again; undoing back to the saved state is clean.
+        e.editor.type_text("z");
+        assert!(e.is_dirty());
+        e.editor.undo();
+        assert!(!e.is_dirty());
     }
 }

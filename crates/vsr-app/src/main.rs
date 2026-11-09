@@ -7,8 +7,10 @@
 
 mod editor_view;
 mod icons;
+mod keymap;
 mod model;
 mod settings_view; // Settings editor (ADR-0017)
+mod text_layout;
 mod theme;
 mod ui;
 
@@ -19,7 +21,7 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use editor_view::EditorView;
+use editor_view::{EditorHost, EditorView};
 use model::{DirEntry, Editors, list_dir};
 use theme::{Theme, metrics as m};
 use settings_view::{OpenSettings, SettingsEvent, SettingsView};
@@ -39,6 +41,7 @@ fn main() {
         icons::install(cx);
         install_app_lifecycle(cx);
         settings_view::install(cx); // Cmd+, binding + component theme
+        editor_view::init(cx); // editor key bindings
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -81,6 +84,12 @@ enum ActivityView {
     Search,
     Scm,
     Extensions,
+}
+
+impl EditorHost for Workbench {
+    fn editor_host(&mut self) -> (&mut Editors, &mut EditorView) {
+        (&mut self.editors, &mut self.editor_view)
+    }
 }
 
 struct Workbench {
@@ -273,7 +282,13 @@ impl Workbench {
         let t = &self.theme;
         let title = match self.editors.active_editor() {
             _ if self.settings_active => format!("Settings — {}", folder_name(&self.root)),
-            Some(e) => format!("{} — {}", e.title, folder_name(&self.root)),
+            // Like upstream's window title: "● " marks a dirty editor.
+            Some(e) => format!(
+                "{}{} — {}",
+                if e.is_dirty() { "● " } else { "" },
+                e.title,
+                folder_name(&self.root)
+            ),
             None => folder_name(&self.root),
         };
         div()
@@ -322,7 +337,9 @@ impl Workbench {
         let mut right = div().flex().items_center().h_full();
         if let Some(e) = self.editors.active_editor() {
             right = right
-                .child(item().child(format!("{} lines", e.buffer.line_count())))
+                .child(item().id("status-position").child(editor_view::cursor_status(e)))
+                .child(item().child(editor_view::indent_status(e)))
+                .child(item().child(format!("{} lines", e.buffer().line_count())))
                 .child(item().child("UTF-8"))
                 .child(item().child(e.eol_label()))
                 .child(item().child(language_of(&e.path)));
@@ -574,8 +591,25 @@ impl Workbench {
             let active = self.editors.active == Some(i) && !self.settings_active;
             let fg = to_gpui(if active { t.tab_active_fg } else { t.tab_inactive_fg });
             let line = |d: Div, c| d.absolute().left_0().w_full().h(px(1.)).bg(to_gpui(c));
+            let dirty = e.is_dirty();
+            // Dirty tabs show a filled circle in place of the close button until the button
+            // itself is hovered (upstream `.tab.dirty ... .action-label:not(:hover)`).
+            let layer = |id: &'static str, c: char| {
+                div()
+                    .id((id, i))
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(icons::glyph(c))
+            };
             let close = div()
                 .id(("tab-close", i))
+                .group(format!("tab-close-{i}"))
+                .relative()
                 .flex_none()
                 .w(px(20.))
                 .h(px(20.))
@@ -585,10 +619,21 @@ impl Workbench {
                 .justify_center()
                 .font_family(icons::FAMILY)
                 .text_size(px(16.))
-                .text_color(if active { fg } else { gpui_kit::transparent_black() })
+                .text_color(if active || dirty { fg } else { gpui_kit::transparent_black() })
                 .group_hover(format!("tab-{i}"), |s| s.text_color(fg))
                 .hover(|s| s.bg(to_gpui(t.list_hover_bg)))
-                .child(icons::glyph(icons::CLOSE))
+                .when(!dirty, |d| d.child(icons::glyph(icons::CLOSE)))
+                .when(dirty, |d| {
+                    d.child(
+                        layer("tab-dot", icons::CIRCLE_FILLED)
+                            .group_hover(format!("tab-close-{i}"), |s| s.opacity(0.)),
+                    )
+                    .child(
+                        layer("tab-x", icons::CLOSE)
+                            .opacity(0.)
+                            .group_hover(format!("tab-close-{i}"), |s| s.opacity(1.)),
+                    )
+                })
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
@@ -654,10 +699,7 @@ impl Workbench {
         let settings_surface = self.settings.clone().filter(|_| self.settings_active);
         let surface = match self.editors.active.and_then(|i| self.editors.open.get(i)) {
             _ if settings_surface.is_some() => settings_surface.unwrap().into_any_element(),
-            Some(editor) => self
-                .editor_view
-                .element(editor, &t, cx, |wb: &Workbench| wb.editors.active_editor())
-                .into_any_element(),
+            Some(editor) => self.editor_view.element(editor, &t, cx).into_any_element(),
             None => div()
                 .size_full()
                 .flex()

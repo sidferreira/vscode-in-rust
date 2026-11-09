@@ -129,3 +129,18 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Settings editor UI on gpui (ADR-0017): header search + count, User/Workspace tabs, TOC with sash, virtualised grouped list, row layout/colors from settingsEditor2.css. Not ported: settings search suggestions, TOC counts in search mode, sticky scroll, list/object widgets (we link to settings.json), workspace/folder scopes, language overrides, sync/profile indicators, keyboard navigation of rows. Markdown is inline-only."
+
+[[port]]
+id = "editor-view"
+status = "partial"
+upstream = [
+  "src/vs/editor/browser/viewParts/viewCursors/viewCursors.ts",
+  "src/vs/editor/browser/viewParts/viewCursors/viewCursor.ts",
+  "src/vs/editor/browser/viewParts/lineNumbers/lineNumbers.ts",
+  "src/vs/editor/browser/viewParts/currentLineHighlight/currentLineHighlight.ts",
+  "src/vs/editor/browser/viewParts/selections/selections.ts",
+  "src/vs/editor/browser/coreCommands.ts",
+]
+rust = ["crates/vsr-app/src/editor_view.rs", "crates/vsr-app/src/keymap.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Editable gpui editor surface (ADR-0018): blinking line cursor, selection and current-line highlight, active line number, key table for macOS defaults, platform text input (typing, IME marking). Not ported: smooth/phase/expand cursor styles, multi-cursor, overview ruler, selection rounded corners, glyph margin, word wrap. text_layout.rs (pixel/column mapping, adapts common/core/cursorColumns.ts) and editor_view/e2e.rs are ours and carry no header."

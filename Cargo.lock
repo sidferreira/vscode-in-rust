@@ -7193,6 +7193,7 @@ version = "0.1.0"
 dependencies = [
  "gpui-kit",
  "gpui-pre",
+ "gpui-pre-apple",
  "serde_json",
  "vsr-editor",
  "vsr-settings",

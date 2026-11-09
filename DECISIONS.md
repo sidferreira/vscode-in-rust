@@ -289,3 +289,14 @@ escape hatch); macOS only (ADR-0019), so no web extension host.
 decorations, diagnostics; no LSP/webview/native) → P2 oxc (LSP) → TS / XML / Kotlin → GitLens →
 **Claude Code** (webviews, terminal + shell integration, native binary) → **PR GitHub** (GitHub
 auth, comments, git API, 32 proposed APIs).
+
+## ADR-0021 — Codicons font patched for gpui (2026-11-09)
+
+Bug (user report): after the gpui switch every icon rendered as a missing-glyph box. Root cause:
+gpui's macOS loader (`gpui-pre-apple` `load_family`) skips fonts with no 'm' glyph (it measures
+text with 'm'; only "Segoe Fluent Icons" is exempt), so the codicon family fell back to the
+system font. Fix: `scripts/patch-codicon-font.py` (fontTools) maps U+006D to the existing `blank`
+glyph; no outlines change (CC BY 4.0 change notice in `assets/codicon-NOTICE.md`).
+Regression test `icons::tests::codicon_loads_in_real_macos_text_system` uses the real
+`gpui_apple::AppleTextSystem`, because gpui's `TestAppContext` has a no-op text system that
+accepts any font (so headless E2E tests cannot catch font problems).

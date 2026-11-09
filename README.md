@@ -29,6 +29,7 @@ scripts/cargo-firewall-fetch     # fetch deps through the package firewall
 ## Third-party assets
 - **Codicons** (`crates/vsr-app/assets/codicon.ttf`) by Microsoft, from
   [microsoft/vscode-codicons](https://github.com/microsoft/vscode-codicons) (`@vscode/codicons` 0.0.46-49),
-  licensed [CC BY 4.0](crates/vsr-app/assets/codicon-LICENSE.txt). Used unmodified.
+  licensed [CC BY 4.0](crates/vsr-app/assets/codicon-LICENSE.txt). Modified: 'm' mapped to
+  the blank glyph so gpui loads the font ([notice](crates/vsr-app/assets/codicon-NOTICE.md)).
 - **App icon** (`resources/darwin/rscode.icns`): original copper ribbon mark drawn by
   `scripts/make-app-icon.swift`, with Ferris the crab (CC0, rustacean.net). See `resources/icon-src/`.

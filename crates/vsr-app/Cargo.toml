@@ -23,3 +23,5 @@ vsr-editor.workspace = true
 # gpui-kit's own `test-support` feature cannot be used: it makes the lockfile resolver pull the
 # gpui-fast stack, whose pins conflict with gpui-pre's (taffy, unicode-properties).
 gpui = { package = "gpui-pre", version = "=0.3.11", features = ["test-support"] }
+# Real macOS (CoreText) text system for font regression tests (the test platform's is a no-op).
+gpui-apple = { package = "gpui-pre-apple", version = "=0.3.11" }

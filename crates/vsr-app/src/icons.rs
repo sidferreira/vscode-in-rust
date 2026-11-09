@@ -4,6 +4,8 @@
 //!
 //! The font is `@vscode/codicons` 0.0.46-49 (the version upstream's package.json pins),
 //! bundled at `assets/codicon.ttf`, licensed CC BY 4.0 (`assets/codicon-LICENSE.txt`).
+//! The bundled copy is modified so gpui will load it ('m' mapped to the blank glyph):
+//! see `assets/codicon-NOTICE.md` and ADR-0021.
 //! Codepoints below are copied from upstream's registry.
 
 use gpui_kit::{App, SharedString};
@@ -56,5 +58,23 @@ mod tests {
     fn bundled_font_is_a_truetype_file() {
         let bytes = include_bytes!("../assets/codicon.ttf");
         assert_eq!(&bytes[..4], &[0x00, 0x01, 0x00, 0x00], "TrueType magic");
+    }
+
+    /// Regression: gpui's macOS loader silently skips fonts without an 'm' glyph
+    /// (gpui-pre-apple text_system.rs `load_family`), so every icon fell back to
+    /// the system font and rendered as a missing-glyph box. Uses the REAL CoreText
+    /// text system: gpui's TestAppContext has a no-op text system that accepts anything.
+    #[test]
+    fn codicon_loads_in_real_macos_text_system() {
+        use gpui::PlatformTextSystem;
+        let ts = gpui_apple::AppleTextSystem::new();
+        ts.add_fonts(vec![Cow::Borrowed(include_bytes!("../assets/codicon.ttf"))])
+            .expect("add_fonts");
+        let id = ts
+            .font_id(&gpui::font(FAMILY))
+            .expect("gpui refused to load the codicon family (missing 'm' glyph?)");
+        for c in [FILES, SEARCH, SOURCE_CONTROL, EXTENSIONS, ACCOUNT, SETTINGS_GEAR, CHEVRON_RIGHT, CHEVRON_DOWN, CLOSE, GIT_BRANCH, CIRCLE_FILLED] {
+            assert!(ts.glyph_for_char(id, c).is_some(), "no glyph for {c:?} in the resolved font");
+        }
     }
 }

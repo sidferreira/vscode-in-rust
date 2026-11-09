@@ -19,6 +19,7 @@ mod settings_view; // Settings editor (ADR-0017)
 mod text_layout;
 mod theme;
 mod ui;
+mod window_title; // window.title and window.titleSeparator (the title bar and the OS window title)
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -144,6 +145,8 @@ struct Workbench {
     /// Installed font families, read once when first needed.
     installed_fonts: Option<HashSet<String>>,
     _config_sub: Subscription,
+    /// The window title and dirty flag last given to the window (set only when they change).
+    applied_window_title: Option<(String, bool)>,
     /// The Search view (created the first time Search is shown).
     search: Option<Entity<SearchView>>,
     /// Quick Open (Cmd+P) state.
@@ -185,6 +188,7 @@ impl Workbench {
             exclude,
             installed_fonts: None,
             _config_sub: cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)),
+            applied_window_title: None,
             search: None,
             quick: Default::default(),
             focus: None,
@@ -473,19 +477,45 @@ impl Workbench {
 
     // ---- parts --------------------------------------------------------------
 
-    fn title_bar(&self) -> impl IntoElement {
-        let t = &self.theme;
-        let title = match self.editors.active_editor() {
-            _ if self.settings_active => format!("Settings — {}", folder_name(&self.root)),
-            // Like upstream's window title: "● " marks a dirty editor.
-            Some(e) => format!(
-                "{}{} — {}",
-                if e.is_dirty() { "● " } else { "" },
-                e.title,
-                folder_name(&self.root)
-            ),
-            None => folder_name(&self.root),
+    /// The text of `window.title` for the current state (upstream `WindowTitle.getWindowTitle`).
+    fn window_title(&self, cx: &App) -> String {
+        let config = AppConfig::get(cx).configuration();
+        let template = config.get_value("window.title").and_then(|v| v.as_str());
+        let separator = config.get_value("window.titleSeparator").and_then(|v| v.as_str());
+        self.window_title_variables().expand(template, separator)
+    }
+
+    fn window_title_variables(&self) -> window_title::Variables {
+        let root = &self.root;
+        let mut vars = window_title::Variables {
+            root_name: folder_name(root),
+            root_path: root.display().to_string(),
+            folder_name: folder_name(root),
+            folder_path: root.display().to_string(),
+            app_name: "rscode".into(),
+            ..Default::default()
         };
+        if self.settings_active {
+            vars.active_editor_short = "Settings".into();
+            vars.active_editor_medium = "Settings".into();
+            vars.active_editor_long = "Settings".into();
+        } else if let Some(e) = self.editors.active_editor() {
+            let relative = |p: &Path| p.strip_prefix(root).map_or_else(|_| p.display().to_string(), |r| r.display().to_string());
+            let folder = e.path.parent().unwrap_or(root);
+            vars.active_editor_short = e.title.clone();
+            vars.active_editor_medium = relative(&e.path);
+            vars.active_editor_long = e.path.display().to_string();
+            vars.active_editor_language_id = window_title::language_id(language_of(&e.path));
+            vars.active_folder_short = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            vars.active_folder_medium = relative(folder);
+            vars.active_folder_long = folder.display().to_string();
+            vars.dirty = e.is_dirty();
+        }
+        vars
+    }
+
+    fn title_bar(&self, title: &str) -> impl IntoElement {
+        let t = &self.theme;
         div()
             .flex_none()
             .h(px(m::TITLE_BAR_HEIGHT))
@@ -499,7 +529,7 @@ impl Workbench {
             .text_size(px(13.))
             .text_color(to_gpui(t.sidebar_fg))
             .window_control_area(WindowControlArea::Drag)
-            .child(title)
+            .child(title.to_string())
     }
 
     fn status_bar(&self) -> impl IntoElement {
@@ -1001,6 +1031,14 @@ impl Render for Workbench {
         // A preview that was edited (it is dirty now) is pinned. Editing re-renders the tab strip,
         // so this runs on the frame that shows the dirty state.
         self.editors.pin_dirty_preview();
+        // The OS window title and the dirty dot (macOS shows it in the close button).
+        let title = self.window_title(cx);
+        let dirty = self.editors.active_editor().is_some_and(|e| e.is_dirty()) && !self.settings_active;
+        if self.applied_window_title.as_ref() != Some(&(title.clone(), dirty)) {
+            window.set_window_title(&title);
+            window.set_window_edited(dirty);
+            self.applied_window_title = Some((title.clone(), dirty));
+        }
         let focus = match &self.focus {
             Some(f) => f.clone(),
             None => {
@@ -1109,7 +1147,7 @@ impl Render for Workbench {
                     }
                 }),
             )
-            .child(self.title_bar())
+            .child(self.title_bar(&title))
             .child(middle)
             .when(layout.status_bar_visible, |d| d.child(self.status_bar()))
             .children(self.quick.view())

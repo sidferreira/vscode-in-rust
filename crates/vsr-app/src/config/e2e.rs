@@ -527,3 +527,58 @@ fn close_on_file_delete_off_keeps_the_tab(cx: &mut TestAppContext) {
     assert_eq!(tab_titles(&wb, cx), ["a.txt"]);
 }
 
+// ---- window.title / window.titleSeparator ---------------------------------------------------
+
+fn window_title_of(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> String {
+    wb.read_with(cx, |wb, app| wb.window_title(app))
+}
+
+/// The title last given to the OS window (the test platform does not expose its title).
+fn applied_title(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> String {
+    wb.read_with(cx, |wb, _| wb.applied_window_title.as_ref().map(|(t, _)| t.clone()).unwrap_or_default())
+}
+
+#[gpui_kit::test]
+fn window_title_and_separator_apply_live_to_the_window(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "title", None, &[("a.txt", "a")]);
+    let folder = f.dir.file_name().unwrap().to_string_lossy().into_owned();
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+
+    // Default (macOS): file, separator, folder; the empty profile name collapses its separator.
+    let default = format!("a.txt \u{2014} {folder}");
+    assert_eq!(window_title_of(&wb, cx), default);
+    assert_eq!(applied_title(&wb, cx), default, "the title given to the OS window");
+
+    set(cx, "window.titleSeparator", json!(" - "));
+    assert_eq!(window_title_of(&wb, cx), format!("a.txt - {folder}"));
+
+    set(cx, "window.title", json!("${rootName}: ${activeEditorMedium}"));
+    assert_eq!(window_title_of(&wb, cx), format!("{folder}: a.txt"));
+    assert_eq!(applied_title(&wb, cx), format!("{folder}: a.txt"));
+
+    // Settings editor: its name is the active editor.
+    set(cx, "window.title", json!("${activeEditorShort}"));
+    cx.simulate_keystrokes("cmd-,");
+    cx.run_until_parked();
+    assert_eq!(window_title_of(&wb, cx), "Settings");
+
+    // Back to the default when the setting is reset.
+    cx.update(|_, cx| AppConfig::set_value(cx, "window.title", None)).unwrap();
+    cx.run_until_parked();
+    assert_eq!(window_title_of(&wb, cx), format!("Settings - {folder}"));
+}
+
+#[gpui_kit::test]
+fn window_title_variables_follow_the_active_editor(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "title-vars", None, &[]);
+    fs::create_dir_all(f.dir.join("src")).unwrap();
+    fs::write(f.dir.join("src/main.rs"), "fn main() {}").unwrap();
+    open_file(&wb, cx, &f.dir.join("src/main.rs"));
+    let vars = wb.read_with(cx, |wb, _| wb.window_title_variables());
+    assert_eq!(vars.active_editor_short, "main.rs");
+    assert_eq!(vars.active_editor_medium, "src/main.rs");
+    assert_eq!(vars.active_folder_medium, "src");
+    assert_eq!(vars.active_editor_language_id, "rust");
+    assert!(!vars.dirty);
+}
+

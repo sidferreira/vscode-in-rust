@@ -30,3 +30,5 @@ scripts/cargo-firewall-fetch     # fetch deps through the package firewall
 - **Codicons** (`crates/vsr-app/assets/codicon.ttf`) by Microsoft, from
   [microsoft/vscode-codicons](https://github.com/microsoft/vscode-codicons) (`@vscode/codicons` 0.0.46-49),
   licensed [CC BY 4.0](crates/vsr-app/assets/codicon-LICENSE.txt). Used unmodified.
+- **App icon** (`resources/darwin/rscode.icns`): the Code-OSS icon from microsoft/vscode (MIT) with
+  Ferris the crab (CC0, rustacean.net). Sources and recipe in `resources/icon-src/`.

@@ -179,6 +179,7 @@ impl Default for Editors {
 impl Editors {
     /// Open `path` as a pinned, active editor, or focus it if it is already open. The new tab is
     /// placed by `workbench.editor.openPositioning` (right of the active one by default).
+    #[cfg(test)]
     pub fn open_file(&mut self, path: &Path) -> io::Result<()> {
         self.open_with(path, OpenOptions::PINNED)
     }
@@ -208,14 +209,12 @@ impl Editors {
         let make_active =
             options.active || self.active.is_none() || (!options.pinned && preview_index.is_some() && preview_index == self.active);
         let mut at = target;
-        if !options.pinned {
-            if let Some(pi) = preview_index {
-                // The preview is removed first, so a target after it moves left by one.
-                if at > pi {
-                    at -= 1;
-                }
-                self.remove_at(pi);
+        if !options.pinned && let Some(pi) = preview_index {
+            // The preview is removed first, so a target after it moves left by one.
+            if at > pi {
+                at -= 1;
             }
+            self.remove_at(pi);
         }
         at = at.min(self.open.len());
         if self.active.is_some_and(|a| at <= a) {
@@ -422,20 +421,16 @@ impl Editors {
         let closed_active = self.active == Some(index);
         let next = (closed_active && self.open.len() > 1).then(|| self.next_after_close(index));
         self.remove_at(index);
-        if let Some(path) = next {
-            if let Some(j) = self.index_of(&path) {
-                self.activate(j);
-            }
+        if let Some(j) = next.and_then(|path| self.index_of(&path)) {
+            self.activate(j);
         }
     }
 
     /// The editor that takes focus when the active editor at `index` closes.
     fn next_after_close(&self, index: usize) -> PathBuf {
         let closing = &self.open[index].path;
-        if self.settings.focus_recent_editor_after_close {
-            if let Some(p) = self.mru.iter().find(|p| *p != closing) {
-                return p.clone();
-            }
+        if self.settings.focus_recent_editor_after_close && let Some(p) = self.mru.iter().find(|p| *p != closing) {
+            return p.clone();
         }
         let right = self.open.get(index + 1).or_else(|| index.checked_sub(1).and_then(|i| self.open.get(i)));
         right.map_or_else(|| closing.clone(), |e| e.path.clone())

@@ -944,10 +944,8 @@ impl Workbench {
                         this.editors.activate(i);
                         this.settings_active = false;
                         // A double click pins a preview (upstream: double click keeps the editor).
-                        if ev.click_count >= 2 {
-                            if let Some(path) = this.editors.open.get(i).map(|e| e.path.clone()) {
-                                this.editors.pin(&path);
-                            }
+                        if let Some(path) = this.editors.open.get(i).map(|e| e.path.clone()).filter(|_| ev.click_count >= 2) {
+                            this.editors.pin(&path);
                         }
                         cx.notify();
                     }),

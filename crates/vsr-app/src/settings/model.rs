@@ -70,6 +70,8 @@ pub struct TocEntry {
     pub depth: usize,
     pub expandable: bool,
     pub expanded: bool,
+    /// Matching settings under this node while searching (`None` in the normal TOC).
+    pub count: Option<usize>,
 }
 
 /// The TOC lines that are visible given which nodes are expanded.
@@ -83,6 +85,7 @@ pub fn flatten_toc(toc: &[TocNode], expanded: &HashSet<String>) -> Vec<TocEntry>
                 depth,
                 expandable: !n.children.is_empty(),
                 expanded: is_open,
+                count: None,
             });
             if is_open {
                 go(&n.children, depth + 1, expanded, out);
@@ -91,6 +94,57 @@ pub fn flatten_toc(toc: &[TocNode], expanded: &HashSet<String>) -> Vec<TocEntry>
     }
     let mut out = Vec::new();
     go(toc, 0, expanded, &mut out);
+    out
+}
+
+/// The TOC while searching (upstream `TOCTreeModel` + `SettingsTreeFilter` with `count`): a node
+/// shows when its subtree holds at least one of `matches`, with the count of matches in it (its own
+/// settings plus its children's counts). A key listed in two nodes counts in both, as upstream does.
+/// Every visible node is expanded (upstream calls `expandAll` on each search), and order is kept.
+pub fn flatten_search_toc(toc: &[TocNode], matches: &HashSet<&str>) -> Vec<TocEntry> {
+    fn count(node: &TocNode, matches: &HashSet<&str>) -> usize {
+        node.settings.iter().filter(|k| matches.contains(k.as_str())).count()
+            + node.children.iter().map(|c| count(c, matches)).sum::<usize>()
+    }
+    fn go(nodes: &[TocNode], depth: usize, matches: &HashSet<&str>, out: &mut Vec<TocEntry>) {
+        for n in nodes {
+            let n_count = count(n, matches);
+            if n_count == 0 {
+                continue;
+            }
+            let expandable = n.children.iter().any(|c| count(c, matches) > 0);
+            out.push(TocEntry {
+                id: n.id.clone(),
+                label: n.label.clone(),
+                depth,
+                expandable,
+                expanded: true,
+                count: Some(n_count),
+            });
+            go(&n.children, depth + 1, matches, out);
+        }
+    }
+    let mut out = Vec::new();
+    go(toc, 0, matches, &mut out);
+    out
+}
+
+/// Every setting key under the TOC node `id`, its own and its descendants' (upstream
+/// `settingContainedInGroup`). Empty if the node is unknown.
+pub fn subtree_keys(toc: &[TocNode], id: &str) -> HashSet<String> {
+    fn collect(node: &TocNode, out: &mut HashSet<String>) {
+        out.extend(node.settings.iter().cloned());
+        for c in &node.children {
+            collect(c, out);
+        }
+    }
+    fn find<'a>(nodes: &'a [TocNode], id: &str) -> Option<&'a TocNode> {
+        nodes.iter().find_map(|n| if n.id == id { Some(n) } else { find(&n.children, id) })
+    }
+    let mut out = HashSet::new();
+    if let Some(node) = find(toc, id) {
+        collect(node, &mut out);
+    }
     out
 }
 
@@ -196,6 +250,70 @@ mod tests {
         assert_eq!(ancestors(&toc, "font"), ["editor"]);
         assert!(ancestors(&toc, "editor").is_empty());
         assert!(ancestors(&toc, "nope").is_empty());
+    }
+
+    #[test]
+    fn search_toc_keeps_only_nodes_with_matches_and_rolls_counts_up() {
+        let toc = sample();
+        let matches: HashSet<&str> = ["editor.fontSize", "editor.cursor", "a.x"].into_iter().collect();
+        let entries = flatten_search_toc(&toc, &matches);
+        assert_eq!(
+            entries.iter().map(|e| (e.id.as_str(), e.depth, e.count)).collect::<Vec<_>>(),
+            [("common", 0, Some(1)), ("editor", 0, Some(1)), ("font", 1, Some(1))]
+        );
+    }
+
+    #[test]
+    fn search_toc_parent_counts_its_own_matches_and_all_children() {
+        let toc = vec![node("editor", &["editor.a", "editor.b"], vec![node("font", &["editor.fontSize"], vec![])])];
+        let matches: HashSet<&str> = ["editor.a", "editor.fontSize"].into_iter().collect();
+        let entries = flatten_search_toc(&toc, &matches);
+        assert_eq!(entries.iter().map(|e| (e.id.as_str(), e.count)).collect::<Vec<_>>(), [("editor", Some(2)), ("font", Some(1))]);
+        assert!(entries[0].expandable && entries[0].expanded);
+    }
+
+    #[test]
+    fn search_toc_keeps_order_and_repeated_keys_count_in_each_node() {
+        let toc = vec![
+            node("common", &["editor.a"], vec![]),
+            node("editor", &["editor.a", "editor.b"], vec![node("font", &["editor.b"], vec![])]),
+        ];
+        let matches: HashSet<&str> = ["editor.a", "editor.b"].into_iter().collect();
+        let entries = flatten_search_toc(&toc, &matches);
+        assert_eq!(
+            entries.iter().map(|e| (e.id.as_str(), e.depth, e.count)).collect::<Vec<_>>(),
+            [("common", 0, Some(1)), ("editor", 0, Some(3)), ("font", 1, Some(1))]
+        );
+    }
+
+    #[test]
+    fn search_toc_is_empty_without_matches_and_has_no_twisty_for_hidden_children() {
+        assert!(flatten_search_toc(&sample(), &HashSet::new()).is_empty());
+        let matches: HashSet<&str> = ["editor.a"].into_iter().collect();
+        let entries = flatten_search_toc(&sample(), &matches);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, "editor");
+        assert!(!entries[0].expandable);
+    }
+
+    #[test]
+    fn subtree_keys_include_descendants() {
+        let toc = sample();
+        let keys = subtree_keys(&toc, "editor");
+        assert_eq!(keys, HashSet::from(["editor.a".to_string(), "editor.fontSize".to_string(), "editor.fontFamily".to_string()]));
+        assert_eq!(subtree_keys(&toc, "font"), HashSet::from(["editor.fontSize".to_string(), "editor.fontFamily".to_string()]));
+        assert!(subtree_keys(&toc, "nope").is_empty());
+    }
+
+    #[test]
+    fn real_registry_search_toc_lists_commonly_used_only_when_it_matches() {
+        let reg = vsr_settings::SettingsRegistry::load_default();
+        let font: HashSet<&str> = reg.search("font size").into_iter().map(|s| s.key.as_str()).collect();
+        let entries = flatten_search_toc(reg.toc(), &font);
+        assert!(entries.iter().all(|e| e.count.is_some_and(|c| c > 0)));
+        let common = reg.commonly_used().iter().filter(|s| font.contains(s.key.as_str())).count();
+        let shown = entries.iter().find(|e| e.id == "commonlyUsed").and_then(|e| e.count).unwrap_or(0);
+        assert_eq!(shown, common);
     }
 
     #[test]

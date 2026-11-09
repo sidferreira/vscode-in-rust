@@ -203,7 +203,7 @@ a value equal to the default removes the key, like upstream.
 
 Simplified or missing: markdown is inline-only (code, bold, links, `#id#`), code spans are
 monospace but not 11px; links open http(s) only; the enum dropdown is an inline popup, not
-a native select; no search suggestions, TOC counts in search mode, sticky scroll, keyboard row
+a native select; no search suggestions, sticky scroll, keyboard row
 navigation, list/object widgets, scrollbar, workspace/folder scopes (Workspace tab shows a note),
 language overrides or sync indicators. Group titles use the node label (upstream does too); there
 is no "A > B" breadcrumb. Text inputs reuse `gpui-component`'s `Input`, recolored through its global
@@ -214,6 +214,18 @@ follows wheel scrolling but not scrollbar drags.
 Testing: first tier-2 headless E2E tests (`src/settings/e2e_tests.rs`) run the workbench in gpui's
 test platform; see `docs/testing.md` for the dependency workaround (gpui-kit `test-support` breaks
 lock resolution, so `gpui-pre`'s feature is enabled directly).
+
+TOC filters during search (upstream `tocTree.ts`, `settingsEditor2.ts` search and `refreshTOCTree`,
+`settingsTreeModels.ts`; the `filter` mode of `settingsSearchTocBehavior`, not `hide`). While a query
+is active the TOC lists only nodes whose subtree holds a matching setting, each with its count in
+upstream's ` (N)` style (`model::flatten_search_toc`, unit tested). Counts roll up to parents; a key
+listed in two groups counts in both; Commonly Used shows like any group, when it has a match. Every
+visible node is expanded and its twisty is inert (upstream `expandAll`). Clicking a node filters the
+list to the settings under it (upstream `categoryFilter`) and scrolls to the top; it does not scroll to
+a group header, since search results have none. The header count stays the total result count. A new
+query clears the category. No results hide the TOC behind "No Settings Found". Leaving search (Esc or
+empty) collapses the TOC and selects Commonly Used, as upstream does, so the selection from before the
+search is not restored. Not implemented: `settingsSearchTocBehavior: hide`.
 
 ## ADR-0018 — Editable editor: input model and view (2026-11-09)
 

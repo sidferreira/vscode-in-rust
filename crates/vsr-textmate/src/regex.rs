@@ -1,5 +1,6 @@
 //! Regex sources (anchor variants, back references) and the Oniguruma scanner.
 //!
+//! upstream: src/vs/workbench/services/textMate/common/TMGrammarFactory.ts @ 50e1350fc78d
 //! upstream: vscode-textmate src/rule.ts (`RegExpSource`, `RegExpSourceList`) and
 //! vscode-oniguruma's `OnigScanner` (microsoft/vscode-textmate, main, 2026-11-09)
 //!

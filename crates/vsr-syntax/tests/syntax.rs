@@ -1,4 +1,6 @@
 //! The bundled grammars on real code, incremental re-tokenization, Dark Modern colors.
+//!
+//! upstream: src/vs/editor/common/model/tokens/tokenizationTextModelPart.ts @ 50e1350fc78d
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -306,4 +308,36 @@ fn language_service_resolves_files_and_associations() {
     assert_eq!(svc.language_for_file("/p/a.foo", None), "json");
     assert!(svc.grammar_for_language("plaintext").is_none());
     assert!(svc.grammar_for_language("json").is_some());
+}
+
+/// Tokenization speed on a large TypeScript file from the upstream clone (set `UPSTREAM_CLONE`;
+/// `cargo test --release -p vsr-syntax --test syntax perf -- --ignored --nocapture`). The numbers
+/// are in ADR-0038.
+#[test]
+#[ignore = "a measurement, needs the upstream clone"]
+fn perf_editor_options_ts() {
+    let path = std::env::var("UPSTREAM_CLONE").unwrap_or_default() + "/src/vs/editor/common/config/editorOptions.ts";
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let lines: Vec<&str> = text.lines().collect();
+    let t = std::time::Instant::now();
+    let g = grammar("typescript");
+    println!("grammar build: {:?}", t.elapsed());
+    let mut doc = DocumentTokens::new(g, 20_000);
+    doc.sync(&lines);
+    let t = std::time::Instant::now();
+    while !doc.tokenize_some(usize::MAX, None) {}
+    let cold = t.elapsed();
+    doc.invalidate_all();
+    let t = std::time::Instant::now();
+    while !doc.tokenize_some(usize::MAX, None) {}
+    let warm = t.elapsed();
+    let mb = text.len() as f64 / 1e6;
+    println!(
+        "{} lines, {} bytes: cold {cold:?} ({:.2} MB/s), warm {warm:?} ({:.2} MB/s, {:.0} lines/s)",
+        lines.len(),
+        text.len(),
+        mb / cold.as_secs_f64(),
+        mb / warm.as_secs_f64(),
+        lines.len() as f64 / warm.as_secs_f64()
+    );
 }

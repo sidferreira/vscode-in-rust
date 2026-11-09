@@ -3,6 +3,7 @@
 //! colours from the Dark Modern theme, `editor.maxTokenizationLineLength` and
 //! `files.trimTrailingWhitespaceInRegexAndStrings`.
 //!
+//! upstream: src/vs/workbench/browser/parts/editor/editorStatus.ts @ 50e1350fc78d
 //! Temp folders and a temp settings file only; the real user settings are never touched.
 
 use std::fs;

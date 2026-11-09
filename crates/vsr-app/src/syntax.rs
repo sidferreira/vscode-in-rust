@@ -2,7 +2,6 @@
 //! mapping from token runs to the text gpui draws.
 //!
 //! upstream: src/vs/editor/common/model/tokens/tokenizationTextModelPart.ts @ 50e1350fc78d
-//! upstream: src/vs/editor/browser/viewParts/viewLines/viewLine.ts @ 50e1350fc78d
 //!
 //! The tokens and styles come from `vsr-syntax`. An editor syncs its tokenizer with the buffer when
 //! the buffer's version changed (changed lines are tokenized right away within a small budget, the

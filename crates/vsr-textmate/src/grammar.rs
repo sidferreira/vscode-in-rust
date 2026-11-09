@@ -1,5 +1,6 @@
 //! The tokenizer: rule stack state, `tokenize_line`, captures, `while` rules, injections.
 //!
+//! upstream: src/vs/workbench/services/textMate/common/TMGrammarFactory.ts @ 50e1350fc78d
 //! upstream: vscode-textmate src/grammar/grammar.ts and src/grammar/tokenizeString.ts
 //! (microsoft/vscode-textmate, main, 2026-11-09)
 //!

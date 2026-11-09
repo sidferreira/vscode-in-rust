@@ -1,5 +1,6 @@
 //! upstream: vscode-textmate src/tests/themes.test.ts (microsoft/vscode-textmate, main, 2026-11-09)
 //!
+//! upstream: src/vs/workbench/services/textMate/common/TMHelper.ts @ 50e1350fc78d
 //! Ports of the pure theme tests: matching, specificity, parsing and resolving. The tests that
 //! compare the trie structure (`assertThemeEqual`) are ported through `match_scopes`, since our trie
 //! is private. The grammar/theme fixture tests (`test-cases/themes`) are not ported: they need the

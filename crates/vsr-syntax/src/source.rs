@@ -1,4 +1,6 @@
 //! The bundled grammars as a `GrammarSource`, and per-language `Grammar` instances.
+//!
+//! upstream: src/vs/workbench/services/textMate/common/TMGrammars.ts @ 50e1350fc78d
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

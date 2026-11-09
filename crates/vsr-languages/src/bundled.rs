@@ -1,4 +1,6 @@
 //! The bundled data (see `scripts/bundle-grammars`).
+//!
+//! upstream: extensions/rust/package.json @ 50e1350fc78d
 
 use std::collections::HashMap;
 use std::sync::OnceLock;

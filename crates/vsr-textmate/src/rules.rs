@@ -1,5 +1,6 @@
 //! Compiled rules: the arena built from raw grammars, with `include` resolution.
 //!
+//! upstream: src/vs/workbench/services/textMate/common/TMGrammarFactory.ts @ 50e1350fc78d
 //! upstream: vscode-textmate src/rule.ts (`RuleFactory`, `Rule` classes) (microsoft/vscode-textmate,
 //! main, 2026-11-09)
 //!

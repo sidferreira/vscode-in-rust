@@ -1,5 +1,6 @@
 //! Theme scope matching: rule selectors, specificity, and per-scope style resolution.
 //!
+//! upstream: src/vs/workbench/services/textMate/common/TMHelper.ts @ 50e1350fc78d
 //! upstream: vscode-textmate src/theme.ts (microsoft/vscode-textmate, main, 2026-11-09)
 //! upstream: vscode-textmate src/tests/themes.test.ts
 //!

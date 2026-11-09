@@ -1,4 +1,6 @@
 //! Engine tests on small grammars: each pins one vscode-textmate behaviour.
+//!
+//! upstream: src/vs/workbench/services/textMate/common/TMGrammarFactory.ts @ 50e1350fc78d
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -406,9 +406,9 @@ match = ["editor.minimap.showRegionSectionHeaders", "editor.minimap.showMarkSect
 
 [[rule]]
 status = "blocked"
-reason = "needs a language registry (language ids for files and new files)"
-comment = "files.associations maps globs to language ids and defaultLanguage names the language of a new file. rscode has no language registry, so there is no language id to assign."
-match = ["files.associations", "files.defaultLanguage"]
+reason = "needs untitled editors (new files)"
+comment = "files.defaultLanguage is the language of a new untitled file. The language registry exists (ADR-0038, files.associations is wired), but rscode has no untitled editors yet."
+match = ["files.defaultLanguage"]
 
 [[rule]]
 status = "blocked"
@@ -421,12 +421,6 @@ status = "blocked"
 reason = "needs diagnostics (problems reported by language features)"
 comment = "autoSaveWhenNoErrors skips the auto save of a file with errors in it. rscode has no diagnostics yet (the status bar shows 0 errors)."
 match = ["files.autoSaveWhenNoErrors"]
-
-[[rule]]
-status = "blocked"
-reason = "needs language tokens (string and regex ranges)"
-comment = "Upstream keeps trailing whitespace inside multi-line strings and regular expressions when this is on. rscode trims every line, as with trimTrailingWhitespace alone, until there is a tokenizer."
-match = ["files.trimTrailingWhitespaceInRegexAndStrings"]
 
 [[rule]]
 status = "blocked"

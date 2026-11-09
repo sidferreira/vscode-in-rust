@@ -1,5 +1,6 @@
 //! `tokenColors` from theme JSON, and the bundled Dark Modern chain.
 //!
+//! upstream: extensions/theme-defaults/themes/dark_modern.json @ 50e1350fc78d
 //! Until the theme service lands this is where the token colors come from; it exposes them
 //! through `TokenColorsProvider`, the trait the theme service will implement instead.
 

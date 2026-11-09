@@ -1,6 +1,7 @@
 //! A TextMate grammar engine with vscode-textmate's semantics, on Oniguruma (`onig`), plus theme
 //! scope matching (ADR-0038).
 //!
+//! upstream: src/vs/workbench/services/textMate/common/TMScopeRegistry.ts @ 50e1350fc78d
 //! - `raw`: the `.tmLanguage.json` document
 //! - `rules`: rule compilation and `include` resolution
 //! - `regex`: regex sources (anchors, back references) and the scanner

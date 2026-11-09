@@ -1,4 +1,6 @@
 //! upstream: vscode-textmate src/tests/matcher.test.ts (microsoft/vscode-textmate, main, 2026-11-09)
+//!
+//! upstream: src/vs/workbench/services/textMate/common/TMScopeRegistry.ts @ 50e1350fc78d
 
 use vsr_textmate::scope::create_matchers;
 

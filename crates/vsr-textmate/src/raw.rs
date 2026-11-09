@@ -2,6 +2,7 @@
 //! `IRawRule` types see it. Parsed by hand from `serde_json::Value` so that odd values
 //! (`applyEndPatternLast: 1`, numbers where strings are expected) do not fail the whole grammar.
 //!
+//! upstream: src/vs/workbench/services/textMate/common/TMGrammars.ts @ 50e1350fc78d
 //! upstream: vscode-textmate src/rawGrammar.ts (microsoft/vscode-textmate, main, 2026-11-09)
 
 use std::collections::HashMap;

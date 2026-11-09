@@ -1,5 +1,7 @@
 //! The service the workbench talks to: which language a file has, which grammar tokenizes it,
 //! and the style of a token under the current theme.
+//!
+//! upstream: src/vs/workbench/services/textMate/common/TMGrammarFactory.ts @ 50e1350fc78d
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};

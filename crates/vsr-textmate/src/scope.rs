@@ -1,5 +1,6 @@
 //! Scope stacks (interned), scope selector matchers, and standard token types.
 //!
+//! upstream: src/vs/workbench/services/textMate/common/TMScopeRegistry.ts @ 50e1350fc78d
 //! upstream: vscode-textmate src/matcher.ts (microsoft/vscode-textmate, main, 2026-11-09)
 //! upstream: vscode-textmate src/grammar/grammar.ts (`nameMatcher`, `AttributedScopeStack`)
 //!

@@ -1,6 +1,7 @@
 //! Syntax highlighting service (ADR-0038): the bundled grammars, per-document incremental
 //! tokenization (on a background thread for the bulk), and styles from a theme's `tokenColors`.
 //!
+//! upstream: src/vs/editor/common/model/tokens/tokenizationTextModelPart.ts @ 50e1350fc78d
 //! - `SyntaxService`: language of a file (`files.associations` included), grammar per language,
 //!   token styles under the current theme
 //! - `DocumentTokens` / `BackgroundTokenizer`: per-line tokens with the rule stack per line;

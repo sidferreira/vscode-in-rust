@@ -1,5 +1,7 @@
 //! The bundled registry guesses languages like VS Code does for common files, and
 //! `files.associations` (configured associations) beat the built-in ones.
+//!
+//! upstream: src/vs/editor/common/services/languagesRegistry.ts @ 50e1350fc78d
 
 use vsr_languages::bundled::{builtin_registry, grammar_json, scope_name_for_language};
 

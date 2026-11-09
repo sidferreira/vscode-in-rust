@@ -8,6 +8,7 @@
 mod editor_view;
 mod icons;
 mod model;
+mod settings_view; // Settings editor (ADR-0017)
 mod theme;
 mod ui;
 
@@ -21,6 +22,7 @@ use gpui_kit::*;
 use editor_view::EditorView;
 use model::{DirEntry, Editors, list_dir};
 use theme::{Theme, metrics as m};
+use settings_view::{OpenSettings, SettingsEvent, SettingsView};
 use ui::to_gpui;
 
 actions!(rscode, [Quit]);
@@ -36,6 +38,7 @@ fn main() {
         gpui_kit::init(cx);
         icons::install(cx);
         install_app_lifecycle(cx);
+        settings_view::install(cx); // Cmd+, binding + component theme
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -92,6 +95,13 @@ struct Workbench {
     children: HashMap<PathBuf, Vec<DirEntry>>,
     editors: Editors,
     editor_view: EditorView,
+    /// Settings editor tab (one instance) and whether it is the active tab.
+    settings: Option<Entity<SettingsView>>,
+    settings_active: bool,
+    /// settings.json the Settings editor edits (overridable so tests never touch the real one).
+    settings_path: PathBuf,
+    /// Root focus handle so workbench-level actions (Cmd+,) dispatch even before anything is focused.
+    focus: Option<FocusHandle>,
     branch: Option<String>,
     error: Option<String>,
 }
@@ -109,6 +119,10 @@ impl Workbench {
             children: HashMap::new(),
             editors: Editors::default(),
             editor_view: EditorView::default(),
+            settings: None,
+            settings_active: false,
+            settings_path: settings_path(),
+            focus: None,
             branch: git_branch(&root),
             error: None,
         };
@@ -125,9 +139,104 @@ impl Workbench {
     }
 
     fn open(&mut self, path: &Path) {
+        self.settings_active = false;
         if let Err(e) = self.editors.open_file(path) {
             self.error = Some(format!("{}: {e}", path.display()));
         }
+    }
+
+    // ---- Settings editor tab (grouped: open / close / tab / surface) ---------
+
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_none() {
+            let this_path = self.settings_path.clone();
+            let view = cx.new(|cx| SettingsView::new(this_path, window, cx));
+            cx.subscribe(&view, |this, _, ev: &SettingsEvent, cx| match ev {
+                SettingsEvent::OpenSettingsJson(path) => {
+                    this.open(path);
+                    cx.notify();
+                }
+            })
+            .detach();
+            self.settings = Some(view);
+        }
+        self.settings_active = true;
+        if let Some(view) = &self.settings {
+            view.update(cx, |v, cx| v.focus_search(window, cx));
+        }
+        cx.notify();
+    }
+
+    fn close_settings(&mut self) {
+        self.settings = None;
+        self.settings_active = false;
+    }
+
+    fn settings_tab(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        self.settings.as_ref()?;
+        let t = &self.theme;
+        let active = self.settings_active;
+        let fg = to_gpui(if active { t.tab_active_fg } else { t.tab_inactive_fg });
+        let line = |d: Div, c| d.absolute().left_0().w_full().h(px(1.)).bg(to_gpui(c));
+        let close = div()
+            .id("settings-tab-close")
+            .flex_none()
+            .w(px(20.))
+            .h(px(20.))
+            .rounded(px(5.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .font_family(icons::FAMILY)
+            .text_size(px(16.))
+            .text_color(if active { fg } else { gpui_kit::transparent_black() })
+            .group_hover("settings-tab", |s| s.text_color(fg))
+            .hover(|s| s.bg(to_gpui(t.list_hover_bg)))
+            .child(icons::glyph(icons::CLOSE))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.close_settings();
+                    cx.notify();
+                }),
+            );
+        Some(
+            div()
+                .id("settings-tab")
+                .group("settings-tab")
+                .relative()
+                .flex_none()
+                .h_full()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .pl(px(12.))
+                .pr(px(8.))
+                .cursor_pointer()
+                .text_size(px(13.))
+                .text_color(fg)
+                .bg(to_gpui(if active { t.tab_active_bg } else { t.chrome_bg }))
+                .child(if active { line(div().top_0(), t.accent) } else { line(div().bottom_0(), t.border) })
+                .child(div().absolute().right_0().top_0().h_full().w(px(1.)).bg(to_gpui(t.border)))
+                .child(div().font_family(icons::FAMILY).text_size(px(16.)).child(icons::glyph(icons::SETTINGS_GEAR)))
+                .child("Settings")
+                .child(close)
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.settings_active = true;
+                        cx.notify();
+                    }),
+                )
+                .on_mouse_down(
+                    MouseButton::Middle,
+                    cx.listener(|this, _, _, cx| {
+                        this.close_settings();
+                        cx.notify();
+                    }),
+                ),
+        )
     }
 
     fn close_tab(&mut self, index: usize) {
@@ -163,6 +272,7 @@ impl Workbench {
     fn title_bar(&self) -> impl IntoElement {
         let t = &self.theme;
         let title = match self.editors.active_editor() {
+            _ if self.settings_active => format!("Settings — {}", folder_name(&self.root)),
             Some(e) => format!("{} — {}", e.title, folder_name(&self.root)),
             None => folder_name(&self.root),
         };
@@ -304,7 +414,11 @@ impl Workbench {
             .flex()
             .flex_col()
             .child(cell("global", 0, icons::ACCOUNT, "Accounts", false))
-            .child(cell("global", 1, icons::SETTINGS_GEAR, "Manage", false));
+            .child(
+                cell("global", 1, icons::SETTINGS_GEAR, "Manage (Settings)", false).on_click(cx.listener(
+                    |this, _, window, cx| this.open_settings(window, cx),
+                )),
+            );
 
         div()
             .flex_none()
@@ -457,7 +571,7 @@ impl Workbench {
                     .bg(to_gpui(t.border)),
             );
         for (i, e) in self.editors.open.iter().enumerate() {
-            let active = self.editors.active == Some(i);
+            let active = self.editors.active == Some(i) && !self.settings_active;
             let fg = to_gpui(if active { t.tab_active_fg } else { t.tab_inactive_fg });
             let line = |d: Div, c| d.absolute().left_0().w_full().h(px(1.)).bg(to_gpui(c));
             let close = div()
@@ -518,6 +632,7 @@ impl Workbench {
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
                         this.editors.active = Some(i);
+                        this.settings_active = false;
                         cx.notify();
                     }),
                 )
@@ -530,12 +645,15 @@ impl Workbench {
                 );
             strip = strip.child(tab);
         }
+        strip = strip.children(self.settings_tab(cx));
         strip
     }
 
     fn editor_group(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme.clone();
+        let settings_surface = self.settings.clone().filter(|_| self.settings_active);
         let surface = match self.editors.active.and_then(|i| self.editors.open.get(i)) {
+            _ if settings_surface.is_some() => settings_surface.unwrap().into_any_element(),
             Some(editor) => self
                 .editor_view
                 .element(editor, &t, cx, |wb: &Workbench| wb.editors.active_editor())
@@ -563,7 +681,16 @@ impl Workbench {
 }
 
 impl Render for Workbench {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let focus = match &self.focus {
+            Some(f) => f.clone(),
+            None => {
+                let f = cx.focus_handle();
+                f.focus(window, cx);
+                self.focus = Some(f.clone());
+                f
+            }
+        };
         let t = self.theme.clone();
         let sidebar = self.sidebar_visible;
 
@@ -615,6 +742,9 @@ impl Render for Workbench {
             .text_color(to_gpui(t.sidebar_fg))
             .font_family(".SystemUIFont")
             .text_size(px(13.))
+            .key_context("Workbench")
+            .track_focus(&focus)
+            .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {
@@ -651,6 +781,10 @@ fn git_branch(root: &Path) -> Option<String> {
         .ok()?;
     let name = String::from_utf8(out.stdout).ok()?.trim().to_string();
     (out.status.success() && !name.is_empty()).then_some(name)
+}
+
+fn settings_path() -> PathBuf {
+    vsr_settings::default_user_settings_path()
 }
 
 fn folder_name(p: &Path) -> String {

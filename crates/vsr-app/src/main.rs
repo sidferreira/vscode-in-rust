@@ -132,6 +132,10 @@ impl EditorHost for Workbench {
     fn editor_host(&mut self) -> (&mut Editors, &mut EditorView) {
         (&mut self.editors, &mut self.editor_view)
     }
+
+    fn editor_closed(&mut self, path: &Path, dirty: bool) {
+        self.session_editor_closed(path, dirty);
+    }
 }
 
 struct Workbench {
@@ -261,6 +265,7 @@ impl Workbench {
         let app = AppConfig::get(cx);
         let configuration = app.configuration();
         let affects_exclude = app.last_change().affects("files.exclude");
+        self.session_config_changed(cx);
         let new_exclude = affects_exclude
             .then(|| ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null)));
         let new_settings = EditorSettings::from_configuration(configuration);
@@ -505,12 +510,13 @@ impl Workbench {
         }
     }
 
-    fn close_tab(&mut self, index: usize, cx: &App) {
-        self.remember_view_state(index, cx);
+    fn close_tab(&mut self, index: usize) {
         if let Some(e) = self.editors.open.get(index) {
-            let path = e.path.clone();
+            let (path, dirty) = (e.path.clone(), e.is_dirty());
+            self.editor_view.remember(e);
             self.editors.close(index);
             self.editor_view.forget(&path);
+            self.session_editor_closed(&path, dirty);
         }
     }
 
@@ -1031,7 +1037,7 @@ impl Workbench {
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.close_tab(i, cx);
+                        this.close_tab(i);
                         cx.notify();
                     }),
                 );
@@ -1088,7 +1094,7 @@ impl Workbench {
                 .on_mouse_down(
                     MouseButton::Middle,
                     cx.listener(move |this, _, _, cx| {
-                        this.close_tab(i, cx);
+                        this.close_tab(i);
                         cx.notify();
                     }),
                 );

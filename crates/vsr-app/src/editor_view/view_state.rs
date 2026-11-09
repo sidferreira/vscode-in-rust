@@ -31,6 +31,17 @@ impl EditorView {
         }
     }
 
+    /// `e` is about to close: keep its view state for a reopen in this run.
+    pub fn remember(&mut self, e: &OpenEditor) {
+        let state = self.view_state(e);
+        self.closed_views.insert(e.path.clone(), state);
+    }
+
+    /// The view state `path` had when it was closed (once).
+    pub fn take_remembered(&mut self, path: &std::path::Path) -> Option<ViewState> {
+        self.closed_views.remove(path)
+    }
+
     /// Puts `state` back on `e`: selection (clamped into the text), scroll position (applied at the
     /// next paint) and the word wrap override.
     pub fn apply_view_state(&mut self, e: &mut OpenEditor, state: &ViewState) {

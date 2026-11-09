@@ -75,6 +75,10 @@ pub fn init(cx: &mut App) {
 /// What the view needs from its owner: the documents and the view state.
 pub trait EditorHost: 'static {
     fn editor_host(&mut self) -> (&mut Editors, &mut EditorView);
+
+    /// An editor was closed by a command (Cmd+W); `dirty` says it had unsaved changes. The owner
+    /// keeps what its session needs (the backup of unsaved text, ADR-0040).
+    fn editor_closed(&mut self, _path: &std::path::Path, _dirty: bool) {}
 }
 
 #[derive(Default)]
@@ -105,6 +109,8 @@ pub struct EditorView {
     brackets: decorations::BracketCache,
     /// Alt+Z (`editor.action.toggleWordWrap`): per-document override of `editor.wordWrap`.
     wrap_override: HashMap<PathBuf, bool>,
+    /// View state of tabs closed in this run, for reopening them (`workbench.editor.restoreViewState`).
+    closed_views: HashMap<PathBuf, crate::session::state::ViewState>,
     /// The advance of one character as shaped at the last paint (0 until measured).
     measured_char_w: Rc<Cell<f32>>,
     /// Tests: the viewport width in columns, instead of measuring the painted size.
@@ -376,9 +382,11 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
     }
     match cmd {
         Command::CloseTab => {
-            if let Some(path) = editors.open.get(i).map(|e| e.path.clone()) {
+            if let Some((path, dirty)) = editors.open.get(i).map(|e| (e.path.clone(), e.is_dirty())) {
+                view.remember(&editors.open[i]);
                 editors.close(i);
                 view.forget(&path);
+                this.editor_closed(&path, dirty);
             }
         }
         _ => {

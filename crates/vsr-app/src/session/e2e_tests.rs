@@ -262,7 +262,7 @@ fn a_closed_file_reopens_at_its_view_state_and_restore_view_state_off_does_not(c
         open(&wb, vcx, &env.root.join("a.txt"));
         place(&wb, vcx, 90, (50, 2), (51, 5));
         wb.update(vcx, |wb, cx| {
-            wb.close_tab(0, cx);
+            wb.close_tab(0);
             cx.notify();
         });
         vcx.run_until_parked();
@@ -278,6 +278,31 @@ fn a_closed_file_reopens_at_its_view_state_and_restore_view_state_off_does_not(c
             assert_eq!(v.selection.unwrap().active, (1, 1));
         }
     }
+}
+
+#[gpui_kit::test]
+fn cmd_w_remembers_the_view_state_and_a_reopen_before_the_next_tick_does_not_delete_the_backup(cx: &mut TestAppContext) {
+    let env = env("cmd-w", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    place(&wb, vcx, 90, (50, 2), (50, 2));
+    type_in_active(&wb, vcx, "K");
+    tick(vcx);
+    tick(vcx);
+    assert!(env.backups().exists(&env.root.join("a.txt")));
+    vcx.simulate_keystrokes("cmd-w"); // the keyboard path, not the tab strip's close button
+    assert!(titles(&wb, vcx).is_empty());
+    open(&wb, vcx, &env.root.join("a.txt")); // reopened before the next tick: clean, from disk
+    assert!(!dirty_of(&wb, vcx, "a.txt"));
+    let v = view_of_active(&wb, vcx);
+    assert_eq!(v.top_line, 90, "scroll is back after a Cmd+W close");
+    assert_eq!(v.selection.unwrap().active, (50, 2));
+    tick(vcx);
+    assert!(!env.backups().exists(&env.root.join("a.txt")));
+    let discarded = env.data.join(format!("Backups/{}/discarded", path_key(&env.root)));
+    let kept: Vec<_> = fs::read_dir(discarded).unwrap().collect();
+    assert_eq!(kept.len(), 1, "the dropped text was moved aside, not deleted by the clean reopened buffer");
+    assert!(fs::read_to_string(kept[0].as_ref().unwrap().path()).unwrap().contains("Kline 50"));
 }
 
 #[gpui_kit::test]
@@ -388,7 +413,7 @@ fn a_tab_closed_with_unsaved_changes_moves_its_backup_aside_instead_of_deleting_
     type_in_active(&wb, vcx, "KEEPME ");
     tick(vcx);
     tick(vcx);
-    wb.update(vcx, |wb, cx| wb.close_tab(0, cx));
+    wb.update(vcx, |wb, cx| wb.close_tab(0));
     tick(vcx);
     assert!(!env.backups().exists(&env.root.join("a.txt")), "it does not come back as a tab");
     let discarded: Vec<_> = fs::read_dir(env.data.join(format!("Backups/{}/discarded", path_key(&env.root)))).unwrap().collect();
@@ -540,7 +565,7 @@ fn with_nothing_restored_the_welcome_tab_shows_and_a_recent_file_opens_on_click(
     assert!(vcx.debug_bounds("welcome:recent:0").is_none(), "no recent files yet");
     open(&wb, vcx, &env.root.join("b.txt"));
     wb.update(vcx, |wb, cx| {
-        wb.close_tab(0, cx);
+        wb.close_tab(0);
         cx.notify();
     });
     quit(&wb, vcx);

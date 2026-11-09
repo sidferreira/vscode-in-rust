@@ -113,8 +113,8 @@ pub struct Runtime {
     pub backed_up: HashMap<PathBuf, u64>,
     /// The version seen on the previous tick (a backup is written when seen twice).
     seen: HashMap<PathBuf, u64>,
-    /// View state of tabs closed this session (`restoreViewState` on reopening).
-    pub view_memory: HashMap<PathBuf, ViewState>,
+    /// `workbench.editor.restoreViewState`, for reopening closed tabs (set at startup and on changes).
+    pub restore_view_state: bool,
     pub recent_folders: Vec<PathBuf>,
     /// Search state read from disk, applied when the Search view exists.
     pub pending_search: Option<SearchState>,
@@ -142,6 +142,7 @@ impl Workbench {
         if !cx.has_global::<OpenWorkbenches>() {
             cx.set_global(OpenWorkbenches::default());
         }
+        self.session_config_changed(cx);
         let me = cx.weak_entity();
         cx.update_global::<OpenWorkbenches, _>(|o, _| o.0.push(me));
         self.session.quit_hook = Some(cx.on_app_quit(|this, cx| {
@@ -415,23 +416,36 @@ impl Workbench {
         }
     }
 
-    // ---- view state of closed tabs ---------------------------------------------------------------
+    // ---- closed tabs ---------------------------------------------------------------------------------
 
-    /// A tab is about to close: keep its view state for a reopen in this session.
-    pub(crate) fn remember_view_state(&mut self, index: usize, cx: &App) {
-        if !self.session_settings(cx).restore_view_state {
-            return;
-        }
-        if let Some(e) = self.editors.open.get(index) {
-            self.session.view_memory.insert(e.path.clone(), self.editor_view.view_state(e));
-        }
+    /// The configuration changed: read the session settings the workbench keeps.
+    pub(crate) fn session_config_changed(&mut self, cx: &App) {
+        self.session.restore_view_state = self.session_settings(cx).restore_view_state;
     }
 
     /// A file was just opened in a new tab: put back the view state it had when it was closed.
     pub(crate) fn apply_remembered_view_state(&mut self, path: &Path) {
-        let Some(view) = self.session.view_memory.remove(path) else { return };
+        let Some(view) = self.editor_view.take_remembered(path) else { return };
+        if !self.session.restore_view_state {
+            return;
+        }
         if let Some(i) = self.editors.index_of(path) {
             self.editor_view.apply_view_state(&mut self.editors.open[i], &view);
+        }
+    }
+
+    /// A tab was closed (by the tab strip or Cmd+W). A tab with unsaved changes was dropped by the user:
+    /// its backup is moved aside, now, not at the next tick (a reopen of the file in between must not
+    /// find it still counted as the open buffer's backup). A saved tab's backup is no longer needed.
+    pub(crate) fn session_editor_closed(&mut self, path: &Path, dirty: bool) {
+        let Some(backups) = self.session.backups.clone() else { return };
+        self.session.seen.remove(path);
+        if self.session.backed_up.remove(path).is_some() {
+            if dirty {
+                backups.discard(path);
+            } else {
+                backups.remove_saved(path);
+            }
         }
     }
 

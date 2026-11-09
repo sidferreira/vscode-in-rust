@@ -150,7 +150,8 @@ impl Workbench {
         let (Some(line), Some(column)) = (parsed.line, parsed.column) else { return };
         let Some(path) = self.editors.active_editor().map(|e| e.path.clone()) else { return };
         self.hide_quick_open(false, window, cx);
-        self.open_at(&path, vsr_search::SearchRange::new(line, column, line, column), window, cx);
+        let range = vsr_search::SearchRange::new(line, column, line, column);
+        self.open_at(&path, range, crate::config::settings::OpenSource::QuickOpen, window, cx);
     }
 
     /// Enter on a help entry: switch to that provider (the text becomes its prefix).

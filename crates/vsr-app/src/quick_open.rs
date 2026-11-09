@@ -26,6 +26,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::config::settings::OpenSource;
 use gpui_kit::*;
 use serde_json::Value;
 use vsr_commands::ContextKeys;
@@ -327,9 +328,9 @@ impl Workbench {
             return;
         }
         match range {
-            Some(r) => self.open_at(&path, search_range(r), window, cx),
+            Some(r) => self.open_at(&path, search_range(r), OpenSource::QuickOpen, window, cx),
             None => {
-                self.open(&path);
+                self.open_from(&path, OpenSource::QuickOpen);
                 if let Some(e) = self.editors.active.and_then(|i| self.editors.open.get(i)).filter(|e| e.path == path) {
                     self.editor_view.reveal(e); // also hands focus to the editor on the next frame
                 }

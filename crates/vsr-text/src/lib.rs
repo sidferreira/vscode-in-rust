@@ -162,6 +162,10 @@ impl TextBuffer {
         before + p.column.saturating_sub(1)
     }
 
+    /// The inverse of `offset_at`, like upstream `getPositionAt`. An offset inside a
+    /// line's terminator (between the `\r` and `\n` of a CRLF) gives a column past the
+    /// line's end, which `offset_at` maps back to the same offset. Call `validate_position`
+    /// to clamp it.
     pub fn position_at(&self, offset: usize) -> Position {
         let mut remaining = offset;
         for (i, l) in self.lines.iter().enumerate() {
@@ -172,8 +176,7 @@ impl TextBuffer {
             }
             let with_eol = len + l.eol.len();
             if remaining < with_eol {
-                // offset points inside a CRLF: VS Code puts it at end of line
-                return Position::new(line, len + 1);
+                return Position::new(line, remaining + 1);
             }
             remaining -= with_eol;
         }
@@ -220,6 +223,36 @@ impl TextBuffer {
         self.lines.splice(first..end.line, new_lines);
         // Seams: the line before the edit and the last inserted line.
         self.join_split_crlfs(first.saturating_sub(1), first + new_count - 1);
+    }
+
+    /// Insert raw text at a UTF-16 offset, mirroring `PieceTreeBase.insert`.
+    ///
+    /// The offset may fall between the `\r` and `\n` of a CRLF, so the result can contain
+    /// lone `\r` and `\n` breaks. The text is stored as given: like the piece tree, this
+    /// does not normalize line endings (`TextModel` does that before it calls the piece
+    /// tree, and `edit` does it for `normalize_eol` buffers). The buffer's EOL is kept.
+    /// An offset past the end appends; an offset inside a surrogate pair snaps to before it.
+    pub fn insert_at_offset(&mut self, offset: usize, text: &str) {
+        let mut raw = self.value();
+        let at = utf16_to_byte_floor(&raw, offset);
+        raw.insert_str(at, text);
+        self.lines = split_lines(&raw);
+    }
+
+    /// Delete `len` UTF-16 units from `offset`, mirroring `PieceTreeBase.delete`. Like
+    /// `insert_at_offset`, the range may split a CRLF. The range is clamped to the end of
+    /// the buffer, and bounds inside a surrogate pair snap to the start of that character.
+    pub fn delete_at_offset(&mut self, offset: usize, len: usize) {
+        if len == 0 {
+            return;
+        }
+        let mut raw = self.value();
+        let start = utf16_to_byte_floor(&raw, offset);
+        let end = utf16_to_byte_floor(&raw, offset.saturating_add(len));
+        if start < end {
+            raw.replace_range(start..end, "");
+        }
+        self.lines = split_lines(&raw);
     }
 
     /// In the raw text `\r\n` is one break, whatever edits produced it. An edit can
@@ -280,6 +313,19 @@ fn utf16_slice(s: &str, start: usize, end: usize) -> &str {
     };
     let (a, b) = (to_byte(start), to_byte(end));
     if a >= b { "" } else { &s[a..b] }
+}
+
+/// Byte index of a UTF-16 offset. An offset past the end gives `s.len()`; an offset
+/// inside a surrogate pair gives the start of that character.
+fn utf16_to_byte_floor(s: &str, units: usize) -> usize {
+    let mut seen = 0;
+    for (byte, ch) in s.char_indices() {
+        if seen + ch.len_utf16() > units {
+            return byte;
+        }
+        seen += ch.len_utf16();
+    }
+    s.len()
 }
 
 /// Map a 1-based UTF-16 column to a byte index. Returns the byte index and the

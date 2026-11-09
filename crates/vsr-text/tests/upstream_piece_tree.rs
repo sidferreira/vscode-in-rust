@@ -5,14 +5,12 @@
 //!
 //! Conventions:
 //! - Upstream `pieceTable.insert(offset, text)` / `delete(offset, count)` take 0-based
-//!   UTF-16 offsets. `buf_insert` / `buf_delete` translate them with `position_at` and
-//!   call `edit`, so the port only uses the public API.
-//! - Upstream `createTextBuffer(chunks, normalizeEOL)` is `create_text_buffer`. Upstream
-//!   raw inserts do not normalize line breaks, so tests that insert raw `\r` use
-//!   `normalize = false` (the closest match to raw inserts we have).
+//!   UTF-16 offsets and never normalize line breaks. `buf_insert` / `buf_delete` call
+//!   `TextBuffer::insert_at_offset` / `delete_at_offset`, which do the same.
+//! - Upstream `createTextBuffer(chunks, normalizeEOL)` is `create_text_buffer`.
+//! - `pos_at` is `getPositionAt`. For an offset between the `\r` and `\n` of a CRLF it
+//!   returns a column past the line's end, and `offset_at` maps that back.
 //! - `assertTreeInvariants` is a no-op: `TextBuffer` has no tree yet.
-//! - Offsets that fall between the `\r` and `\n` of a CRLF cannot be expressed as a
-//!   `Position`; `pos_at` panics on them. Those tests are in the skip list at the bottom.
 //! - Each test names its upstream suite and test in a `// upstream:` comment.
 //! - Every test string is ASCII, so byte offsets equal UTF-16 offsets in the helpers
 //!   that work on `&str` (`split_lines`, `line_starts`, `str_*`).
@@ -26,26 +24,20 @@ fn create_text_buffer(chunks: &[&str], normalize_eol: bool) -> TextBuffer {
     TextBuffer::new(&chunks.concat(), DefaultEol::Lf, normalize_eol)
 }
 
-/// Position of a raw offset. Panics when the offset falls between the `\r` and the `\n`
-/// of a CRLF, which a (line, column) position cannot address.
+/// `getPositionAt(offset)`. An offset between the `\r` and `\n` of a CRLF gives a column
+/// past the line's end, as upstream does.
 fn pos_at(b: &TextBuffer, offset: usize) -> Position {
-    let units: Vec<u16> = b.value().encode_utf16().collect();
-    let inside_crlf = offset > 0 && units.get(offset - 1) == Some(&13) && units.get(offset) == Some(&10);
-    assert!(!inside_crlf, "offset {offset} is between the \\r and \\n of a CRLF");
     b.position_at(offset)
 }
 
-/// `pieceTable.insert(offset, text)`.
+/// `pieceTable.insert(offset, text)`: raw, no EOL normalization.
 fn buf_insert(b: &mut TextBuffer, offset: usize, text: &str) {
-    let p = pos_at(b, offset);
-    b.edit(Range::at(p), text);
+    b.insert_at_offset(offset, text);
 }
 
 /// `pieceTable.delete(offset, count)`.
 fn buf_delete(b: &mut TextBuffer, offset: usize, count: usize) {
-    let start = pos_at(b, offset);
-    let end = pos_at(b, offset + count);
-    b.edit(Range::new(start, end), "");
+    b.delete_at_offset(offset, count);
 }
 
 /// `new Range(sl, sc, el, ec)`.
@@ -429,7 +421,6 @@ mod inserts_and_deletes {
     // upstream: inserts and deletes > random insert/delete \r bug 1
     // Raw inserts of `\r` need `normalize = false`.
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_insert_delete_r_bug_1() {
         let mut s = String::from("a");
         let mut b = create_text_buffer(&["a"], false);
@@ -457,7 +448,6 @@ mod inserts_and_deletes {
 
     // upstream: inserts and deletes > random insert/delete \r bug 2
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_insert_delete_r_bug_2() {
         let mut s = String::from("a");
         let mut b = create_text_buffer(&["a"], false);
@@ -487,7 +477,6 @@ mod inserts_and_deletes {
 
     // upstream: inserts and deletes > random insert/delete \r bug 3
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_insert_delete_r_bug_3() {
         let mut s = String::from("a");
         let mut b = create_text_buffer(&["a"], false);
@@ -547,7 +536,6 @@ mod inserts_and_deletes {
 
     // upstream: inserts and deletes > random insert/delete \r bug 5
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_insert_delete_r_bug_5() {
         let mut s = String::new();
         let mut b = create_text_buffer(&[""], false);
@@ -1037,16 +1025,14 @@ mod get_text_in_range {
 
 // ---- CRLF ------------------------------------------------------------------
 //
-// `delete CR in CRLF 1` and `delete CR in CRLF 2` are skipped: they delete an offset
-// between `\r` and `\n`. The `random bug N` tests use raw `\r\n` with offsets that
-// can land inside a CRLF; they are ported in the suite below only where no offset does.
+// `delete CR in CRLF 1` and `delete CR in CRLF 2` are not ported yet. They delete up to
+// an offset between `\r` and `\n`, which `delete_at_offset` can express.
 
 mod crlf {
     use super::*;
 
     // upstream: CRLF > random bug 1
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_1() {
         let mut s = String::new();
         let mut b = create_text_buffer(&[""], false);
@@ -1065,7 +1051,6 @@ mod crlf {
 
     // upstream: CRLF > random bug 2
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_2() {
         let mut s = String::new();
         let mut b = create_text_buffer(&[""], false);
@@ -1082,7 +1067,6 @@ mod crlf {
 
     // upstream: CRLF > random bug 3
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_3() {
         let mut s = String::new();
         let mut b = create_text_buffer(&[""], false);
@@ -1105,7 +1089,6 @@ mod crlf {
 
     // upstream: CRLF > random bug 4
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_4() {
         let mut s = String::new();
         let mut b = create_text_buffer(&[""], false);
@@ -1126,7 +1109,6 @@ mod crlf {
 
     // upstream: CRLF > random bug 5
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_5() {
         let mut s = String::new();
         let mut b = create_text_buffer(&[""], false);
@@ -1155,7 +1137,6 @@ mod crlf {
 
     // upstream: CRLF > random bug 6
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_6() {
         let mut s = String::new();
         let mut b = create_text_buffer(&[""], false);
@@ -1198,7 +1179,6 @@ mod crlf {
 
     // upstream: CRLF > random bug 8
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_8() {
         let mut s = String::new();
         let mut b = create_text_buffer(&[""], false);
@@ -1260,16 +1240,13 @@ mod crlf {
 
 // ---- centralized lineStarts with CRLF --------------------------------------
 //
-// `delete CR in CRLF 1` and `delete CR in CRLF 2` are skipped (see the CRLF module).
-// `test_line_starts` on CRLF content needs the offset between `\r` and `\n`, so the
-// `random chunk bug` tests with `testLineStarts` are skipped as well.
+// `delete CR in CRLF 1` and `delete CR in CRLF 2` are not ported yet (see the CRLF module).
 
 mod centralized_line_starts_with_crlf {
     use super::*;
 
     // upstream: centralized lineStarts with CRLF > random bug 1
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_1() {
         let mut s = String::from("\n\n\r\r");
         let mut b = create_text_buffer(&["\n\n\r\r"], false);
@@ -1286,7 +1263,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random bug 2
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_2() {
         let mut s = String::from("\n\r\n\r");
         let mut b = create_text_buffer(&["\n\r\n\r"], false);
@@ -1301,7 +1277,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random bug 3
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_3() {
         let mut s = String::from("\n\n\n\r");
         let mut b = create_text_buffer(&["\n\n\n\r"], false);
@@ -1322,7 +1297,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random bug 4
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_4() {
         let mut s = String::from("\n\n\n\n");
         let mut b = create_text_buffer(&["\n\n\n\n"], false);
@@ -1341,7 +1315,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random bug 5
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_5() {
         let mut s = String::from("\n\n\n\n");
         let mut b = create_text_buffer(&["\n\n\n\n"], false);
@@ -1368,7 +1341,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random bug 6
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_6() {
         let mut s = String::from("\n\r\r\n");
         let mut b = create_text_buffer(&["\n\r\r\n"], false);
@@ -1392,7 +1364,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random bug 7
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_bug_7() {
         let mut s = String::from("\r\n\n\r");
         let mut b = create_text_buffer(&["\r\n\n\r"], false);
@@ -1462,7 +1433,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random chunk bug 1
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_chunk_bug_1() {
         let mut b = create_text_buffer(&["\n\r\r\n\n\n\r\n\r"], false);
         let mut s = String::from("\n\r\r\n\n\n\r\n\r");
@@ -1480,7 +1450,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random chunk bug 2
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_chunk_bug_2() {
         let mut b = create_text_buffer(&["\n\r\n\n\n\r\n\r\n\r\r\n\n\n\r\r\n\r\n"], false);
         let mut s = String::from("\n\r\n\n\n\r\n\r\n\r\r\n\n\n\r\r\n\r\n");
@@ -1501,7 +1470,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random chunk bug 3
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_chunk_bug_3() {
         let mut b = create_text_buffer(&["\r\n\n\n\n\n\n\r\n"], false);
         let mut s = String::from("\r\n\n\n\n\n\n\r\n");
@@ -1521,7 +1489,6 @@ mod centralized_line_starts_with_crlf {
 
     // upstream: centralized lineStarts with CRLF > random chunk bug 4
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn random_chunk_bug_4() {
         let mut b = create_text_buffer(&["\n\r\n\r"], false);
         let mut s = String::from("\n\r\n\r");
@@ -1546,7 +1513,6 @@ mod random_is_unsupervised {
 
     // upstream: random is unsupervised > splitting large change buffer
     #[test]
-    #[ignore = "offset between the \r and \n of a CRLF; see the skip list"]
     fn splitting_large_change_buffer() {
         let mut b = create_text_buffer(&[""], false);
         let mut s = String::new();
@@ -1731,15 +1697,6 @@ mod search_offset_cache {
 //   - random is unsupervised > `random insert delete`, `random chunks`,
 //     `random chunks 2`: `Math.random` fuzzers, not fixed tests.
 //   - CRLF > `delete CR in CRLF 1`, `delete CR in CRLF 2`, and the same two in
-//     centralized lineStarts with CRLF: they delete up to an offset between `\r` and `\n`.
+//     centralized lineStarts with CRLF: not ported yet, but `delete_at_offset` can
+//     express them (they delete up to an offset between `\r` and `\n`).
 //
-// Ported but #[ignore]d: an offset falls between the `\r` and `\n` of a CRLF, which
-// `pos_at` rejects. Upstream raw offsets can address that point; a Position cannot, since
-// a line's terminator is one unit in the line vector.
-//   - inserts and deletes > `random insert/delete \r bug 1`, `2`, `3`, `5`.
-//   - CRLF > `random bug 1`, `2`, `3`, `4`, `5`, `6`, `8`.
-//   - centralized lineStarts with CRLF > `random bug 1` .. `7`, `random chunk bug 1` .. `4`.
-//   - random is unsupervised > `splitting large change buffer`.
-//
-// Porting those needs an offset-based insert/delete on TextBuffer (PieceTreeBase's
-// insert/delete), which ADR-0005 defers to the piece tree.

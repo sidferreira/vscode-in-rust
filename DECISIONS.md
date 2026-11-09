@@ -90,3 +90,25 @@ focus moves like VS Code), read-only virtualised text view via `vsr-text` with l
 status bar (line count, encoding, EOL, language). Dark Modern colors, classic metrics. Editing,
 cursor and syntax highlighting are next. 52 upstream piece-tree tests pass; 23 are `#[ignore]`d
 until `TextBuffer` has raw-offset insert/delete.
+
+## ADR-0009 — Raw offset edits on TextBuffer (2026-11-09)
+
+`TextBuffer::insert_at_offset(offset, text)` and `delete_at_offset(offset, len)` mirror upstream
+`PieceTreeBase.insert/delete`: UTF-16 offsets, may split a CRLF, no EOL normalization (upstream
+normalizes in `TextModel.validateEdits`), buffer EOL unchanged. All 75 ported piece-tree tests
+now run (none ignored). `position_at` is the linear inverse of `offset_at` inside a line
+terminator, like upstream `getPositionAt`; callers wanting a clamped position use
+`validate_position`.
+
+## ADR-0010 — Codicons for all workbench icons (2026-11-09)
+
+VS Code draws every workbench icon from the Codicons font. We bundle the exact version upstream
+pins (`@vscode/codicons` 0.0.46-49, fetched with `npm pack` through the npm proxy) at
+`crates/vsr-app/assets/codicon.ttf` (CC BY 4.0, license alongside, credited in README), and use
+upstream's codepoints from `codiconsLibrary.ts`. No emoji/unicode stand-ins.
+
+## ADR-0011 — `scripts/code.sh` launcher (2026-11-09)
+
+Mirrors upstream's dev `scripts/code.sh`: builds `vsr-app` if needed, resolves path arguments
+against the caller's cwd, launches detached (logs to `$TMPDIR/vscode-rust/last-run.log`);
+`--wait` stays attached, `--release` uses the optimised build.

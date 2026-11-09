@@ -5,6 +5,7 @@
 //!
 //! upstream: src/vs/workbench/browser/layout.ts @ 50e1350fc78d
 
+mod icons;
 mod model;
 mod theme;
 
@@ -71,6 +72,7 @@ impl Workbench {
         visuals.selection.bg_fill = theme.accent.gamma_multiply(0.5);
         visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, theme.border);
         cc.egui_ctx.set_visuals(visuals);
+        icons::install(&cc.egui_ctx);
 
         let mut wb = Self {
             theme,
@@ -133,12 +135,17 @@ impl Workbench {
                 ui.horizontal_centered(|ui| {
                     let small = |s: &str| RichText::new(s).size(12.0).color(t.sidebar_fg);
                     if let Some(branch) = &self.branch {
-                        ui.label(small(&format!("⎇ {branch}")));
+                        ui.label(small(&format!("{} {branch}", icons::GIT_BRANCH)));
                     }
+                    ui.add_space(8.0);
+                    // Problems counter (no diagnostics source yet, so always zero).
+                    ui.label(small(&format!("{} 0  {} 0", icons::ERROR, icons::WARNING)));
                     if let Some(err) = &self.error {
                         ui.label(RichText::new(err).size(12.0).color(Color32::from_rgb(0xF1, 0x4C, 0x4C)));
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(small(&icons::BELL.to_string())).on_hover_text("No Notifications");
+                        ui.add_space(12.0);
                         if let Some(e) = self.editors.active_editor() {
                             ui.label(small(language_of(&e.path)));
                             ui.add_space(12.0);
@@ -163,10 +170,10 @@ impl Workbench {
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
                 for (view, icon, tip) in [
-                    (ActivityView::Explorer, "🗐", "Explorer"),
-                    (ActivityView::Search, "🔍", "Search"),
-                    (ActivityView::Scm, "⎇", "Source Control"),
-                    (ActivityView::Extensions, "⊞", "Extensions"),
+                    (ActivityView::Explorer, icons::FILES, "Explorer (⇧⌘E)"),
+                    (ActivityView::Search, icons::SEARCH, "Search (⇧⌘F)"),
+                    (ActivityView::Scm, icons::SOURCE_CONTROL, "Source Control (⌃⇧G)"),
+                    (ActivityView::Extensions, icons::EXTENSIONS, "Extensions (⇧⌘X)"),
                 ] {
                     let active = self.sidebar_visible && self.view == view;
                     let (rect, resp) =
@@ -176,7 +183,7 @@ impl Workbench {
                         let bar = egui::Rect::from_min_size(rect.min, Vec2::new(2.0, rect.height()));
                         ui.painter().rect_filled(bar, CornerRadius::ZERO, t.accent);
                     }
-                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icon, FontId::proportional(22.0), fg);
+                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icon, icons::font(24.0), fg);
                     if resp.on_hover_text(tip).clicked() {
                         // Clicking the active view toggles the side bar, like VS Code.
                         if active {
@@ -187,6 +194,16 @@ impl Workbench {
                         }
                     }
                 }
+                // Global activities pinned to the bottom, like VS Code.
+                ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
+                    for (icon, tip) in [(icons::SETTINGS_GEAR, "Manage"), (icons::ACCOUNT, "Accounts")] {
+                        let (rect, resp) =
+                            ui.allocate_exact_size(Vec2::splat(m::ACTIVITY_BAR_WIDTH), Sense::click());
+                        let fg = if resp.hovered() { t.activity_fg } else { t.activity_inactive_fg };
+                        ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icon, icons::font(24.0), fg);
+                        resp.on_hover_text(tip);
+                    }
+                });
             });
     }
 
@@ -217,7 +234,7 @@ impl Workbench {
                     ActivityView::Explorer => {
                         ui.horizontal(|ui| {
                             ui.add_space(8.0);
-                            ui.label(RichText::new(format!("⏷ {}", folder_name(&self.root).to_uppercase())).size(11.0).strong());
+                            ui.label(RichText::new(format!("{} {}", icons::CHEVRON_DOWN, folder_name(&self.root).to_uppercase())).size(11.0).strong());
                         });
                         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                             ui.spacing_mut().item_spacing = Vec2::ZERO;
@@ -250,13 +267,13 @@ impl Workbench {
             }
             let open = self.expanded.contains(&entry.path);
             let twistie = match (entry.is_dir, open) {
-                (true, true) => "⏷",
-                (true, false) => "⏵",
-                _ => " ",
+                (true, true) => icons::CHEVRON_DOWN.to_string(),
+                (true, false) => icons::CHEVRON_RIGHT.to_string(),
+                _ => String::new(),
             };
             let x = rect.left() + 8.0 + depth as f32 * 8.0;
             let font = FontId::proportional(13.0);
-            ui.painter().text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, twistie, font.clone(), t.sidebar_fg);
+            ui.painter().text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, twistie, icons::font(16.0), t.sidebar_fg);
             ui.painter().text(egui::pos2(x + 16.0, rect.center().y), egui::Align2::LEFT_CENTER, &entry.name, font, t.sidebar_fg);
             if resp.clicked() {
                 if entry.is_dir {
@@ -306,7 +323,7 @@ impl Workbench {
                             let close = egui::Rect::from_center_size(egui::pos2(rect.right() - 18.0, rect.center().y), Vec2::splat(16.0));
                             let hovering_close = resp.hover_pos().is_some_and(|p| close.contains(p));
                             if active || resp.hovered() {
-                                p.text(close.center(), egui::Align2::CENTER_CENTER, "×", FontId::proportional(16.0), fg);
+                                p.text(close.center(), egui::Align2::CENTER_CENTER, icons::CLOSE, icons::font(16.0), fg);
                             }
                             if resp.clicked() {
                                 if hovering_close { to_close = Some(i) } else { to_focus = Some(i) }

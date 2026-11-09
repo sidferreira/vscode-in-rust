@@ -11,6 +11,7 @@ Homebrew's rustup keeps `cargo` outside the default PATH; prefix commands with
 The first build takes a few minutes.
 
 ```sh
+scripts/code.sh [folder]         # build if needed and open the window (like `code .`)
 cargo test                       # all crates
 cargo run -p vsr-app -- [folder]  # open the window on a folder (default: cwd)
 scripts/upstream-sync status     # what changed upstream in code we ported
@@ -22,3 +23,8 @@ scripts/cargo-firewall-fetch     # fetch deps through the package firewall
 |---|---|---|
 | `vsr-text` | text buffer, Position/Range | `src/vs/editor/common/{core,model}` |
 | `vsr-app` | native workbench window (egui) | `src/vs/workbench/browser/layout.ts`, `dark_modern.json` |
+
+## Third-party assets
+- **Codicons** (`crates/vsr-app/assets/codicon.ttf`) by Microsoft, from
+  [microsoft/vscode-codicons](https://github.com/microsoft/vscode-codicons) (`@vscode/codicons` 0.0.46-49),
+  licensed [CC BY 4.0](crates/vsr-app/assets/codicon-LICENSE.txt). Used unmodified.

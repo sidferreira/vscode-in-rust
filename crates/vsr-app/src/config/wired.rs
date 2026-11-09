@@ -49,6 +49,19 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.find.closeOnResult",
         ],
     ),
+    (
+        "Minimap",
+        &[
+            "editor.minimap.enabled",
+            "editor.minimap.side",
+            "editor.minimap.size",
+            "editor.minimap.showSlider",
+            "editor.minimap.autohide",
+            "editor.minimap.renderCharacters",
+            "editor.minimap.maxColumn",
+            "editor.minimap.scale",
+        ],
+    ),
     ("Saving", &["files.insertFinalNewline", "files.trimTrailingWhitespace"]),
     (
         "Search",

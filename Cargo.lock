@@ -7233,6 +7233,7 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-apple",
  "ignore",
+ "image",
  "serde",
  "serde_json",
  "vsr-editor",

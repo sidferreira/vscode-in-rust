@@ -44,3 +44,14 @@ the minimap model are asserted; the test platform's text system is a no-op, so n
 | `size: fill` / `fit` (incl. sampling and click-to-drag) | ready | `size_fill_and_fit_stretch_the_minimap_over_the_editor_height`, `size_fill_samples_long_documents_and_clicks_drag_from_the_slider_centre` |
 | `showSlider` and `autohide` (mouseover, scroll) | ready | `show_slider_and_autohide_follow_hover`, `autohide_scroll_shows_the_minimap_only_after_scrolling` |
 | a 10k-line file draws only the lines that fit | ready | `a_10k_line_file_draws_only_the_lines_that_fit_and_stays_responsive` |
+
+## Window and workbench settings (ADR-0035, headless, `config/e2e.rs`)
+
+| scenario | status | test |
+|---|---|---|
+| `window.title` and `window.titleSeparator` change the title bar and the OS window title, live | ready | `window_title_and_separator_apply_live_to_the_window` |
+| the title variables follow the active editor (short, medium, folder, language) | ready | `window_title_variables_follow_the_active_editor` |
+| `window.commandCenter` shows a search box; a click opens Quick Open; off removes it | ready | `command_center_is_a_search_box_that_opens_quick_open`, `command_center_off_leaves_the_title_text_only` |
+| `window.density.editorTabHeight: compact` makes the tab strip 22px, live | ready | `compact_editor_tabs_are_shorter_and_apply_live` |
+| zoom in, out and reset change `window.zoomLevel` and scale the editor text | ready | `zoom_commands_change_the_level_and_scale_the_editor_text` (chrome does not zoom yet, ADR-0035) |
+| `workbench.startupEditor: readme` opens the README; the default opens nothing | ready | `startup_editor_readme_opens_the_readme_and_the_default_opens_nothing`, `startup_editor_default_is_the_welcome_page_which_rscode_does_not_have_yet` |

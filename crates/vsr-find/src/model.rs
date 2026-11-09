@@ -169,6 +169,16 @@ impl FindModel {
         self.reveal.take()
     }
 
+    /// The replace string changed: no new search is needed.
+    pub fn set_replace_string(&mut self, s: String) {
+        self.state.replace_string = s;
+    }
+
+    /// `editor.find.loop`.
+    pub fn set_loop(&mut self, loop_: bool) {
+        self.state.loop_ = loop_;
+    }
+
     pub fn start_position(&self) -> Position {
         self.start_position
     }
@@ -216,7 +226,7 @@ impl FindModel {
 
     /// The find scopes as searched: a scope over several lines covers whole lines, and ends at the
     /// end of the previous line when it ends at column 1.
-    fn scopes(&self, buffer: &TextBuffer) -> Option<Vec<Range>> {
+    pub fn scopes(&self, buffer: &TextBuffer) -> Option<Vec<Range>> {
         let scopes = self.state.search_scope.as_ref()?;
         Some(
             scopes
@@ -516,4 +526,131 @@ pub fn scope_from_selection(ed: &Editor) -> Option<Vec<Range>> {
         r = Range::new(r.start, Position::new(line, ed.buffer().line_max_column(line)));
     }
     (!r.is_empty()).then(|| vec![r])
+}
+
+#[cfg(test)]
+mod tests {
+    use vsr_editor::EditorOptions;
+    use vsr_text::DefaultEol;
+
+    use super::*;
+
+    fn editor(text: &str) -> Editor {
+        Editor::new(TextBuffer::new(text, DefaultEol::Lf, true), EditorOptions { tab_size: 4, insert_spaces: true })
+    }
+
+    fn at(l: usize, c: usize) -> Position {
+        Position::new(l, c)
+    }
+
+    #[test]
+    fn label_reads_n_of_m_question_mark_and_no_results() {
+        let mut ed = editor("- foo bar foo\nfoo");
+        let mut m = FindModel::new(FindState::default(), &ed);
+        assert_eq!(m.label(), "No results", "empty search");
+        m.change(&mut ed, false, |s| s.search_string = "foo".into());
+        assert_eq!(m.label(), "? of 3", "caret before the first match, none is current");
+        m.move_to_next_match(&mut ed);
+        assert_eq!(m.label(), "1 of 3");
+        m.move_to_prev_match(&mut ed);
+        assert_eq!(m.label(), "3 of 3", "wraps");
+        m.change(&mut ed, false, |s| s.search_string = "zzz".into());
+        assert_eq!(m.label(), "No results");
+    }
+
+    #[test]
+    fn matches_update_when_the_text_changes() {
+        let mut ed = editor("a a");
+        let mut m = FindModel::new(FindState { search_string: "a".into(), ..FindState::default() }, &ed);
+        assert_eq!(m.matches().len(), 2);
+        ed.set_cursor(at(1, 4), false);
+        ed.type_text("a");
+        m.sync(&ed);
+        assert_eq!(m.matches().len(), 3, "typing in the editor adds a match");
+        assert!(m.highlighted().is_none());
+    }
+
+    #[test]
+    fn invalid_regex_has_an_error_and_no_matches() {
+        let mut ed = editor("a(b");
+        let mut m = FindModel::new(FindState::default(), &ed);
+        m.change(&mut ed, false, |s| (s.search_string, s.is_regex) = ("(".into(), true));
+        assert!(m.error().is_some());
+        assert!(m.matches().is_empty());
+        m.change(&mut ed, false, |s| s.is_regex = false);
+        assert!(m.error().is_none());
+        assert_eq!(m.matches().len(), 1);
+    }
+
+    #[test]
+    fn cursor_move_on_type_off_keeps_the_caret() {
+        let mut ed = editor("x foo");
+        let mut m = FindModel::new(FindState::default(), &ed);
+        m.cursor_move_on_type = false;
+        m.change(&mut ed, true, |s| s.search_string = "foo".into());
+        assert_eq!(ed.selection().active, at(1, 1));
+        m.cursor_move_on_type = true;
+        m.change(&mut ed, true, |s| s.search_string = "fo".into());
+        assert_eq!(ed.selection().range(), Range::new(at(1, 3), at(1, 5)));
+    }
+
+    #[test]
+    fn regex_replace_uses_capture_groups_and_case_ops() {
+        let mut ed = editor("john smith\nada lovelace");
+        let mut m = FindModel::new(
+            FindState {
+                search_string: r"(\w+) (\w+)".into(),
+                replace_string: r"\u$2, \u$1".into(),
+                is_regex: true,
+                ..FindState::default()
+            },
+            &ed,
+        );
+        m.replace_all(&mut ed);
+        assert_eq!(ed.buffer().value(), "Smith, John\nLovelace, Ada");
+        assert!(ed.undo());
+        assert_eq!(ed.buffer().value(), "john smith\nada lovelace");
+    }
+
+    #[test]
+    fn replace_moves_the_scope_with_the_text() {
+        let mut ed = editor("a a a\na a");
+        let mut m = FindModel::new(
+            FindState {
+                search_string: "a".into(),
+                replace_string: "bbb".into(),
+                search_scope: Some(vec![Range::new(at(1, 1), at(1, 6))]),
+                ..FindState::default()
+            },
+            &ed,
+        );
+        assert_eq!(m.matches().len(), 3, "only line 1");
+        m.replace_all(&mut ed);
+        assert_eq!(ed.buffer().value(), "bbb bbb bbb\na a");
+        assert_eq!(m.state().search_scope, Some(vec![Range::new(at(1, 1), at(1, 12))]));
+    }
+
+    #[test]
+    fn seeding_from_selection_or_word() {
+        let mut ed = editor("foo.bar baz\nqux");
+        ed.set_cursor(at(1, 6), false); // inside "bar"
+        assert_eq!(seed_search_string(&ed, SeedMode::Always, false).as_deref(), Some("bar"));
+        assert_eq!(seed_search_string(&ed, SeedMode::Selection, false), None, "no selection");
+        assert_eq!(seed_search_string(&ed, SeedMode::Never, false), None);
+        ed.set_cursor(at(1, 1), false);
+        ed.set_cursor(at(1, 8), true);
+        assert_eq!(seed_search_string(&ed, SeedMode::Selection, false).as_deref(), Some("foo.bar"));
+        assert_eq!(seed_search_string(&ed, SeedMode::Selection, true).as_deref(), Some("foo\\.bar"), "escaped for regex");
+        ed.set_cursor(at(2, 2), true); // spans two lines
+        assert_eq!(seed_search_string(&ed, SeedMode::Always, false), None);
+    }
+
+    #[test]
+    fn scope_from_selection_ends_on_the_previous_line_at_column_one() {
+        let mut ed = editor("ab\ncd\nef");
+        assert_eq!(scope_from_selection(&ed), None, "a caret is no scope");
+        ed.set_cursor(at(1, 2), false);
+        ed.set_cursor(at(3, 1), true);
+        assert_eq!(scope_from_selection(&ed), Some(vec![Range::new(at(1, 2), at(2, 3))]));
+    }
 }

@@ -73,6 +73,69 @@ pub enum SideBarLocation {
     Right,
 }
 
+/// `editor.find.seedSearchStringFromSelection`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SeedSearchString {
+    Never,
+    Always,
+    Selection,
+}
+
+/// `editor.find.autoFindInSelection`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoFindInSelection {
+    Never,
+    Always,
+    Multiline,
+}
+
+/// The `editor.find.*` settings that change how the Find widget behaves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FindSettings {
+    pub seed_search_string_from_selection: SeedSearchString,
+    pub auto_find_in_selection: AutoFindInSelection,
+    /// `editor.find.loop`: wrap around at the first / last match.
+    pub loop_: bool,
+    /// `editor.find.cursorMoveOnType`: jump to the next match while typing.
+    pub cursor_move_on_type: bool,
+    /// `editor.find.findOnType`: search while typing (otherwise on Enter).
+    pub find_on_type: bool,
+    /// `editor.find.closeOnResult`: close the widget after Enter lands on a match.
+    pub close_on_result: bool,
+}
+
+impl Default for FindSettings {
+    /// The registered defaults.
+    fn default() -> Self {
+        Self {
+            seed_search_string_from_selection: SeedSearchString::Always,
+            auto_find_in_selection: AutoFindInSelection::Never,
+            loop_: true,
+            cursor_move_on_type: true,
+            find_on_type: true,
+            close_on_result: false,
+        }
+    }
+}
+
+impl FindSettings {
+    pub fn from_configuration(c: &Configuration) -> Self {
+        let d = Self::default();
+        Self {
+            seed_search_string_from_selection: c
+                .get_enum("editor.find.seedSearchStringFromSelection")
+                .unwrap_or(d.seed_search_string_from_selection),
+            auto_find_in_selection: c.get_enum("editor.find.autoFindInSelection").unwrap_or(d.auto_find_in_selection),
+            loop_: c.get_bool("editor.find.loop").unwrap_or(d.loop_),
+            cursor_move_on_type: c.get_bool("editor.find.cursorMoveOnType").unwrap_or(d.cursor_move_on_type),
+            find_on_type: c.get_bool("editor.find.findOnType").unwrap_or(d.find_on_type),
+            close_on_result: c.get_bool("editor.find.closeOnResult").unwrap_or(d.close_on_result),
+        }
+    }
+}
+
 /// Upstream `GOLDEN_LINE_HEIGHT_RATIO` on macOS (`fontInfo.ts`).
 const GOLDEN_LINE_HEIGHT_RATIO: f64 = 1.5;
 const MINIMUM_LINE_HEIGHT: f64 = 8.0;
@@ -135,6 +198,7 @@ pub struct EditorSettings {
     pub cursor_width: f32,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
+    pub find: FindSettings,
 }
 
 impl Default for EditorSettings {
@@ -155,6 +219,7 @@ impl Default for EditorSettings {
             cursor_width: 0.0,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
+            find: FindSettings::default(),
         }
     }
 }
@@ -178,6 +243,7 @@ impl EditorSettings {
             cursor_width: c.get_f64("editor.cursorWidth").unwrap_or(0.0) as f32,
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
+            find: FindSettings::from_configuration(c),
         }
     }
 
@@ -289,6 +355,21 @@ mod tests {
         assert_eq!(e.editor_options(), EditorOptions { tab_size: 2, insert_spaces: false });
         assert_eq!(e.font_weight, 700.0);
         assert!(e.insert_final_newline && !e.trim_trailing_whitespace);
+    }
+
+    #[test]
+    fn find_settings_defaults_and_values() {
+        assert_eq!(FindSettings::from_configuration(&config("")), FindSettings::default());
+        let f = FindSettings::from_configuration(&config(
+            r#"{ "editor.find.seedSearchStringFromSelection": "selection", "editor.find.autoFindInSelection": "multiline",
+                 "editor.find.loop": false, "editor.find.cursorMoveOnType": false, "editor.find.findOnType": false,
+                 "editor.find.closeOnResult": true }"#,
+        ));
+        assert_eq!(f.seed_search_string_from_selection, SeedSearchString::Selection);
+        assert_eq!(f.auto_find_in_selection, AutoFindInSelection::Multiline);
+        assert!(!f.loop_ && !f.cursor_move_on_type && !f.find_on_type && f.close_on_result);
+        let bad = FindSettings::from_configuration(&config(r#"{ "editor.find.seedSearchStringFromSelection": "sometimes" }"#));
+        assert_eq!(bad.seed_search_string_from_selection, SeedSearchString::Always, "invalid values fall back");
     }
 
     #[test]

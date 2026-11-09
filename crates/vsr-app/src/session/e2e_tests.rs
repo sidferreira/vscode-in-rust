@@ -562,7 +562,7 @@ fn with_nothing_restored_the_welcome_tab_shows_and_a_recent_file_opens_on_click(
 }
 
 #[gpui_kit::test]
-fn the_welcome_page_is_skipped_for_other_startup_editors_and_open_file_opens_quick_open(cx: &mut TestAppContext) {
+fn welcome_open_file_opens_quick_open(cx: &mut TestAppContext) {
     let env = env("welcome-open", None);
     let (wb, vcx) = start(cx, &env);
     click(vcx, "welcome:open-file");

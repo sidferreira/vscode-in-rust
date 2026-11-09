@@ -54,7 +54,7 @@ the minimap model are asserted; the test platform's text system is a no-op, so n
 | `window.commandCenter` shows a search box; a click opens Quick Open; off removes it | ready | `command_center_is_a_search_box_that_opens_quick_open`, `command_center_off_leaves_the_title_text_only` |
 | `window.density.editorTabHeight: compact` makes the tab strip 22px, live | ready | `compact_editor_tabs_are_shorter_and_apply_live` |
 | zoom in, out and reset change `window.zoomLevel` and scale the editor text | ready | `zoom_commands_change_the_level_and_scale_the_editor_text` (chrome does not zoom yet, ADR-0035) |
-| `workbench.startupEditor: readme` opens the README; the default opens nothing | ready | `startup_editor_readme_opens_the_readme_and_the_default_opens_nothing`, `startup_editor_default_is_the_welcome_page_which_rscode_does_not_have_yet` |
+| `workbench.startupEditor: readme` opens the README; the default opens the Welcome page; `none` opens nothing | ready | `startup_editor_readme_opens_the_readme_and_the_default_opens_nothing`, `startup_editor_default_is_the_welcome_page`, `startup_editor_none_opens_nothing` |
 
 ### Word wrap
 

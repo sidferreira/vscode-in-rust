@@ -466,3 +466,48 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Word wrap (ADR-0036): the monospace line breaks computer (all of createLineBreaks: break before/after classes, CJK and Kinsoku, keepAll, wrapping indent, tabs, surrogate pairs, two-cell full-width, escaped line feeds), ModelLineProjectionData offset translation, and a ViewLines projection over a TextBuffer (incremental: unchanged lines are matched from both ends by hash, only the edited middle is recomputed). 24 of the 37 monospaceLineBreaksComputer.test.ts tests (the 11 injected-text ones and the two-cell variants that need them are left out), the Basic test of lineBreakData.test.ts and SplitLine of modelLineProjection.test.ts are ported. Not ported: createLineBreaksFromPreviousLineBreaks (resize recomputes), injected text, hidden areas, the DOM breaks computer (wrappingStrategy advanced is read as simple)."
+
+[[port]]
+id = "session-restore"
+status = "partial"
+upstream = [
+  "src/vs/platform/storage/common/storage.ts",
+  "src/vs/platform/workspaces/common/workspaces.ts",
+  "src/vs/platform/window/common/window.ts",
+  "src/vs/workbench/browser/parts/editor/editorPart.ts",
+  "src/vs/workbench/common/editor/editorGroupModel.ts",
+  "src/vs/editor/browser/widget/codeEditor/codeEditorWidget.ts",
+]
+rust = [
+  "crates/vsr-app/src/session/store.rs",
+  "crates/vsr-app/src/session/state.rs",
+  "crates/vsr-app/src/session/settings.rs",
+  "crates/vsr-app/src/editor_view/view_state.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Session restore (ADR-0040): per-folder state (tabs in order, active, preview, MRU, scroll, selection, word wrap override, side bar, Search query) in workspaceStorage/<path hash>/state.json, recent files and folders in globalStorage/recents.json, atomic writes, damaged files kept aside. window.restoreWindows (none against the rest), workbench.editor.restoreEditors and restoreViewState. Not ported: a SQLite storage service, multiple windows, editor groups and splits, per-editor-type serializers, full screen state, the cross-session history of Go Back/Forward."
+
+[[port]]
+id = "hot-exit"
+status = "partial"
+upstream = [
+  "src/vs/workbench/services/workingCopy/common/workingCopyBackupService.ts",
+  "src/vs/workbench/services/workingCopy/common/workingCopyBackupTracker.ts",
+  "src/vs/workbench/services/workingCopy/electron-browser/workingCopyBackupTracker.ts",
+  "src/vs/workbench/contrib/files/browser/files.contribution.ts",
+]
+rust = ["crates/vsr-app/src/session/backup.rs", "crates/vsr-app/src/session/runtime.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Hot exit (ADR-0040): one JSON backup per dirty file written atomically after a quiet second (crash safety) and on quit, restored as a dirty buffer, removed on save, moved to discarded/ when the tab is closed, damaged files kept aside; files.hotExit off / onExit / onExitAndWindowClose with a Save All / Don't Save / Cancel bar. Not ported: untitled and non-file working copies, backup meta (etag, orphaned), the shutdown veto dialogs of other working copy types, files.restoreUndoStack."
+
+[[port]]
+id = "welcome-page"
+status = "partial"
+upstream = [
+  "src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts",
+  "src/vs/workbench/contrib/welcomeGettingStarted/browser/startupPage.ts",
+  "src/vs/workbench/contrib/welcomeGettingStarted/browser/media/gettingStarted.css",
+]
+rust = ["crates/vsr-app/src/welcome.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Welcome page tab (ADR-0040): heading, Start (Open File... opens Quick Open), Recent files, Show welcome page on startup (workbench.startupEditor), command workbench.action.openWalkthrough (Help: Welcome). Not ported: walkthroughs and steps, New File, Open Folder, Clone, remote links, recent folders, Help links, videos, the experimental onboarding."

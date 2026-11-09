@@ -78,6 +78,44 @@ pub enum MatchBrackets {
     Never,
 }
 
+/// `editor.wordWrap`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WordWrap {
+    Off,
+    On,
+    #[serde(rename = "wordWrapColumn")]
+    Column,
+    Bounded,
+}
+
+/// `editor.wrappingIndent`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WrappingIndentSetting {
+    None,
+    Same,
+    Indent,
+    DeepIndent,
+}
+
+/// `editor.wrappingStrategy`: `advanced` measures text with the browser; with a monospace font it
+/// breaks where `simple` does, so both run the monospace computer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WrappingStrategy {
+    Simple,
+    Advanced,
+}
+
+/// `editor.wordBreak`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WordBreakSetting {
+    Normal,
+    KeepAll,
+}
+
 /// `editor.renderWhitespace`: which spaces and tabs get a marker (middle dot, arrow).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -337,6 +375,16 @@ pub struct EditorSettings {
     pub font_features: Vec<(String, u32)>,
     /// `editor.scrollBeyondLastLine`: the last line can scroll up to the top of the viewport.
     pub scroll_beyond_last_line: bool,
+    /// `editor.wordWrap`, `editor.wordWrapColumn`, `editor.wrappingIndent`, `editor.wrappingStrategy`,
+    /// `editor.wordWrapIndicator`, `editor.wordBreak`.
+    pub word_wrap: WordWrap,
+    pub word_wrap_column: usize,
+    pub wrapping_indent: WrappingIndentSetting,
+    pub wrapping_strategy: WrappingStrategy,
+    pub word_wrap_indicator: bool,
+    pub word_break: WordBreakSetting,
+    /// `editor.wordSeparators`.
+    pub word_separators: String,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
     /// `files.trimFinalNewlines`.
@@ -379,6 +427,13 @@ impl Default for EditorSettings {
             line_highlight_only_when_focus: false,
             font_features: parse_font_ligatures(None),
             scroll_beyond_last_line: true,
+            word_wrap: WordWrap::Off,
+            word_wrap_column: 80,
+            wrapping_indent: WrappingIndentSetting::Same,
+            wrapping_strategy: WrappingStrategy::Simple,
+            word_wrap_indicator: false,
+            word_break: WordBreakSetting::Normal,
+            word_separators: vsr_editor::USUAL_WORD_SEPARATORS.to_string(),
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             trim_final_newlines: false,
@@ -434,6 +489,15 @@ impl EditorSettings {
             line_highlight_only_when_focus: c.get_bool("editor.renderLineHighlightOnlyWhenFocus").unwrap_or(false),
             font_features: parse_font_ligatures(c.get_value("editor.fontLigatures")),
             scroll_beyond_last_line: c.get_bool("editor.scrollBeyondLastLine").unwrap_or(true),
+            word_wrap: c.get_enum("editor.wordWrap").unwrap_or(WordWrap::Off),
+            word_wrap_column: c.get_f64("editor.wordWrapColumn").unwrap_or(80.0).round().max(1.0) as usize,
+            wrapping_indent: c.get_enum("editor.wrappingIndent").unwrap_or(WrappingIndentSetting::Same),
+            wrapping_strategy: c.get_enum("editor.wrappingStrategy").unwrap_or(WrappingStrategy::Simple),
+            word_wrap_indicator: c.get_bool("editor.wordWrapIndicator").unwrap_or(false),
+            word_break: c.get_enum("editor.wordBreak").unwrap_or(WordBreakSetting::Normal),
+            word_separators: c
+                .get_str("editor.wordSeparators")
+                .map_or_else(|| vsr_editor::USUAL_WORD_SEPARATORS.to_string(), str::to_string),
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             trim_final_newlines: c.get_bool("files.trimFinalNewlines").unwrap_or(false),
@@ -468,6 +532,25 @@ impl EditorSettings {
     /// Advance of one character, estimated from the font size (see `MENLO_ADVANCE_RATIO`).
     pub fn char_width(&self) -> f32 {
         self.font_size * MENLO_ADVANCE_RATIO
+    }
+
+    /// The wrapping parameters for a wrapping column (see `wrapping_column`), in units of one
+    /// character advance.
+    pub fn wrap_params(&self, wrapping_column: i64) -> vsr_editor::wrap::WrapParams {
+        use vsr_editor::wrap::{WordBreak, WrapParams, WrappingIndent};
+        let indent = match self.wrapping_indent {
+            WrappingIndentSetting::None => WrappingIndent::None,
+            WrappingIndentSetting::Same => WrappingIndent::Same,
+            WrappingIndentSetting::Indent => WrappingIndent::Indent,
+            WrappingIndentSetting::DeepIndent => WrappingIndent::DeepIndent,
+        };
+        let word_break = match self.word_break {
+            WordBreakSetting::Normal => WordBreak::Normal,
+            WordBreakSetting::KeepAll => WordBreak::KeepAll,
+        };
+        // `wrappingStrategy: advanced` shapes text in the browser upstream; here both strategies
+        // use the monospace computer.
+        WrapParams::monospace(self.tab_size, wrapping_column, indent).with_word_break(word_break)
     }
 
     /// Width of the line cursor: `editor.cursorWidth`, or 2 when it is 0 (viewCursor.ts).
@@ -722,6 +805,9 @@ mod tests {
         assert_eq!(e.occurrences_highlight, OccurrencesHighlight::SingleFile);
         assert!(e.rounded_selection && !e.line_highlight_only_when_focus && e.scroll_beyond_last_line);
         assert_eq!(e.font_features, [("liga".to_string(), 0), ("calt".to_string(), 0)]);
+        assert_eq!((e.word_wrap, e.word_wrap_column, e.wrapping_indent), (WordWrap::Off, 80, WrappingIndentSetting::Same));
+        assert_eq!((e.wrapping_strategy, e.word_wrap_indicator, e.word_break), (WrappingStrategy::Simple, false, WordBreakSetting::Normal));
+        assert_eq!(e.word_separators, vsr_editor::USUAL_WORD_SEPARATORS);
         let l = LayoutSettings::from_configuration(&config(""));
         assert_eq!(l, LayoutSettings {
             side_bar: SideBarLocation::Left,
@@ -753,6 +839,23 @@ mod tests {
         let e = EditorSettings::from_configuration(&config(r#"{ "window.zoomLevel": 1, "editor.fontSize": 10 }"#));
         assert!((e.font_size - 12.0).abs() < 1e-4, "{}", e.font_size);
         assert!((e.line_height - 18.0).abs() < 1e-4, "auto line height follows the zoomed font: {}", e.line_height);
+    }
+
+    #[test]
+    fn word_wrap_settings_are_read_and_clamped() {
+        let e = EditorSettings::from_configuration(&config(
+            r#"{"editor.wordWrap":"bounded","editor.wordWrapColumn":0,"editor.wrappingIndent":"deepIndent","editor.wordBreak":"keepAll","editor.wordSeparators":"."}"#,
+        ));
+        assert_eq!(e.word_wrap, WordWrap::Bounded);
+        assert_eq!(e.word_wrap_column, 1, "wordWrapColumn has a minimum of 1");
+        assert_eq!(e.wrapping_indent, WrappingIndentSetting::DeepIndent);
+        assert_eq!(e.word_separators, ".");
+        let p = e.wrap_params(30);
+        assert_eq!(p.breaks.wrapping_column, 30);
+        assert_eq!(p.breaks.wrapping_indent, vsr_editor::wrap::WrappingIndent::DeepIndent);
+        assert_eq!(p.breaks.word_break, vsr_editor::wrap::WordBreak::KeepAll);
+        let bad = EditorSettings::from_configuration(&config(r#"{"editor.wordWrap":"sideways"}"#));
+        assert_eq!(bad.word_wrap, WordWrap::Off, "an invalid value falls back to the default");
     }
 
     #[test]

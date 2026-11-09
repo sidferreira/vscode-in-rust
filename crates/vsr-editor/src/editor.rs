@@ -6,6 +6,8 @@
 //! Simplification: one cursor only (upstream `Cursor` keeps a collection for multi-cursor
 //! editing). The `leftover` field is upstream's `leftoverVisibleColumns`.
 
+use std::cell::RefCell;
+
 use vsr_text::{Position, TextBuffer};
 
 use crate::Selection;
@@ -26,6 +28,13 @@ pub struct Editor {
     /// Desired visible column offset, kept across vertical moves (upstream `leftoverVisibleColumns`).
     pub(crate) leftover: i64,
     pub(crate) history: UndoStack,
+    /// `editor.wordSeparators`.
+    pub(crate) word_separators: String,
+    /// Word wrap: the projection of the buffer into view lines (see `wrapping.rs`).
+    pub(crate) wrap: RefCell<crate::wrapping::WrapState>,
+    /// A caret at a wrap boundary is drawn at the end of the earlier view line (upstream's
+    /// `PositionAffinity.Left`) when this equals the active position.
+    pub(crate) caret_trailing: Option<Position>,
 }
 
 impl Editor {
@@ -38,6 +47,9 @@ impl Editor {
             selection: Selection::caret(Position::new(1, 1)),
             leftover: 0,
             history: UndoStack::default(),
+            word_separators: crate::word_ops::USUAL_WORD_SEPARATORS.to_string(),
+            wrap: RefCell::new(crate::wrapping::WrapState::default()),
+            caret_trailing: None,
         }
     }
 

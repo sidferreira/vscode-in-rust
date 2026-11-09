@@ -18,8 +18,11 @@ mod save_ops;
 mod selection;
 mod undo;
 mod word_ops;
+pub mod wrap;
+mod wrapping;
 
 pub use brackets::matching_brackets;
 pub use editor::{Editor, EditorOptions};
+pub use word_ops::USUAL_WORD_SEPARATORS;
 pub use selection::Selection;
 pub use vsr_text::{Position, Range};

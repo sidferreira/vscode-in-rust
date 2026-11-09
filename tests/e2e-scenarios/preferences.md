@@ -55,3 +55,22 @@ the minimap model are asserted; the test platform's text system is a no-op, so n
 | `window.density.editorTabHeight: compact` makes the tab strip 22px, live | ready | `compact_editor_tabs_are_shorter_and_apply_live` |
 | zoom in, out and reset change `window.zoomLevel` and scale the editor text | ready | `zoom_commands_change_the_level_and_scale_the_editor_text` (chrome does not zoom yet, ADR-0035) |
 | `workbench.startupEditor: readme` opens the README; the default opens nothing | ready | `startup_editor_readme_opens_the_readme_and_the_default_opens_nothing`, `startup_editor_default_is_the_welcome_page_which_rscode_does_not_have_yet` |
+
+### Word wrap
+
+Headless (`crates/vsr-app/src/editor_view/wrap_e2e.rs`, ADR-0036). The test platform measures no text, so the viewport
+width is injected in columns for `on` and `bounded`; `wordWrapColumn` needs no measuring.
+
+| scenario | status | test |
+|---|---|---|
+| `editor.wordWrap: wordWrapColumn` wraps a long line into view lines (view lines > model lines), one row per view line, the line number on the first row only; `off` and a narrower column take effect live | ready | `word_wrap_column_wraps_a_long_line_into_view_lines` |
+| `on` wraps at the viewport width, `bounded` at the smaller of viewport and `wordWrapColumn` | ready | `viewport_modes_wrap_at_the_viewport_or_the_smaller_of_both` |
+| Down/Up move by view lines keeping the desired column; Home/End go to the view line start/end, then the line's | ready | `down_moves_within_a_wrapped_line_and_home_end_follow_view_lines` |
+| Alt+Z toggles word wrap (`editor.action.toggleWordWrap`, in the registry) | ready | `alt_z_toggles_word_wrap_for_the_editor`, `alt_z_turns_off_a_wrapping_setting_for_that_editor_only` |
+| `editor.wrappingIndent` none / same / indent / deepIndent indent the continuation rows | ready | `wrapping_indent_indents_the_continuation_lines` |
+| `editor.wordBreak: keepAll`, `editor.wrappingStrategy` | ready | `word_break_keep_all_does_not_break_between_cjk_and_latin`, `wrapping_strategy_advanced_breaks_like_simple` |
+| `editor.wordWrapIndicator` marks rows that continue | ready | `word_wrap_indicator_marks_rows_that_continue` |
+| `editor.wordSeparators` changes word moves | ready | `word_separators_apply_to_word_moves` |
+| typing re-wraps; clicking a continuation row puts the caret in it | ready | `typing_rewraps_and_clicking_a_continuation_row_places_the_caret_in_it` |
+| the minimap counts view lines | ready | `the_minimap_counts_view_lines` |
+| a 10k-line file with word wrap on stays responsive | ready | `editing_a_10k_line_file_with_word_wrap_stays_responsive` |

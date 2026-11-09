@@ -2,10 +2,10 @@
 //!
 //! upstream: src/vs/editor/common/cursor/cursorWordOperations.ts @ 50e1350fc78d
 //!
-//! Simplified. Upstream's `WordCharacterClassifier` is driven by the `wordSeparators`
-//! option, has `WordStartFast`/`WordEnd`/accessibility variants, subword and
-//! multi-cursor rules. Here a character is whitespace, a separator, or a word
-//! character, with upstream's default `USUAL_WORD_SEPARATORS`. Left moves to the
+//! Simplified. Upstream's `WordCharacterClassifier` has `WordStartFast`/`WordEnd`/accessibility
+//! variants, subword and multi-cursor rules. Here a character is whitespace, a separator, or a
+//! word character; the separators are `editor.wordSeparators` (`Editor::set_word_separators`,
+//! upstream's `USUAL_WORD_SEPARATORS` by default). No `wordSegmenterLocales` (Intl.Segmenter). Left moves to the
 //! start of the previous run of the same class, right to the start of the next word.
 //! Moves stop at line ends, except that at a line edge they wrap like a single step.
 
@@ -13,8 +13,8 @@ use vsr_text::Position;
 
 use crate::Editor;
 
-/// upstream `USUAL_WORD_SEPARATORS`.
-const USUAL_WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
+/// upstream `USUAL_WORD_SEPARATORS`: the default of `editor.wordSeparators`.
+pub const USUAL_WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Class {
@@ -23,10 +23,11 @@ pub(crate) enum Class {
     Word,
 }
 
-pub(crate) fn class_of(ch: char) -> Class {
+/// The class of `ch` under the word separators `separators` (`editor.wordSeparators`).
+pub(crate) fn class_of(separators: &str, ch: char) -> Class {
     if ch.is_whitespace() {
         Class::Space
-    } else if USUAL_WORD_SEPARATORS.contains(ch) {
+    } else if separators.contains(ch) {
         Class::Separator
     } else {
         Class::Word
@@ -48,6 +49,18 @@ fn units_of(line: &str) -> (Vec<char>, Vec<usize>) {
 }
 
 impl Editor {
+    /// Sets the word separators (`editor.wordSeparators`) used by word moves and double-click.
+    pub fn set_word_separators(&mut self, separators: &str) {
+        if self.word_separators != separators {
+            self.word_separators = separators.to_string();
+        }
+    }
+
+    /// The word separators in effect.
+    pub fn word_separators(&self) -> &str {
+        &self.word_separators
+    }
+
     /// Upstream `WordOperations.moveWordLeft` (WordStart), simplified.
     pub fn move_word_left(&mut self, extend: bool) {
         if !extend && !self.selection.is_empty() {
@@ -62,14 +75,15 @@ impl Editor {
             return;
         }
         let (chars, starts) = units_of(self.buffer.line_content(p.line));
+        let sep = self.word_separators.as_str();
         // Index of the first character at or after the caret: everything before it is left of the caret.
         let mut i = starts.iter().position(|&s| s >= p.column - 1).unwrap_or(chars.len());
-        while i > 0 && class_of(chars[i - 1]) == Class::Space {
+        while i > 0 && class_of(sep, chars[i - 1]) == Class::Space {
             i -= 1;
         }
         if i > 0 {
-            let class = class_of(chars[i - 1]);
-            while i > 0 && class_of(chars[i - 1]) == class {
+            let class = class_of(sep, chars[i - 1]);
+            while i > 0 && class_of(sep, chars[i - 1]) == class {
                 i -= 1;
             }
         }
@@ -90,15 +104,16 @@ impl Editor {
             return;
         }
         let (chars, starts) = units_of(self.buffer.line_content(p.line));
+        let sep = self.word_separators.as_str();
         let n = chars.len();
         let mut i = starts.iter().position(|&s| s >= p.column - 1).unwrap_or(n);
-        if i < n && class_of(chars[i]) != Class::Space {
-            let class = class_of(chars[i]);
-            while i < n && class_of(chars[i]) == class {
+        if i < n && class_of(sep, chars[i]) != Class::Space {
+            let class = class_of(sep, chars[i]);
+            while i < n && class_of(sep, chars[i]) == class {
                 i += 1;
             }
         }
-        while i < n && class_of(chars[i]) == Class::Space {
+        while i < n && class_of(sep, chars[i]) == Class::Space {
             i += 1;
         }
         self.move_to(Position::new(p.line, starts[i] + 1), extend, 0);
@@ -119,14 +134,15 @@ impl Editor {
             return;
         }
         let (chars, starts) = units_of(self.buffer.line_content(p.line));
+        let sep = self.word_separators.as_str();
         let n = chars.len();
         let mut i = starts.iter().position(|&s| s >= p.column - 1).unwrap_or(n);
-        while i < n && class_of(chars[i]) == Class::Space {
+        while i < n && class_of(sep, chars[i]) == Class::Space {
             i += 1;
         }
         if i < n {
-            let class = class_of(chars[i]);
-            while i < n && class_of(chars[i]) == class {
+            let class = class_of(sep, chars[i]);
+            while i < n && class_of(sep, chars[i]) == class {
                 i += 1;
             }
         }

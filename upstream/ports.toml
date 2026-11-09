@@ -87,7 +87,7 @@ upstream = [
 ]
 rust = ["crates/vsr-editor/src", "crates/vsr-editor/tests"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "Cursor, selection, typing and undo core (vsr-editor). Single cursor; no indent/onEnter rules, no multi-line Tab indent, no word-separator config, no sticky tab stops. 30 cursor-move cases and 10 edit cases (one simplified) ported from cursor.test.ts and cursorMoveCommand.test.ts, plus our own edit, undo and word tests."
+notes = "Cursor, selection, typing and undo core (vsr-editor). Single cursor; no indent/onEnter rules, no multi-line Tab indent, no sticky tab stops (editor.wordSeparators is read, word segmentation is not). 30 cursor-move cases and 10 edit cases (one simplified) ported from cursor.test.ts and cursorMoveCommand.test.ts, plus our own edit, undo and word tests."
 
 [[port]]
 id = "settings-editor"
@@ -443,3 +443,26 @@ upstream = [
 rust = ["crates/vsr-app/src/model.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Editor tabs of the one group (ADR-0033): preview (one, replaced, pinned by an edit or a double click), MRU, openPositioning (left/right/first/last), focusRecentEditorAfterClose, the editor limit (editorsObserver), closeOnFileDelete, tab labels (labelFormat). 7 of editorGroupModel.test.ts ported: Pinned and Active, Pinned and Active (LEFT), Pinned and Not Active, Preview gets overwritten, Preview editor moves to the side of the active one, Preview tab does not have a stable position, closing picks next from MRU list. Not ported: sticky editors, events, serialization, groups, transient, selection, move across groups."
+
+[[port]]
+id = "editor-word-wrap"
+status = "partial"
+upstream = [
+  "src/vs/editor/common/viewModel/monospaceLineBreaksComputer.ts",
+  "src/vs/editor/common/modelLineProjectionData.ts",
+  "src/vs/editor/common/viewModel/modelLineProjection.ts",
+  "src/vs/editor/common/viewModel/viewModelLines.ts",
+  "src/vs/editor/common/cursor/cursorMoveCommands.ts",
+  "src/vs/editor/test/common/viewModel/monospaceLineBreaksComputer.test.ts",
+  "src/vs/editor/test/common/viewModel/lineBreakData.test.ts",
+  "src/vs/editor/test/browser/viewModel/modelLineProjection.test.ts",
+]
+rust = [
+  "crates/vsr-editor/src/wrap",
+  "crates/vsr-editor/src/wrapping.rs",
+  "crates/vsr-editor/tests/upstream_monospace_line_breaks.rs",
+  "crates/vsr-editor/tests/upstream_model_line_projection.rs",
+  "crates/vsr-editor/tests/wrap.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Word wrap (ADR-0036): the monospace line breaks computer (all of createLineBreaks: break before/after classes, CJK and Kinsoku, keepAll, wrapping indent, tabs, surrogate pairs, two-cell full-width, escaped line feeds), ModelLineProjectionData offset translation, and a ViewLines projection over a TextBuffer (incremental: unchanged lines are matched from both ends by hash, only the edited middle is recomputed). 24 of the 37 monospaceLineBreaksComputer.test.ts tests (the 11 injected-text ones and the two-cell variants that need them are left out), the Basic test of lineBreakData.test.ts and SplitLine of modelLineProjection.test.ts are ported. Not ported: createLineBreaksFromPreviousLineBreaks (resize recomputes), injected text, hidden areas, the DOM breaks computer (wrappingStrategy advanced is read as simple)."

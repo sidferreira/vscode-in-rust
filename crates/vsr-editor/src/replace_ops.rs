@@ -106,7 +106,8 @@ impl Editor {
         (n, moved)
     }
 
-    /// The word at `p` (a run of characters that are neither whitespace nor word separators,
+    /// The word at `p` (a run of characters that are neither whitespace nor the default word separators,
+    /// independent of `editor.wordSeparators`: upstream reads the language's word definition here,
     /// touching `p` at either side), like `TextModel.getWordAtPosition` with the default word
     /// definition. `None` when `p` touches no word.
     pub fn word_at(&self, p: Position) -> Option<Range> {
@@ -118,7 +119,7 @@ impl Editor {
         let mut found = None;
         for ch in line.chars() {
             let w = ch.len_utf16();
-            if class_of(ch) == Class::Word {
+            if class_of(crate::word_ops::USUAL_WORD_SEPARATORS, ch) == Class::Word {
                 run = Some(run.map_or((units, units + w), |(s, _)| (s, units + w)));
             } else if let Some(r) = run.take()
                 && r.0 <= target

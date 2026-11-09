@@ -470,6 +470,12 @@ reason = "needs refactoring edits from language features (rename, code actions)"
 comment = "Saves the files that a refactoring changed. rscode has no refactorings (no language features)."
 match = ["files.refactoring.autoSave"]
 
+[[rule]]
+status = "blocked"
+reason = "needs Unicode word segmentation (UAX #29 / ICU) in the editing core"
+comment = "editor.wordSegmenterLocales picks the Intl.Segmenter locales for word moves and double-click in CJK text. vsr-editor classifies characters by editor.wordSeparators only; a segmenter dependency (unicode-segmentation or ICU4X) has to land first."
+match = ["editor.wordSegmenterLocales"]
+
 [[component]]
 match = ["editor", "editor.*", "diffEditor*", "multiDiffEditor*"]
 path = "crates/vsr-app/src/editor_view.rs (and crates/vsr-editor / vsr-text for behaviour)"

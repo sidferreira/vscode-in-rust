@@ -254,7 +254,9 @@ impl MinimapView {
         let pr = f64::from(self.shared.pixel_ratio.get());
         let lh = i.cfg.line_height;
         let buf = i.editor.buffer();
-        let line_count = buf.line_count();
+        // With word wrap the minimap shows view lines, like upstream (`viewLineCount`).
+        let line_count = i.editor.editor.view_line_count();
+        let wrap_column = i.editor.editor.view_lines().and_then(|v| v.params().map(|p| p.breaks.wrapping_column));
 
         // Sizes come from the last paint; the first frame guesses and the check below asks again.
         let tb = i.text_bounds.get();
@@ -382,7 +384,7 @@ impl MinimapView {
         let key = {
             let mut h = DefaultHasher::new();
             (i.editor.path.as_path(), i.editor.editor.version()).hash(&mut h);
-            (layout.start_line.to_bits(), layout.end_line.to_bits(), line_count).hash(&mut h);
+            (layout.start_line.to_bits(), layout.end_line.to_bits(), line_count, wrap_column).hash(&mut h);
             (params.render == RenderMinimap::Text, params.font_scale, params.line_height, params.char_width).hash(&mut h);
             (params.canvas_width, params.canvas_height, params.tab_size, params.top_padding_lines).hash(&mut h);
             (params.fg, params.bg, sampling.as_ref().map(Vec::len)).hash(&mut h);
@@ -391,11 +393,18 @@ impl MinimapView {
         let cached = self.image.borrow().as_ref().filter(|(k, _)| *k == key).map(|(_, img)| img.clone());
         let image = cached.unwrap_or_else(|| {
             let (first, last) = (layout.start_line as usize, layout.end_line as usize);
-            let lines = (first..=last.max(first)).filter(|_| last >= first).map(|n| {
-                let model_line = sampling.as_ref().map_or(n, |s| s.get(n - 1).copied().unwrap_or(line_count));
-                buf.line_content(model_line.clamp(1, line_count))
-            });
-            let canvas = render_lines(&params, lines);
+            let wrapped = i.editor.editor.view_lines();
+            let lines: Vec<std::borrow::Cow<str>> = (first..=last.max(first))
+                .filter(|_| last >= first)
+                .map(|n| {
+                    let view_line = sampling.as_ref().map_or(n, |s| s.get(n - 1).copied().unwrap_or(line_count)).clamp(1, line_count);
+                    match wrapped.as_ref() {
+                        Some(v) => std::borrow::Cow::Owned(v.view_line_content(buf, view_line - 1)),
+                        None => std::borrow::Cow::Borrowed(buf.line_content(view_line)),
+                    }
+                })
+                .collect();
+            let canvas = render_lines(&params, lines.iter().map(|l| l.as_ref()));
             let frame = image::Frame::new(
                 image::RgbaImage::from_raw(canvas.width as u32, canvas.height as u32, canvas.data)
                     .unwrap_or_else(|| image::RgbaImage::new(1, 1)),

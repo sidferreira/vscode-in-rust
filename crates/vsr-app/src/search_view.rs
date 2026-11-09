@@ -213,7 +213,7 @@ impl SearchView {
         }));
         subs.push(cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)));
         Self {
-            theme: Theme::dark_modern(),
+            theme: crate::theme_service::ThemeService::theme(cx),
             root,
             settings,
             query,
@@ -718,7 +718,7 @@ impl SearchView {
             .cursor_pointer()
             .font_family(icons::FAMILY)
             .text_size(px(16.))
-            .text_color(to_gpui(t.sidebar_fg))
+            .text_color(to_gpui(t.side_bar_fg))
             .hover(|s| s.bg(to_gpui(t.toolbar_hover_bg)))
             .child(icons::glyph(glyph))
             .tooltip(move |w, cx| Tooltip::new(tip).build(w, cx))
@@ -752,7 +752,7 @@ impl SearchView {
             .cursor_pointer()
             .font_family(icons::FAMILY)
             .text_size(px(16.))
-            .text_color(to_gpui(if active { t.input_option_active_fg } else { t.sidebar_fg }))
+            .text_color(to_gpui(if active { t.input_option_active_fg } else { t.side_bar_fg }))
             .child(icons::glyph(glyph))
             .tooltip(move |w, cx| Tooltip::new(tip).build(w, cx))
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| on(this, cx)))
@@ -795,7 +795,7 @@ impl SearchView {
                     .flex()
                     .items_center()
                     .gap(px(2.))
-                    .text_color(to_gpui(t.sidebar_fg))
+                    .text_color(to_gpui(t.side_bar_fg))
                     .child(if searching {
                         self.icon_button("search-cancel", icons::STOP_CIRCLE, "Cancel Search", cx, |this, _, cx| {
                             this.cancel_search(cx)
@@ -1233,6 +1233,7 @@ impl SearchView {
 
 impl Render for SearchView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.theme = crate::theme_service::ThemeService::theme(cx);
         let t = self.theme.clone();
         let list = uniform_list(
             "search-results",
@@ -1253,8 +1254,8 @@ impl Render for SearchView {
             .size_full()
             .flex()
             .flex_col()
-            .bg(to_gpui(t.chrome_bg))
-            .text_color(to_gpui(t.sidebar_fg))
+            .bg(to_gpui(t.side_bar_bg))
+            .text_color(to_gpui(t.side_bar_fg))
             .on_action(cx.listener(|this, _: &ToggleCaseSensitive, _, cx| this.toggle_case(cx)))
             .on_action(cx.listener(|this, _: &ToggleWholeWord, _, cx| this.toggle_word(cx)))
             .on_action(cx.listener(|this, _: &ToggleRegex, _, cx| this.toggle_regex(cx)))

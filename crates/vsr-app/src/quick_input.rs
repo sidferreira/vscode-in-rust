@@ -116,7 +116,7 @@ impl QuickPick {
             s.focus(window, cx);
         });
         let mut this = Self {
-            theme: Theme::dark_modern(),
+            theme: crate::theme_service::ThemeService::theme(cx),
             input,
             list: PickList::default(),
             source: Box::new(source),
@@ -399,6 +399,7 @@ fn highlighted(text: &str, matches: &[Match], color: Hsla) -> StyledText {
 
 impl Render for QuickPick {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.theme = crate::theme_service::ThemeService::theme(cx);
         let t = self.theme.clone();
         let focused = self.input.read(cx).focus_handle(cx).is_focused(window);
         let rows = self.list.len();

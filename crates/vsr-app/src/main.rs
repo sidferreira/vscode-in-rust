@@ -19,6 +19,7 @@ mod search_view; // Search view (ADR-0023)
 mod settings_view; // Settings editor (ADR-0017)
 mod text_layout;
 mod theme;
+mod theme_service;
 mod ui;
 mod window_title; // window.title and window.titleSeparator (the title bar and the OS window title)
 
@@ -39,6 +40,7 @@ use config::AppConfig;
 use editor_view::{EditorHost, EditorView};
 use model::{DirEntry, Editors, OpenOptions, list_dir};
 use theme::{Theme, metrics as m};
+use theme_service::ThemeService;
 use search_view::{FocusSearch, SearchEvent, SearchView};
 use settings_view::{OpenSettings, SettingsEvent, SettingsView};
 use ui::to_gpui;
@@ -60,7 +62,8 @@ fn main() {
         icons::install(cx);
         install_app_lifecycle(cx);
         AppConfig::install(cx, Some(settings_path())); // defaults + settings.json, live reload
-        settings_view::install(cx); // Cmd+, binding + component theme
+        ThemeService::install(cx); // active colour theme (workbench.colorTheme, colorCustomizations)
+        settings_view::install(cx); // Cmd+, binding
         editor_view::init(cx); // editor key bindings
         search_view::init(cx); // Shift+Cmd+F and Search view bindings
         quick_open::init(cx); // Cmd+P
@@ -128,6 +131,9 @@ impl EditorHost for Workbench {
 
 struct Workbench {
     theme: Theme,
+    /// Re-render when the active theme changes; the window appearance feeds `autoDetectColorScheme`.
+    _theme_sub: Subscription,
+    _appearance_sub: Option<Subscription>,
     root: PathBuf,
     view: ActivityView,
     sidebar_visible: bool,
@@ -168,6 +174,7 @@ impl Workbench {
             AppConfig::install(cx, None); // in memory: tests and embedders that set no file
         }
         commands::ensure_installed(cx);
+        ThemeService::ensure_installed(cx);
         let configuration = AppConfig::get(cx).configuration();
         let exclude = ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null));
         let editor_settings = EditorSettings::from_configuration(configuration);
@@ -179,7 +186,12 @@ impl Workbench {
             ..Editors::default()
         };
         let mut wb = Self {
-            theme: Theme::dark_modern(),
+            theme: ThemeService::theme(cx),
+            _theme_sub: cx.observe_global::<ThemeService>(|this, cx| {
+                this.theme = ThemeService::theme(cx);
+                cx.notify();
+            }),
+            _appearance_sub: None,
             root: root.clone(),
             view: ActivityView::Explorer,
             sidebar_visible: true,
@@ -447,9 +459,9 @@ impl Workbench {
                 .cursor_pointer()
                 .text_size(px(13.))
                 .text_color(fg)
-                .bg(to_gpui(if active { t.tab_active_bg } else { t.chrome_bg }))
-                .child(if active { line(div().top_0(), t.accent) } else { line(div().bottom_0(), t.border) })
-                .child(div().absolute().right_0().top_0().h_full().w(px(1.)).bg(to_gpui(t.border)))
+                .bg(to_gpui(if active { t.tab_active_bg } else { t.tab_inactive_bg }))
+                .child(if active { line(div().top_0(), t.tab_active_border_top) } else { line(div().bottom_0(), t.tabs_border) })
+                .child(div().absolute().right_0().top_0().h_full().w(px(1.)).bg(to_gpui(t.tab_border)))
                 .child(div().font_family(icons::FAMILY).text_size(px(16.)).child(icons::glyph(icons::SETTINGS_GEAR)))
                 .child("Settings")
                 .child(close)
@@ -561,11 +573,11 @@ impl Workbench {
             .flex()
             .items_center()
             .justify_center()
-            .bg(to_gpui(t.chrome_bg))
+            .bg(to_gpui(t.title_bar_bg))
             .border_b_1()
-            .border_color(to_gpui(t.border))
+            .border_color(to_gpui(t.title_bar_border))
             .text_size(px(13.))
-            .text_color(to_gpui(t.sidebar_fg))
+            .text_color(to_gpui(t.title_bar_fg))
             .window_control_area(WindowControlArea::Drag);
         if !command_center {
             return bar.child(title.to_string());
@@ -604,7 +616,7 @@ impl Workbench {
 
     fn status_bar(&self) -> impl IntoElement {
         let t = &self.theme;
-        let fg = to_gpui(t.sidebar_fg);
+        let fg = to_gpui(t.status_bar_fg);
         let icon = |c: char| {
             div()
                 .font_family(icons::FAMILY)
@@ -655,9 +667,9 @@ impl Workbench {
             .items_center()
             .justify_between()
             .px(px(5.))
-            .bg(to_gpui(t.chrome_bg))
+            .bg(to_gpui(t.status_bar_bg))
             .border_t_1()
-            .border_color(to_gpui(t.border))
+            .border_color(to_gpui(t.status_bar_border))
             .text_size(px(12.))
             .text_color(fg)
             .child(left)
@@ -688,7 +700,7 @@ impl Workbench {
                 .text_color(to_gpui(fg))
                 .hover(|s| s.text_color(to_gpui(t.activity_fg)))
                 .when(active, |d| {
-                    let bar = div().absolute().bg(to_gpui(t.accent));
+                    let bar = div().absolute().bg(to_gpui(t.activity_active_border));
                     d.child(match (horizontal, side) {
                         (true, _) => bar.left_0().bottom_0().w_full().h(px(2.)),
                         (false, SideBarLocation::Left) => bar.left_0().top_0().w(px(2.)).h_full(),
@@ -743,7 +755,7 @@ impl Workbench {
                 )),
             );
 
-        let bar = div().flex_none().flex().justify_between().bg(to_gpui(t.chrome_bg)).border_color(to_gpui(t.border));
+        let bar = div().flex_none().flex().justify_between().bg(to_gpui(t.activity_bar_bg)).border_color(to_gpui(t.activity_bar_border));
         match location {
             ActivityBarLocation::Default => {
                 let bar = bar.w(px(m::ACTIVITY_BAR_WIDTH)).h_full().flex_col();
@@ -774,8 +786,8 @@ impl Workbench {
                 .flex_none()
                 .w(px(self.sidebar_width))
                 .h_full()
-                .bg(to_gpui(t.chrome_bg))
-                .text_color(to_gpui(t.sidebar_fg))
+                .bg(to_gpui(t.side_bar_bg))
+                .text_color(to_gpui(t.side_bar_fg))
                 .child(search.clone())
                 .into_any_element();
         }
@@ -799,8 +811,8 @@ impl Workbench {
             .h_full()
             .flex()
             .flex_col()
-            .bg(to_gpui(t.chrome_bg))
-            .text_color(to_gpui(t.sidebar_fg))
+            .bg(to_gpui(t.side_bar_bg))
+            .text_color(to_gpui(t.side_bar_fg))
             .debug_selector(|| "side-bar".to_string())
             .children(strip_top)
             .child(
@@ -910,7 +922,7 @@ impl Workbench {
             .flex()
             .flex_row()
             .overflow_hidden()
-            .bg(to_gpui(t.chrome_bg))
+            .bg(to_gpui(t.tab_strip_bg))
             // `workbench.editor.scrollToSwitchTabs`: a wheel step over the strip activates the
             // neighbouring tab (scrolling down goes right, as upstream).
             .on_scroll(cx.listener(|this, ev: &ScrollEvent, _, cx| {
@@ -931,7 +943,7 @@ impl Workbench {
                     .bottom_0()
                     .w_full()
                     .h(px(1.))
-                    .bg(to_gpui(t.border)),
+                    .bg(to_gpui(t.tabs_border)),
             );
         let single = show_tabs == ShowTabs::Single;
         let highlight = self.editors.settings.highlight_modified_tabs;
@@ -952,7 +964,7 @@ impl Workbench {
             let top_line = if highlighted {
                 Some(if active { t.tab_active_modified_border } else { t.tab_inactive_modified_border })
             } else if active {
-                Some(t.accent)
+                Some(t.tab_active_border_top)
             } else {
                 None
             };
@@ -1022,10 +1034,10 @@ impl Workbench {
                 .cursor_pointer()
                 .text_size(px(13.))
                 .text_color(fg)
-                .bg(to_gpui(if active { t.tab_active_bg } else { t.chrome_bg }))
+                .bg(to_gpui(if active { t.tab_active_bg } else { t.tab_inactive_bg }))
                 .child(match top_line {
                     Some(c) => line(div().top_0(), c),
-                    None => line(div().bottom_0(), t.border),
+                    None => line(div().bottom_0(), t.tabs_border),
                 })
                 .child(
                     div()
@@ -1034,7 +1046,7 @@ impl Workbench {
                         .top_0()
                         .h_full()
                         .w(px(1.))
-                        .bg(to_gpui(t.border)),
+                        .bg(to_gpui(t.tab_border)),
                 )
                 .when(self.editors.open[i].is_read_only(), |d| {
                     // `files.readonly*` (ADR-0034): a lock in front of the name, as upstream.
@@ -1124,6 +1136,10 @@ impl Render for Workbench {
                 f
             }
         };
+        if self._appearance_sub.is_none() {
+            self._appearance_sub = Some(theme_service::watch_window_appearance(window, cx));
+        }
+        self.theme = ThemeService::theme(cx);
         let t = self.theme.clone();
         let layout = self.layout(cx);
         let right = layout.side_bar == SideBarLocation::Right;
@@ -1141,7 +1157,7 @@ impl Render for Workbench {
                 .flex_none()
                 .w(px(1.))
                 .h_full()
-                .bg(to_gpui(t.border))
+                .bg(to_gpui(t.side_bar_border))
                 .relative()
                 .debug_selector(|| "sidebar-resize".to_string())
                 .child(
@@ -1152,7 +1168,7 @@ impl Render for Workbench {
                         .w(px(5.))
                         .h_full()
                         .cursor_col_resize()
-                        .hover(|s| s.bg(to_gpui(t.accent)))
+                        .hover(|s| s.bg(to_gpui(t.sash_hover_border)))
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(|this, _, _, cx| {
@@ -1184,7 +1200,7 @@ impl Render for Workbench {
             .flex()
             .flex_col()
             .bg(to_gpui(t.editor_bg))
-            .text_color(to_gpui(t.sidebar_fg))
+            .text_color(to_gpui(t.foreground))
             .font_family(".SystemUIFont")
             .text_size(px(13.))
             .relative()

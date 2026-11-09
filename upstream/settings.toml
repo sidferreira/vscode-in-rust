@@ -255,9 +255,9 @@ match = ["window.menuStyle"]
 
 [[rule]]
 status = "blocked"
-reason = "needs a theme service (system light and dark modes, high contrast themes)"
-comment = "Colour mode and high contrast themes are chosen by the theme service. rscode has one built-in theme (theme.rs)."
-match = ["window.autoDetectColorScheme", "window.autoDetectHighContrast", "window.systemColorTheme"]
+reason = "needs the OS high contrast signal and a native window appearance override"
+comment = "window.autoDetectHighContrast and the preferred high contrast themes switch to a high contrast theme when the OS uses one; gpui exposes no high contrast signal (the theme service takes it as input, ADR-0037). window.systemColorTheme sets the colour mode of native window chrome (NSApplication appearance), which rscode does not drive."
+match = ["window.autoDetectHighContrast", "window.systemColorTheme", "workbench.preferredHighContrastColorTheme", "workbench.preferredHighContrastLightColorTheme"]
 
 [[rule]]
 status = "blocked"
@@ -351,9 +351,9 @@ match = ["workbench.tips.enabled"]
 
 [[rule]]
 status = "blocked"
-reason = "needs a theme service (theme switching, icon, product icon and colour overrides)"
-comment = "workbench.colorTheme, iconTheme, productIconTheme and colorCustomizations pick or override themes. rscode has one built-in theme (theme.rs), with no theme registry."
-match = ["workbench.colorTheme", "workbench.iconTheme", "workbench.productIconTheme", "workbench.colorCustomizations"]
+reason = "needs file icon themes"
+comment = "workbench.iconTheme and productIconTheme pick the file icon and product icon themes. rscode has the codicon font only and no file icons (the colour theme service is done: ADR-0037)."
+match = ["workbench.iconTheme", "workbench.productIconTheme"]
 
 [[rule]]
 status = "blocked"

@@ -17,6 +17,7 @@ serde = { version = "1", features = ["derive"] }
 vsr-search.workspace = true
 vsr-quickinput.workspace = true
 vsr-commands.workspace = true
+vsr-theme.workspace = true
 ignore = "0.4"
 vsr-find.workspace = true
 futures = "0.3"

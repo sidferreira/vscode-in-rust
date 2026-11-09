@@ -7243,6 +7243,7 @@ dependencies = [
  "vsr-search",
  "vsr-settings",
  "vsr-text",
+ "vsr-theme",
 ]
 
 [[package]]

@@ -993,3 +993,65 @@ edit made by another program was never seen. The explorer had no create, rename 
 - Renaming a folder collapses it (its expansion is not carried to the new path).
 - Watched paths are compared as given; a workspace reached through a symbolic link does not match FSEvents'
   resolved paths yet.
+
+## ADR-0041 — Explorer UI: commands, keys, inline name input, delete confirmation, explorer settings (2026-11-09)
+
+**Context.** ADR-0039 built the Explorer's file operations behind no UI: create, rename and delete
+existed in the workbench and in tests only. The Explorer tree had no focus, selection or keys, and
+the `explorer.*` view settings were absent. Blocked: `files.enableTrash` and the explorer settings.
+
+**Decision.** The Explorer UI follows upstream `fileActions.contribution.ts`, `explorerView.ts`,
+`inlineEditInputBox.ts` and `files.contribution.ts` (ids, titles and keys are upstream's; see
+`explorer/actions.rs`).
+
+- **Commands** (`commands.rs`, ADR-0030): `explorer.newFile` "New File..." and `explorer.newFolder`
+  "New Folder..." (palette, category File); `workbench.files.action.refreshFilesExplorer` "Refresh
+  Explorer" and `workbench.files.action.collapseExplorerFolders` "Collapse Folders in Explorer"
+  (palette); `renameFile` "Rename...", `moveFileToTrash` "Delete" and `deleteFile` "Delete
+  Permanently" (not in the palette, as upstream). The handlers live on the workbench root, so a
+  palette pick works from any focus and key presses bubble up to them.
+- **Keys** (context `FilesExplorer`, which is the tree; `explorer/actions.rs`): Up, Down, Left
+  (collapse or select the parent), Right (expand or select the first child), Space (open the file
+  or toggle the folder), Enter (Rename; confirms a pending delete), Cmd+Backspace and Delete
+  (Delete), Cmd+Alt+Backspace (Delete Permanently), Escape (cancel a pending delete). Upstream's
+  macOS `list.select` (Cmd+Down) is not bound.
+- **Inline name input** (`explorer/inline.rs`): New File and New Folder go into the selected folder
+  (or the selected file's folder, or the root); Rename changes the selected item. A gpui-component
+  `InputState` in the tree. Enter commits a valid name (an error keeps the box open with the message
+  of `names::validate_file_name` under it), Escape cancels, and losing focus commits a valid name or
+  cancels an invalid one (upstream `InlineEditInputBox`). Rename selects the name without its last
+  extension. While the box is open the tree's key context is off, so Space, arrows and Delete type.
+- **Delete** (`explorer/delete.rs`): with `explorer.confirmDelete` on (default), a confirmation bar
+  shows above the tree with the upstream question ("Are you sure you want to delete 'x'?", "... and
+  its contents?" for folders) and detail ("You can restore this file from the Trash."), with Move to
+  Trash or Delete Permanently and Cancel. Permanent deletes say "This action is irreversible!" and
+  ask "permanently delete". With `files.enableTrash` off, Delete is permanent and asks that stronger
+  question. Deviations: upstream's "Undo" wording is not used (rscode has no undo for files), dirty
+  editors are not asked about (they stay open with their text, as ADR-0039), and only one item is
+  deleted at a time (no multi-select).
+- **View title actions**: New File, New Folder, Refresh Explorer and Collapse Folders in Explorer
+  (codicons new-file, new-folder, refresh, collapse-all) show while the Explorer header is hovered.
+- **Settings** (`explorer/settings.rs`, wired in `config/wired.rs`; blocked rule in
+  `upstream/settings.toml`): `explorer.confirmDelete`, `explorer.sortOrder`,
+  `explorer.compactFolders`, `explorer.autoReveal` and `files.enableTrash` are read live. Sort orders
+  (`explorer/sort.rs`): default, mixed, filesFirst, type and modified; names compare
+  case-insensitively with numbers in order (the `natord` crate, as upstream's numeric collator).
+  `foldersNestsFiles` sorts as default because rscode has no file nesting. Compacted folders
+  (`a/b/c`) are computed when a row is drawn: the row stands for the deepest folder, which is the one
+  it opens, and `New File` on it creates inside that folder. `autoReveal` runs when an editor opens
+  (not yet on a tab switch); `focusNoScroll` selects without scrolling.
+- **Not built**: `explorer.incrementalNaming` (it names pasted and duplicated items; there is no copy,
+  paste or duplicate yet) is blocked. The naming functions it needs are in `explorer/names.rs`.
+
+**Consequences.**
+- The Explorer has its own focus handle and scroll handle (`ExplorerState`, `explorer/state.rs`).
+  The tree rendering moved from `main.rs` to `explorer/view.rs`.
+- The headless tests (`explorer/e2e_tree.rs`, scenarios in `tests/e2e-scenarios/explorer.md`) drive
+  the keys through the real bindings. One behaviour is not observable headless: the scroll position
+  after `autoReveal: true` (the scroll request is made; gpui's test platform does not move the
+  offset), so that row is `pending`.
+- A file's editor steals focus on the first render after it opens, so a test that presses keys in
+  the tree after opening a file must focus the tree again (`focus_tree` in the tests).
+- Renaming a file inside a folder that is collapsed reveals the folder first (`expand_to`).
+- `natord` is a new dependency; adding it changed other lock entries (`windows` 0.62, `getrandom`
+  0.4) that cargo re-resolved.

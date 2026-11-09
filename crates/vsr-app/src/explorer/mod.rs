@@ -4,6 +4,8 @@
 pub mod actions; // Explorer commands and key bindings (ADR-0041)
 pub mod delete; // delete with the inline confirmation bar (ADR-0041)
 pub mod inline; // the inline name input: New File, New Folder, Rename (ADR-0041)
+// Incremental naming waits for copy, paste and duplicate (ADR-0041); until then only validation runs.
+#[allow(dead_code)]
 pub mod names; // validation and incremental naming (explorer.incrementalNaming)
 pub mod ops; // create, rename, delete on the disk
 pub mod settings; // explorer.* settings (ADR-0041)

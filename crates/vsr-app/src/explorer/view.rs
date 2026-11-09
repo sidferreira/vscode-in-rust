@@ -20,12 +20,12 @@ const HEADER_GROUP: &str = "explorer-header";
 use super::settings::{AutoReveal, ExplorerSettings};
 use crate::config::AppConfig;
 use super::actions::{
-    self, CancelDelete, CollapseAll, CollapseOrParent, DeleteFile, ExpandOrFirstChild, MoveFileToTrash, MoveSelectionDown, MoveSelectionUp,
+    CancelDelete, CollapseAll, CollapseOrParent, DeleteFile, ExpandOrFirstChild, MoveFileToTrash, MoveSelectionDown, MoveSelectionUp,
     NewFile, NewFolder, OpenOrToggle, RefreshAll, RenameFile,
 };
 use crate::config::settings::OpenSource;
 use crate::icons;
-use crate::model::{DirEntry, list_dir};
+use crate::model::DirEntry;
 use crate::ui::to_gpui;
 use crate::Workbench;
 
@@ -139,10 +139,8 @@ impl Workbench {
         let Some(parent) = path.parent().map(Path::to_path_buf) else { return };
         self.expand_to(&parent);
         self.explorer.selected = Some(path.to_path_buf());
-        if mode == AutoReveal::On {
-            if let Some(ix) = self.row_index(path) {
-                self.explorer.scroll.scroll_to_item(ix);
-            }
+        if let Some(ix) = self.row_index(path).filter(|_| mode == AutoReveal::On) {
+            self.explorer.scroll.scroll_to_item(ix);
         }
     }
 

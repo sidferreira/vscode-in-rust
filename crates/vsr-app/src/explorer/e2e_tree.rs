@@ -4,7 +4,7 @@
 
 use std::fs;
 
-use gpui_kit::{Focusable, TestAppContext, VisualTestContext};
+use gpui_kit::{TestAppContext, VisualTestContext};
 use serde_json::json;
 
 use super::e2e::{start, tree_names, workspace};
@@ -126,11 +126,6 @@ fn with_files_enable_trash_off_delete_is_permanent_and_asks_the_stronger_questio
     cx.run_until_parked();
     assert!(!lib.exists());
     assert!(fs::read_dir(bin.path()).unwrap().next().is_none(), "the Trash stays empty");
-}
-
-fn run(wb: &gpui_kit::Entity<Workbench>, cx: &mut VisualTestContext, f: impl FnOnce(&mut Workbench, &mut gpui_kit::Context<Workbench>) + 'static) {
-    wb.update(cx, f);
-    cx.run_until_parked();
 }
 
 #[gpui::test]

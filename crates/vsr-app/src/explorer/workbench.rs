@@ -47,6 +47,7 @@ impl Workbench {
     /// Delete `path`: to the Trash when `files.enableTrash` (the default), else permanently. The
     /// clean editors of the deleted files close; a dirty one stays open, as with
     /// `workbench.editor.closeOnFileDelete`.
+    #[cfg_attr(not(test), allow(dead_code))] // the explorer deletes with `delete_path`; tests use this
     pub(crate) fn delete_entry(&mut self, path: &Path, cx: &mut Context<Self>) -> Result<(), String> {
         let use_trash = AppConfig::get(cx).configuration().get_bool("files.enableTrash").unwrap_or(true);
         self.delete_path(path, use_trash, cx)

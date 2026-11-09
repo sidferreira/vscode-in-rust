@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui_kit::component::input::{Enter as InputEnter, Escape as InputEscape, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 
 use super::actions::KEY_CONTEXT;

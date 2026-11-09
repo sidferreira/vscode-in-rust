@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Regenerate crates/vsr-languages/data from the upstream VS Code clone (ADR-0038).
+
+  scripts/bundle-grammars --clone /path/to/vscode-original
+
+Writes:
+  data/languages.json   every `contributes.languages` entry of every built-in extension, in
+                        extension-directory order (the order upstream registers them in)
+  data/grammars.json    the `contributes.grammars` entries of the bundled extensions
+  data/grammars/<scopeName>.json   the grammar files (strict JSON copies)
+  data/themes/*.json    dark_vs, dark_plus, dark_modern (comments and trailing commas stripped)
+  data/NOTICES.md       provenance and licence text of every bundled grammar
+
+The grammars themselves are not edited. Run it again after an upstream bump.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+
+BUNDLED_EXTENSIONS = [
+    "rust", "javascript", "typescript-basics", "json", "markdown-basics", "python",
+    "shellscript", "css", "html", "yaml", "xml", "cpp", "go", "java",
+]
+THEMES = ["dark_vs.json", "dark_plus.json", "dark_modern.json"]
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(ROOT, "crates", "vsr-languages", "data")
+
+
+def strip_jsonc(text):
+    """Remove // and /* */ comments and trailing commas, leaving string contents alone."""
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+        elif text.startswith("/*", i):
+            i = text.index("*/", i) + 2
+        else:
+            out.append(c)
+            i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+
+def load_jsonc(path):
+    with open(path, encoding="utf-8") as f:
+        return json.loads(strip_jsonc(f.read()))
+
+
+def notices_sections(clone):
+    """ThirdPartyNotices.txt split into (header, body) sections."""
+    with open(os.path.join(clone, "ThirdPartyNotices.txt"), encoding="utf-8") as f:
+        text = f.read()
+    parts = re.split(r"\n-{40,}\n", text)
+    return [p.strip("\n") for p in parts if p.strip()]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--clone", required=True)
+    args = ap.parse_args()
+    ext_root = os.path.join(args.clone, "extensions")
+
+    languages, grammars, provenance = [], [], []
+    for ext in sorted(os.listdir(ext_root)):
+        pkg_path = os.path.join(ext_root, ext, "package.json")
+        if not os.path.isfile(pkg_path):
+            continue
+        pkg = load_jsonc(pkg_path)
+        contributes = pkg.get("contributes", {})
+        for lang in contributes.get("languages", []):
+            entry = {k: lang[k] for k in
+                     ("id", "extensions", "filenames", "filenamePatterns", "firstLine", "aliases", "mimetypes")
+                     if k in lang}
+            if "configuration" in lang:
+                entry["configuration"] = f"{ext}/{lang['configuration'].lstrip('./')}"
+            entry["extension"] = ext
+            languages.append(entry)
+        if ext not in BUNDLED_EXTENSIONS:
+            continue
+        for g in contributes.get("grammars", []):
+            src = os.path.join(ext_root, ext, g["path"])
+            if not src.endswith(".json") or not os.path.isfile(src):
+                print(f"skip non-JSON grammar {ext}/{g['path']}", file=sys.stderr)
+                continue
+            data = load_jsonc(src)
+            scope = g["scopeName"]
+            os.makedirs(os.path.join(OUT, "grammars"), exist_ok=True)
+            with open(os.path.join(OUT, "grammars", scope + ".json"), "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+            entry = {"scopeName": scope, "path": scope + ".json", "extension": ext}
+            for k in ("language", "embeddedLanguages", "tokenTypes", "injectTo", "balancedBracketScopes"):
+                if k in g:
+                    entry[k] = g[k]
+            grammars.append(entry)
+            provenance.append((ext, g["path"], scope))
+
+    os.makedirs(os.path.join(OUT, "themes"), exist_ok=True)
+    for t in THEMES:
+        data = load_jsonc(os.path.join(ext_root, "theme-defaults", "themes", t))
+        with open(os.path.join(OUT, "themes", t), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+
+    with open(os.path.join(OUT, "languages.json"), "w", encoding="utf-8") as f:
+        json.dump(languages, f, ensure_ascii=False, indent=1)
+    with open(os.path.join(OUT, "grammars.json"), "w", encoding="utf-8") as f:
+        json.dump(grammars, f, ensure_ascii=False, indent=1)
+
+    # The grammar files as a Rust table (include_str!), so the crate needs no build script.
+    rs = ["//! Generated by scripts/bundle-grammars. Do not edit.", "",
+          "/// (scope name, grammar JSON)", "pub static GRAMMAR_FILES: &[(&str, &str)] = &["]
+    for g in grammars:
+        rs.append(f'    ("{g["scopeName"]}", include_str!("../data/grammars/{g["path"]}")),')
+    rs.append("];")
+    with open(os.path.join(ROOT, "crates", "vsr-languages", "src", "bundled_files.rs"), "w") as f:
+        f.write("\n".join(rs) + "\n")
+
+    # NOTICES.md: per bundled extension, the upstream grammar repositories (cgmanifest.json) with
+    # their licence, and the licence text from ThirdPartyNotices.txt.
+    sections = notices_sections(args.clone)
+    lines = [
+        "# Third-party notices: bundled TextMate grammars and themes",
+        "",
+        "Generated by `scripts/bundle-grammars`. The grammars are copied unmodified (comments are",
+        "stripped from JSONC where present) from the VS Code built-in extensions listed below, and",
+        "each comes from the upstream repository named in that extension's `cgmanifest.json`.",
+        "The theme files are VS Code's `theme-defaults` (MIT, Microsoft Corporation).",
+        "",
+    ]
+    used_urls = {}
+    for ext in BUNDLED_EXTENSIONS:
+        cg_path = os.path.join(ext_root, ext, "cgmanifest.json")
+        files = [p for e, p, s in provenance if e == ext]
+        lines.append(f"## extensions/{ext}")
+        lines.append("")
+        lines.append("Grammar files: " + ", ".join(f"`{os.path.basename(p)}`" for p in files))
+        lines.append("")
+        cg = load_jsonc(cg_path)
+        for reg in cg.get("registrations", []):
+            git = reg["component"].get("git", {})
+            url = git.get("repositoryUrl", "")
+            lines.append(
+                f"- {git.get('name', url)} ({url}) at `{git.get('commitHash', '')}`, "
+                f"licence: **{reg.get('license', 'unknown')}**"
+            )
+            used_urls[url.lower()] = reg.get("license", "")
+        lines.append("")
+    lines.append("## Licence texts (from VS Code's ThirdPartyNotices.txt)")
+    lines.append("")
+    seen = set()
+    for url in sorted(used_urls):
+        for s in sections:
+            head = s.split("\n\n", 1)[0].lower()
+            if url in head or url.replace("https://", "") in head:
+                if s not in seen:
+                    seen.add(s)
+                    lines.append("```text")
+                    lines.append(s)
+                    lines.append("```")
+                    lines.append("")
+    missing = [u for u in used_urls if not any(u in s.split("\n\n", 1)[0].lower() for s in sections)]
+    if missing:
+        lines.append("Licence text not found in ThirdPartyNotices.txt for: " + ", ".join(sorted(missing)))
+        lines.append("")
+    with open(os.path.join(OUT, "NOTICES.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    print(f"{len(languages)} languages, {len(grammars)} grammars, {len(seen)} licence texts, missing: {missing}")
+
+
+if __name__ == "__main__":
+    main()

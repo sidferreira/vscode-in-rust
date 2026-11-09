@@ -4,7 +4,8 @@
 //! upstream: src/vs/editor/common/cursor/cursorMoveOperations.ts @ 50e1350fc78d
 //!
 //! Simplifications: no injected text (so no normalization loop in down/up), no
-//! sticky atomic soft tabs, no half-line moves, no folding, no word-wrap view lines.
+//! sticky atomic soft tabs, no half-line moves, no folding. With word wrap on, up/down/page and
+//! Home/End move by view lines (`wrapping.rs`).
 //! The sticky end column uses upstream's `MAX_SAFE_SMALL_INTEGER - maxColumn` trick.
 
 use vsr_text::{Position, Range};
@@ -159,6 +160,9 @@ impl Editor {
         } else {
             self.selection.active
         };
+        if self.move_vertical_view(base, count as i64, extend) {
+            return;
+        }
         let target = base.line as i64 + count as i64;
         let (p, leftover) = self.vertical(base, self.leftover, target, true);
         self.move_to(p, extend, leftover);
@@ -172,6 +176,9 @@ impl Editor {
         } else {
             self.selection.active
         };
+        if self.move_vertical_view(base, -(count as i64), extend) {
+            return;
+        }
         let target = base.line as i64 - count as i64;
         let (p, leftover) = self.vertical(base, self.leftover, target, true);
         self.move_to(p, extend, leftover);
@@ -188,6 +195,9 @@ impl Editor {
     /// Upstream `MoveOperations.moveToBeginningOfLine`: toggles between the first
     /// non-whitespace column and column 1. A blank line goes to column 1.
     pub fn move_home(&mut self, extend: bool) {
+        if self.home_by_view(extend) {
+            return;
+        }
         let p = self.selection.active;
         let first = match first_non_whitespace_column(self.buffer.line_content(p.line)) {
             0 => 1,
@@ -200,6 +210,9 @@ impl Editor {
     /// Upstream `MoveOperations.moveToEndOfLine` with `sticky`: the desired column
     /// stays at the end of the line while moving up and down.
     pub fn move_end(&mut self, extend: bool) {
+        if self.end_by_view(extend) {
+            return;
+        }
         let line = self.selection.active.line;
         let max = self.buffer.line_max_column(line);
         let leftover = MAX_SAFE_SMALL_INTEGER - max as i64;

@@ -94,9 +94,7 @@ pub fn whitespace_marks(
         let column = i + 1;
         let base = if !is_ws(ch) {
             false
-        } else if first_non_ws.is_none_or(|f| i < f) || last_non_ws.is_none_or(|l| i > l) {
-            true
-        } else if ch == '\t' {
+        } else if ch == '\t' || first_non_ws.is_none_or(|f| i < f) || last_non_ws.is_none_or(|l| i > l) {
             true
         } else {
             match mode {

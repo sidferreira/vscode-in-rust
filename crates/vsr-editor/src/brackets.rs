@@ -7,8 +7,7 @@
 //! understood. Pairs of different kinds are counted separately (`(` with `)` only), except for
 //! the enclosing search, which counts every kind.
 //!
-//! upstream: src/vs/editor/common/model/bracketPairsTextModelPart/bracketPairsImpl.ts
-//! (`matchBracket`, `findEnclosingBrackets`) @ 50e1350fc78d
+//! upstream: src/vs/editor/common/model/bracketPairsTextModelPart/bracketPairsImpl.ts @ 50e1350fc78d
 
 use vsr_text::{Position, TextBuffer};
 

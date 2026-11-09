@@ -68,6 +68,7 @@ fn main() {
         search_view::init(cx); // Shift+Cmd+F and Search view bindings
         quick_open::init(cx); // Cmd+P
         commands::init(cx); // command registry; Shift+Cmd+P, F1, Cmd+B, Shift+Cmd+E, Ctrl+G
+        explorer::actions::init(cx); // Explorer tree keys (ADR-0041)
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -146,6 +147,8 @@ struct Workbench {
     sidebar_width: f32,
     resizing_sidebar: bool,
     expanded: HashSet<PathBuf>,
+    /// The Explorer tree's focus, selection and scroll (ADR-0041).
+    explorer: explorer::state::ExplorerState,
     /// Lazily loaded directory listings (loaded the first time a folder is expanded).
     children: HashMap<PathBuf, Vec<DirEntry>>,
     editors: Editors,
@@ -217,6 +220,7 @@ impl Workbench {
             sidebar_width: m::SIDEBAR_WIDTH,
             resizing_sidebar: false,
             expanded: HashSet::new(),
+            explorer: explorer::state::ExplorerState::new(cx),
             children: HashMap::new(),
             editors,
             editor_view: EditorView::default(),
@@ -588,26 +592,6 @@ impl Workbench {
         }
     }
 
-    fn toggle_dir(&mut self, path: &Path) {
-        if !self.expanded.remove(path) {
-            self.expanded.insert(path.to_path_buf());
-            self.children
-                .entry(path.to_path_buf())
-                .or_insert_with(|| list_dir(path, &self.root, &self.exclude).unwrap_or_default());
-        }
-    }
-
-    /// Visible tree rows, depth-first, honouring `expanded`.
-    fn flatten(&self, dir: &Path, depth: usize, out: &mut Vec<(DirEntry, usize)>) {
-        let Some(entries) = self.children.get(dir) else { return };
-        for e in entries {
-            out.push((e.clone(), depth));
-            if e.is_dir && self.expanded.contains(&e.path) {
-                self.flatten(&e.path, depth + 1, out);
-            }
-        }
-    }
-
     // ---- parts --------------------------------------------------------------
 
     /// The text of `window.title` for the current state (upstream `WindowTitle.getWindowTitle`).
@@ -911,86 +895,6 @@ impl Workbench {
             .child(body)
             .children(strip_bottom)
             .into_any_element()
-    }
-
-    fn explorer(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = &self.theme;
-        let indent = self.layout(cx).tree_indent;
-        let mut rows = Vec::new();
-        self.flatten(&self.root, 0, &mut rows);
-        let active = self.editors.active_editor().map(|e| e.path.clone());
-
-        let chevron = |c: char| {
-            div()
-                .flex_none()
-                .w(px(16.))
-                .font_family(icons::FAMILY)
-                .text_size(px(16.))
-                .child(icons::glyph(c))
-        };
-
-        let header = div()
-            .flex_none()
-            .h(px(22.))
-            .px(px(8.))
-            .flex()
-            .items_center()
-            .text_size(px(11.))
-            .font_weight(FontWeight::BOLD)
-            .child(chevron(icons::CHEVRON_DOWN))
-            .child(folder_name(&self.root).to_uppercase());
-
-        let list = rows.into_iter().enumerate().map(|(i, (entry, depth))| {
-            let is_active = active.as_deref() == Some(entry.path.as_path());
-            let open = self.expanded.contains(&entry.path);
-            let path = entry.path.clone();
-            let is_dir = entry.is_dir;
-            div()
-                .id(("tree", i))
-                .flex_none()
-                .h(px(22.))
-                .w_full()
-                .flex()
-                .items_center()
-                .pl(px(8. + depth as f32 * indent))
-                .text_size(px(13.))
-                .cursor_pointer()
-                .when(is_active, |d| d.bg(to_gpui(t.list_active_bg)))
-                .when(!is_active, |d| d.hover(|s| s.bg(to_gpui(t.list_hover_bg))))
-                .child(match (is_dir, open) {
-                    (true, true) => chevron(icons::CHEVRON_DOWN),
-                    (true, false) => chevron(icons::CHEVRON_RIGHT),
-                    _ => div().flex_none().w(px(16.)),
-                })
-                .child(div().whitespace_nowrap().overflow_hidden().child(entry.name))
-                .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
-                    if is_dir {
-                        this.toggle_dir(&path);
-                    } else {
-                        // A single click previews, a double click pins (`workbench.editor.enablePreview`).
-                        let source = OpenSource::Explorer { double_click: ev.click_count() >= 2 };
-                        this.open_from(&path, source);
-                    }
-                    cx.notify();
-                }))
-        });
-
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(header)
-            .child(
-                div()
-                    .id("tree-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .flex()
-                    .flex_col()
-                    .children(list),
-            )
     }
 
     fn tab_strip(&self, cx: &mut Context<Self>, show_tabs: ShowTabs) -> impl IntoElement {
@@ -1339,6 +1243,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::ShowExplorer, _, cx| this.show_explorer(cx)))
             .on_action(cx.listener(|this, _: &commands::ClearCommandHistory, _, cx| this.clear_command_history(cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleReadonlyInSession, _, cx| this.toggle_read_only_in_session(cx)))
+            .map(|root| Workbench::bind_explorer_actions(root, cx))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {

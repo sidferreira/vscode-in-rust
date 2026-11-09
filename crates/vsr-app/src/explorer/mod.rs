@@ -1,12 +1,12 @@
-//! Explorer file operations and file watching (ADR-0039).
-//!
-//! The create, rename and delete operations are reached from tests now; the explorer's inline
-//! name input and its commands call them next, so until then the binary does not use them.
-#![allow(dead_code)]
+//! Explorer file operations and file watching (ADR-0039) and the Explorer tree's commands, keys,
+//! selection and inline name input (ADR-0041).
 
+pub mod actions; // Explorer commands and key bindings (ADR-0041)
 pub mod names; // validation and incremental naming (explorer.incrementalNaming)
 pub mod ops; // create, rename, delete on the disk
+pub mod state; // the tree's focus, selection and scroll
 pub mod trash; // the Trash behind a trait (files.enableTrash)
+pub mod view; // the tree rows and their keyboard navigation
 pub mod watcher; // workspace file watcher and files.watcherExclude
 pub mod workbench; // create, rename, delete in the workbench (the tree and the editors follow)
 

@@ -89,6 +89,18 @@ pub struct Theme {
     pub selection_bg: Rgba8,           // editor.selectionBackground
     pub inactive_selection_bg: Rgba8,  // editor.inactiveSelectionBackground
     pub line_highlight_border: Rgba8,  // editor.lineHighlightBorder
+    // ---- Search view (searchview.css, inputOption.*, badge.*) ----
+    pub input_option_active_bg: Rgba8,        // inputOption.activeBackground (dark_modern)
+    pub input_option_active_border: Rgba8,    // inputOption.activeBorder (dark_modern)
+    pub input_option_active_fg: Rgba8,        // inputOption.activeForeground (registry dark)
+    pub input_option_hover_bg: Rgba8,         // inputOption.hoverBackground (registry dark)
+    pub list_active_selection_bg: Rgba8,      // list.activeSelectionBackground (registry dark)
+    pub list_active_selection_fg: Rgba8,      // list.activeSelectionForeground (registry dark)
+    pub find_match_highlight_bg: Rgba8,       // editor.findMatchHighlightBackground (registry dark)
+    pub search_results_info_fg: Rgba8,        // search.resultsInfoForeground (foreground @ 65%)
+    pub badge_bg: Rgba8,                      // badge.background (dark_modern)
+    pub badge_fg: Rgba8,                      // badge.foreground (dark_modern)
+    pub toolbar_hover_bg: Rgba8,              // toolbar.hoverBackground (registry dark)
 }
 
 impl Theme {
@@ -146,6 +158,17 @@ impl Theme {
             selection_bg: c("#264F78"),
             inactive_selection_bg: c("#3A3D41"),
             line_highlight_border: c("#282828"),
+            input_option_active_bg: c("#2489DB82"),
+            input_option_active_border: c("#2488DB"),
+            input_option_active_fg: c("#FFFFFF"),
+            input_option_hover_bg: c("#5A5D5E80"),
+            list_active_selection_bg: c("#04395E"),
+            list_active_selection_fg: c("#FFFFFF"),
+            find_match_highlight_bg: c("#EA5C0055"),
+            search_results_info_fg: c("#CCCCCCA6"),
+            badge_bg: c("#616161"),
+            badge_fg: c("#F8F8F8"),
+            toolbar_hover_bg: c("#5A5D5E50"),
         }
     }
 }

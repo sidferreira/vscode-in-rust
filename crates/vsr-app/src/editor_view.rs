@@ -98,6 +98,16 @@ impl EditorView {
         self.marked = None;
     }
 
+    /// Bring the caret of `e` into view (centred) and make the editor take focus on the next
+    /// frame. Used when something else (Search) opens a file at a location.
+    pub fn reveal(&mut self, e: &OpenEditor) {
+        self.focused_for = None;
+        self.activity = Some(Instant::now());
+        let line = e.editor.selection().active.line;
+        let scroll = self.scrolls.entry(e.path.clone()).or_default();
+        scroll.scroll_to_item(line.saturating_sub(1), ScrollStrategy::Center);
+    }
+
     fn focus_handle(&mut self, cx: &mut App) -> FocusHandle {
         self.focus.get_or_insert_with(|| cx.focus_handle()).clone()
     }

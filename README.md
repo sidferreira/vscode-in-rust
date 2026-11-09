@@ -24,6 +24,7 @@ scripts/cargo-firewall-fetch     # fetch deps through the package firewall
 |---|---|---|
 | `vsr-text` | text buffer, Position/Range | `src/vs/editor/common/{core,model}` |
 | `vsr-editor` | cursor, selection, typing, undo/redo (UI-free) | `src/vs/editor/common/cursor/*` |
+| `vsr-search` | find-in-files engine on the ripgrep libraries (UI-free) | `src/vs/workbench/services/search/{common,node}` |
 | `vsr-app` | native workbench window (gpui via gpui-kit) | `src/vs/workbench/browser/layout.ts`, `dark_modern.json` |
 
 ## Third-party assets

@@ -40,7 +40,9 @@ use gpui_kit::{
 use gpui_kit::InteractiveElement;
 use vsr_editor::Position;
 
-use crate::config::settings::{CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers};
+use crate::config::settings::{
+    CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers, OccurrencesHighlight,
+};
 use crate::keymap::{self, BINDINGS, Command};
 use crate::model::{Editors, OpenEditor, SaveTransforms};
 use crate::text_layout::{column_for_x, expand_tabs, expanded_byte_for_column, visual_column};
@@ -644,6 +646,20 @@ fn selection_on_line(e: &OpenEditor, line: usize) -> Option<(usize, usize, bool)
     Some((from, to, past))
 }
 
+/// The occurrences to highlight in this paint (`editor.selectionHighlight`,
+/// `editor.occurrencesHighlight`): the selection when it is on one line, else the word at the caret.
+fn occurrence_source(e: &OpenEditor, cfg: &EditorSettings) -> Option<decorations::Occurrences> {
+    let sel = e.editor.selection();
+    let range = sel.range();
+    let selection = (cfg.selection_highlight && !sel.is_empty() && range.start.line == range.end.line)
+        .then(|| e.editor.selected_text());
+    let word = (sel.is_empty() && cfg.occurrences_highlight != OccurrencesHighlight::Off)
+        .then(|| e.editor.word_at(sel.active).map(|r| e.buffer().value_in_range(r)))
+        .flatten();
+    let max = cfg.selection_highlight.then_some(cfg.selection_highlight_max_length);
+    decorations::occurrences_for(selection.as_deref(), word.as_deref(), max)
+}
+
 /// The gutter text of `line` for `editor.lineNumbers` (lineNumbers.ts: `relative` shows the distance
 /// to the caret line and the caret line's own number; `interval` every 10th line and the caret line).
 fn line_number_label(mode: LineNumbers, line: usize, caret_line: usize) -> String {
@@ -714,6 +730,7 @@ fn rows(
     // (`gutter`), or the whole row (`all`).
     let hl_content = matches!(hl, LineHighlight::Line | LineHighlight::All) && sel.is_empty();
     let hl_gutter = matches!(hl, LineHighlight::Gutter | LineHighlight::All);
+    let occurrences = occurrence_source(e, cfg);
     // The active indent guide is found once per paint, not per row (it may scan the block).
     let active_guide = (cfg.guides_indentation && cfg.guides_highlight_active)
         .then(|| decorations::active_indent_guide(buf, caret_line, tab))
@@ -735,7 +752,14 @@ fn rows(
                 .filter(|p| p.line == line)
                 .map(|p| p.column)
                 .collect();
-            let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty() || !bracket_cols.is_empty())
+            // Occurrences of the selection or of the word at the caret, on this line.
+            let occurrence_cols: Vec<(usize, usize)> = occurrences.as_ref().map_or_else(Vec::new, |o| {
+                decorations::occurrences_in_line(text, &o.needle, o.whole_word)
+                    .into_iter()
+                    .filter(|&(from, to)| !(o.is_selection && selected.is_some_and(|(sf, st, _)| (sf, st) == (from, to))))
+                    .collect()
+            });
+            let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty() || !bracket_cols.is_empty() || !occurrence_cols.is_empty())
                 .then(|| shape(window, cfg, &expanded))
                 .flatten();
             let x_at = |col: usize| -> f32 {
@@ -793,6 +817,25 @@ fn rows(
                     decorations::MarkKind::Space => mark.text_center(),
                     decorations::MarkKind::Tab => mark.text_left(),
                 });
+            }
+            let occurrence_color = match occurrences.as_ref() {
+                Some(o) if o.is_selection => t.selection_highlight_bg,
+                _ => t.word_highlight_bg,
+            };
+            for (from, to) in occurrence_cols {
+                let (x0, x1) = (x_at(from), x_at(to));
+                if x1 > x0 {
+                    text_box = text_box.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left(px(x0))
+                            .w(px(x1 - x0))
+                            .h(px(lh))
+                            .bg(to_gpui(occurrence_color))
+                            .debug_selector(|| format!("occurrence:{line}:{from}")),
+                    );
+                }
             }
             for col in bracket_cols {
                 let (x0, x1) = (x_at(col), x_at(col + 1));

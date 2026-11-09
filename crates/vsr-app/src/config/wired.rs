@@ -41,6 +41,9 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.guides.indentation",
             "editor.guides.highlightActiveIndentation",
             "editor.matchBrackets",
+            "editor.selectionHighlight",
+            "editor.selectionHighlightMaxLength",
+            "editor.occurrencesHighlight",
         ],
     ),
     (

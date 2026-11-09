@@ -179,6 +179,62 @@ pub fn line_level(lines: &impl Lines, line: usize, tab: usize) -> usize {
     }
 }
 
+/// Whether `c` is part of a word (for whole-word matches).
+pub fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// The text that the occurrence highlights follow: the selection (`selectionHighlight`) or the word
+/// at the caret (`occurrencesHighlight`, only with an empty selection, as upstream).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Occurrences {
+    pub needle: String,
+    /// Whole words only: always for a word at the caret, and for a selection made of word characters.
+    pub whole_word: bool,
+    /// True for the selection's own highlight (the selection itself is not boxed).
+    pub is_selection: bool,
+}
+
+/// Picks what to highlight. `selection` is the selected text when the selection is on one line.
+/// `word` is the word at the caret, passed only when the caret is not a selection. Blank and
+/// over-long selections highlight nothing.
+pub fn occurrences_for(
+    selection: Option<&str>,
+    word: Option<&str>,
+    selection_max_len: Option<usize>,
+) -> Option<Occurrences> {
+    if let Some(text) = selection {
+        let fits = selection_max_len.is_none_or(|max| text.chars().count() <= max);
+        if fits && !text.trim().is_empty() {
+            let whole_word = text.chars().all(is_word_char);
+            return Some(Occurrences { needle: text.to_string(), whole_word, is_selection: true });
+        }
+        return None;
+    }
+    word.filter(|w| !w.is_empty())
+        .map(|w| Occurrences { needle: w.to_string(), whole_word: true, is_selection: false })
+}
+
+/// The 1-based UTF-16 columns `(from, to)` (end exclusive) of each occurrence of `needle` in
+/// `text`. `whole_word` skips matches that touch a word character on either side.
+pub fn occurrences_in_line(text: &str, needle: &str, whole_word: bool) -> Vec<(usize, usize)> {
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let utf16 = |s: &str| s.encode_utf16().count();
+    text.match_indices(needle)
+        .filter(|&(at, _)| {
+            !whole_word
+                || (text[..at].chars().next_back().is_none_or(|c| !is_word_char(c))
+                    && text[at + needle.len()..].chars().next().is_none_or(|c| !is_word_char(c)))
+        })
+        .map(|(at, _)| {
+            let from = utf16(&text[..at]) + 1;
+            (from, from + utf16(needle))
+        })
+        .collect()
+}
+
 /// The active indent guide at `caret` (`editor.guides.highlightActiveIndentation`), as upstream
 /// `getActiveIndentGuide` picks it: the guide index `k` (the guide drawn at column `k * tab`) and
 /// the lines it spans. A caret on a header (the next line is deeper) or on a closing line (the
@@ -385,6 +441,34 @@ mod tests {
         assert_eq!(line_level(&Doc(vec!["a", "\t\t", "b"]), 2, 4), 0, "whitespace-only lines are blank");
         assert_eq!(indent_columns("\tx", 4), Some(4));
         assert_eq!(indent_columns("  \t x", 4), Some(5), "a tab goes to the next stop, then one space");
+    }
+
+    #[test]
+    fn occurrences_match_whole_words_when_asked() {
+        assert_eq!(occurrences_in_line("foo food foo_ afoo foo", "foo", true), [(1, 4), (20, 23)]);
+        assert_eq!(occurrences_in_line("foo food afoo", "foo", false), [(1, 4), (5, 8), (11, 14)]);
+        assert_eq!(occurrences_in_line("a.b a.b", "a.b", true), [(1, 4), (5, 8)], "punctuation is not a word character");
+        assert!(occurrences_in_line("abc", "", true).is_empty());
+    }
+
+    #[test]
+    fn occurrence_columns_are_utf16() {
+        // The emoji takes two columns, so the match starts at column 3.
+        assert_eq!(occurrences_in_line("\u{1F600}x x", "x", true), [(3, 4), (5, 6)]);
+    }
+
+    #[test]
+    fn selection_wins_over_the_word_and_long_or_blank_selections_highlight_nothing() {
+        assert_eq!(occurrences_for(Some("bar"), Some("foo"), Some(200)), Some(Occurrences {
+            needle: "bar".into(),
+            whole_word: true,
+            is_selection: true,
+        }));
+        assert_eq!(occurrences_for(Some("a b"), None, Some(200)).map(|o| o.whole_word), Some(false));
+        assert_eq!(occurrences_for(Some("abcd"), Some("x"), Some(3)), None, "over the max length");
+        assert_eq!(occurrences_for(Some("   "), Some("x"), None), None, "blank selection");
+        assert_eq!(occurrences_for(None, Some("foo"), None).map(|o| o.is_selection), Some(false));
+        assert_eq!(occurrences_for(None, None, None), None);
     }
 
     #[test]

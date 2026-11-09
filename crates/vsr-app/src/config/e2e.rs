@@ -400,3 +400,21 @@ fn match_brackets_follows_the_setting_live(cx: &mut TestAppContext) {
     set(cx, "editor.matchBrackets", json!("never"));
     assert!(cx.debug_bounds("bracket:1:2").is_none() && cx.debug_bounds("bracket:1:5").is_none());
 }
+
+#[gpui_kit::test]
+fn occurrences_and_selection_highlights_follow_the_settings(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "occurrences", None, &[("a.txt", "foo bar foo\nfoo")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    // The caret on `foo`: every whole-word occurrence is highlighted (singleFile is the default).
+    assert!(cx.debug_bounds("occurrence:1:1").is_some() && cx.debug_bounds("occurrence:1:9").is_some());
+    assert!(cx.debug_bounds("occurrence:2:1").is_some());
+    set(cx, "editor.occurrencesHighlight", json!("off"));
+    assert!(cx.debug_bounds("occurrence:1:9").is_none(), "off: no word highlight");
+    // Selecting `foo` (Shift+Right three times) highlights the other copies, not the selection.
+    cx.simulate_keystrokes("shift-right shift-right shift-right");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("occurrence:1:9").is_some() && cx.debug_bounds("occurrence:2:1").is_some());
+    assert!(cx.debug_bounds("occurrence:1:1").is_none(), "the selection itself is not boxed");
+    set(cx, "editor.selectionHighlight", json!(false));
+    assert!(cx.debug_bounds("occurrence:1:9").is_none(), "selectionHighlight off");
+}

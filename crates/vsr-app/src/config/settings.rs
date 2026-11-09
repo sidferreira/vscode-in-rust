@@ -53,6 +53,16 @@ pub enum CursorBlinking {
     Solid,
 }
 
+/// `editor.occurrencesHighlight`. `multiFile` is read as `singleFile` (there is no multi-file
+/// search for the highlights).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OccurrencesHighlight {
+    Off,
+    SingleFile,
+    MultiFile,
+}
+
 /// `editor.matchBrackets`: `always` also highlights the enclosing pair, `near` only the bracket
 /// next to the caret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -266,6 +276,12 @@ pub struct EditorSettings {
     /// `editor.guides.highlightActiveIndentation` (`true` and `"always"` both highlight).
     pub guides_highlight_active: bool,
     pub match_brackets: MatchBrackets,
+    /// `editor.selectionHighlight`.
+    pub selection_highlight: bool,
+    /// `editor.selectionHighlightMaxLength`: longer selections are not matched.
+    pub selection_highlight_max_length: usize,
+    /// `editor.occurrencesHighlight`.
+    pub occurrences_highlight: OccurrencesHighlight,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
     pub find: FindSettings,
@@ -292,6 +308,9 @@ impl Default for EditorSettings {
             guides_indentation: true,
             guides_highlight_active: true,
             match_brackets: MatchBrackets::Always,
+            selection_highlight: true,
+            selection_highlight_max_length: 200,
+            occurrences_highlight: OccurrencesHighlight::SingleFile,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             find: FindSettings::default(),
@@ -321,6 +340,9 @@ impl EditorSettings {
             guides_indentation: c.get_bool("editor.guides.indentation").unwrap_or(true),
             guides_highlight_active: parse_highlight_active(c.get_value("editor.guides.highlightActiveIndentation")),
             match_brackets: c.get_enum("editor.matchBrackets").unwrap_or(MatchBrackets::Always),
+            selection_highlight: c.get_bool("editor.selectionHighlight").unwrap_or(true),
+            selection_highlight_max_length: c.get_f64("editor.selectionHighlightMaxLength").unwrap_or(200.0).max(0.0) as usize,
+            occurrences_highlight: c.get_enum("editor.occurrencesHighlight").unwrap_or(OccurrencesHighlight::SingleFile),
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             find: FindSettings::from_configuration(c),
@@ -441,6 +463,8 @@ mod tests {
         assert!(e.rulers.is_empty());
         assert!(e.guides_indentation && e.guides_highlight_active);
         assert_eq!(e.match_brackets, MatchBrackets::Always);
+        assert!(e.selection_highlight && e.selection_highlight_max_length == 200);
+        assert_eq!(e.occurrences_highlight, OccurrencesHighlight::SingleFile);
         let l = LayoutSettings::from_configuration(&config(""));
         assert_eq!(l, LayoutSettings {
             side_bar: SideBarLocation::Left,

@@ -50,15 +50,19 @@ impl Editor {
 
     /// The projection into view lines, brought up to date with the buffer; `None` when not wrapping.
     pub fn view_lines(&self) -> Option<Ref<'_, ViewLines>> {
-        {
+        let version = self.version();
+        // Shared borrows when it is up to date, so callers can hold the result and call again.
+        let stale = {
+            let w = self.wrap.borrow();
+            w.params.as_ref()?;
+            w.synced != Some(version)
+        };
+        if stale {
             let mut w = self.wrap.borrow_mut();
             let w = &mut *w;
             let params = w.params.as_ref()?;
-            let version = self.version();
-            if w.synced != Some(version) {
-                w.lines.sync(&self.buffer, params);
-                w.synced = Some(version);
-            }
+            w.lines.sync(&self.buffer, params);
+            w.synced = Some(version);
         }
         Some(Ref::map(self.wrap.borrow(), |w| &w.lines))
     }

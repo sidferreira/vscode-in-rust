@@ -51,6 +51,18 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
     ),
     ("Editor scrolling", &["editor.scrollBeyondLastLine"]),
     (
+        "Word wrap",
+        &[
+            "editor.wordWrap",
+            "editor.wordWrapColumn",
+            "editor.wrappingIndent",
+            "editor.wrappingStrategy",
+            "editor.wordWrapIndicator",
+            "editor.wordBreak",
+            "editor.wordSeparators",
+        ],
+    ),
+    (
         "Find",
         &[
             "editor.find.seedSearchStringFromSelection",
@@ -173,6 +185,7 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- `workbench.editor.labelFormat: long` shows the directory's absolute path; `default` adds the directory (relative to the folder) only to tabs that share a name.\n");
     out.push_str("- `workbench.editor.highlightModifiedTabs` always uses the focused-group colours (`tab.activeModifiedBorder`, `tab.inactiveModifiedBorder`).\n");
     out.push_str("- `workbench.editor.closeOnFileDelete` checks that files exist once a second (no file watcher yet). Editors with unsaved changes stay open.\n");
+    out.push_str("- Word wrap: `editor.wrappingStrategy: advanced` breaks like `simple` (the monospace computer; the advanced strategy measures text in the browser). `editor.wordWrapIndicator` draws a return arrow after the last column of a row that continues. Alt+Z wraps at the viewport width or turns wrapping off for that editor only (it does not write the setting). `editor.wordSeparators` drives word moves, double-click and the whole-word check of selection highlights; the Find widget still uses `\\b`, and the word at the caret for occurrence highlights uses the default separators (upstream: the language's word definition). `editor.wordSegmenterLocales` (CJK word segmentation) is not implemented.\n");
     out
 }
 

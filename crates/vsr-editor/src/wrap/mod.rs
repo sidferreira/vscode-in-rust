@@ -16,4 +16,4 @@ mod view_lines;
 
 pub use line_breaks::{BreakParams, LineBreaksComputer, WordBreak, WrappingIndent};
 pub use projection_data::{ModelLineProjectionData, OutputPosition, PositionAffinity};
-pub use view_lines::{ViewLine, ViewLines, WrapParams};
+pub use view_lines::{ViewLine, ViewLines, WrapParams, slice_utf16};

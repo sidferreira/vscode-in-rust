@@ -88,19 +88,18 @@ fn hash_line(s: &str) -> u64 {
     // FxHash-style: fast and good enough to tell an edited line from an unchanged one.
     const K: u64 = 0x517c_c1b7_2722_0a95;
     let mut h: u64 = s.len() as u64;
-    let mut chunks = s.as_bytes().chunks_exact(8);
-    for c in &mut chunks {
-        let v = u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]);
-        h = (h.rotate_left(5) ^ v).wrapping_mul(K);
+    let (chunks, rest) = s.as_bytes().as_chunks::<8>();
+    for c in chunks {
+        h = (h.rotate_left(5) ^ u64::from_le_bytes(*c)).wrapping_mul(K);
     }
-    for &b in chunks.remainder() {
+    for &b in rest {
         h = (h.rotate_left(5) ^ b as u64).wrapping_mul(K);
     }
     h
 }
 
 /// The UTF-16 range `[from, to)` of `s` as a string slice.
-pub(crate) fn slice_utf16(s: &str, from: usize, to: usize) -> &str {
+pub fn slice_utf16(s: &str, from: usize, to: usize) -> &str {
     if s.is_ascii() {
         return &s[from.min(s.len())..to.min(s.len())];
     }

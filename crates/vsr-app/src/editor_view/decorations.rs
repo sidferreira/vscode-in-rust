@@ -183,9 +183,10 @@ pub fn scroll_rows(lines: usize, rows_per_page: usize, beyond_last_line: bool) -
     lines + if beyond_last_line { rows_per_page.saturating_sub(1) } else { 0 }
 }
 
-/// Whether `c` is part of a word (for whole-word matches).
-pub fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
+/// Whether `c` is part of a word (for whole-word matches): not whitespace and not one of the
+/// `editor.wordSeparators`, as upstream's `WordCharacterClassifier`.
+pub fn is_word_char(c: char, separators: &str) -> bool {
+    !c.is_whitespace() && !separators.contains(c)
 }
 
 /// The text that the occurrence highlights follow: the selection (`selectionHighlight`) or the word
@@ -206,11 +207,12 @@ pub fn occurrences_for(
     selection: Option<&str>,
     word: Option<&str>,
     selection_max_len: Option<usize>,
+    separators: &str,
 ) -> Option<Occurrences> {
     if let Some(text) = selection {
         let fits = selection_max_len.is_none_or(|max| text.chars().count() <= max);
         if fits && !text.trim().is_empty() {
-            let whole_word = text.chars().all(is_word_char);
+            let whole_word = text.chars().all(|c| is_word_char(c, separators));
             return Some(Occurrences { needle: text.to_string(), whole_word, is_selection: true });
         }
         return None;
@@ -221,7 +223,7 @@ pub fn occurrences_for(
 
 /// The 1-based UTF-16 columns `(from, to)` (end exclusive) of each occurrence of `needle` in
 /// `text`. `whole_word` skips matches that touch a word character on either side.
-pub fn occurrences_in_line(text: &str, needle: &str, whole_word: bool) -> Vec<(usize, usize)> {
+pub fn occurrences_in_line(text: &str, needle: &str, whole_word: bool, separators: &str) -> Vec<(usize, usize)> {
     if needle.is_empty() {
         return Vec::new();
     }
@@ -229,8 +231,8 @@ pub fn occurrences_in_line(text: &str, needle: &str, whole_word: bool) -> Vec<(u
     text.match_indices(needle)
         .filter(|&(at, _)| {
             !whole_word
-                || (text[..at].chars().next_back().is_none_or(|c| !is_word_char(c))
-                    && text[at + needle.len()..].chars().next().is_none_or(|c| !is_word_char(c)))
+                || (text[..at].chars().next_back().is_none_or(|c| !is_word_char(c, separators))
+                    && text[at + needle.len()..].chars().next().is_none_or(|c| !is_word_char(c, separators)))
         })
         .map(|(at, _)| {
             let from = utf16(&text[..at]) + 1;
@@ -279,6 +281,8 @@ pub fn active_indent_guide(lines: &impl Lines, caret: usize, tab: usize) -> Opti
 mod tests {
     use super::MarkKind::{Space, Tab};
     use super::*;
+
+    const SEP: &str = vsr_editor::USUAL_WORD_SEPARATORS;
 
     /// Lines of a test document; `Lines` over plain strings.
     struct Doc<'a>(Vec<&'a str>);
@@ -449,30 +453,30 @@ mod tests {
 
     #[test]
     fn occurrences_match_whole_words_when_asked() {
-        assert_eq!(occurrences_in_line("foo food foo_ afoo foo", "foo", true), [(1, 4), (20, 23)]);
-        assert_eq!(occurrences_in_line("foo food afoo", "foo", false), [(1, 4), (5, 8), (11, 14)]);
-        assert_eq!(occurrences_in_line("a.b a.b", "a.b", true), [(1, 4), (5, 8)], "punctuation is not a word character");
-        assert!(occurrences_in_line("abc", "", true).is_empty());
+        assert_eq!(occurrences_in_line("foo food foo_ afoo foo", "foo", true, SEP), [(1, 4), (20, 23)]);
+        assert_eq!(occurrences_in_line("foo food afoo", "foo", false, SEP), [(1, 4), (5, 8), (11, 14)]);
+        assert_eq!(occurrences_in_line("a.b a.b", "a.b", true, SEP), [(1, 4), (5, 8)], "punctuation is not a word character");
+        assert!(occurrences_in_line("abc", "", true, SEP).is_empty());
     }
 
     #[test]
     fn occurrence_columns_are_utf16() {
         // The emoji takes two columns, so the match starts at column 3.
-        assert_eq!(occurrences_in_line("\u{1F600}x x", "x", true), [(3, 4), (5, 6)]);
+        assert_eq!(occurrences_in_line("\u{1F600} x x", "x", true, SEP), [(4, 5), (6, 7)]);
     }
 
     #[test]
     fn selection_wins_over_the_word_and_long_or_blank_selections_highlight_nothing() {
-        assert_eq!(occurrences_for(Some("bar"), Some("foo"), Some(200)), Some(Occurrences {
+        assert_eq!(occurrences_for(Some("bar"), Some("foo"), Some(200), SEP), Some(Occurrences {
             needle: "bar".into(),
             whole_word: true,
             is_selection: true,
         }));
-        assert_eq!(occurrences_for(Some("a b"), None, Some(200)).map(|o| o.whole_word), Some(false));
-        assert_eq!(occurrences_for(Some("abcd"), Some("x"), Some(3)), None, "over the max length");
-        assert_eq!(occurrences_for(Some("   "), Some("x"), None), None, "blank selection");
-        assert_eq!(occurrences_for(None, Some("foo"), None).map(|o| o.is_selection), Some(false));
-        assert_eq!(occurrences_for(None, None, None), None);
+        assert_eq!(occurrences_for(Some("a b"), None, Some(200), SEP).map(|o| o.whole_word), Some(false));
+        assert_eq!(occurrences_for(Some("abcd"), Some("x"), Some(3), SEP), None, "over the max length");
+        assert_eq!(occurrences_for(Some("   "), Some("x"), None, SEP), None, "blank selection");
+        assert_eq!(occurrences_for(None, Some("foo"), None, SEP).map(|o| o.is_selection), Some(false));
+        assert_eq!(occurrences_for(None, None, None, SEP), None);
     }
 
     #[test]

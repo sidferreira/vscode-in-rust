@@ -158,6 +158,7 @@ fn monospace_line_breaks_computer() {
     alb(&factory, 4, 5, "aa.|(.).|aaa");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn inc(factory: &LineBreaksComputer, text: &str, tab: usize, b1: i64, a1: &str, b2: i64, a2: &str, indent: WrappingIndent) {
     assert_incremental(factory, text, tab, b1, a1, b2, a2, indent, 2.0, false);
 }

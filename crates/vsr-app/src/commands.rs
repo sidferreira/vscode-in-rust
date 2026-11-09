@@ -184,6 +184,9 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
         seen.push(cmd);
         let (id, title, f1) = editor_command(cmd);
         let mut d = D::new(id, title).precondition(ACTIVE_EDITOR);
+        if cmd == Command::ToggleWordWrap {
+            d = d.category("View");
+        }
         d.f1 = f1;
         r.register(d, action(Run(cmd), Editor));
     }
@@ -265,6 +268,7 @@ fn editor_command(cmd: Command) -> (&'static str, &'static str, bool) {
         Paste => ("editor.action.clipboardPasteAction", "Paste", true),
         Save => ("workbench.action.files.save", "Save", true),
         CloseTab => ("workbench.action.closeActiveEditor", "Close Editor", true),
+        ToggleWordWrap => ("editor.action.toggleWordWrap", "Toggle Word Wrap", true),
     }
 }
 
@@ -346,6 +350,7 @@ mod tests {
             "editor.action.selectAll",
             "undo",
             "redo",
+            "editor.action.toggleWordWrap",
         ] {
             assert!(r.contains(id), "{id}");
         }

@@ -818,3 +818,63 @@ group, so the tab model is upstream's `EditorGroupModel` for that group.
 - **Tests.** Seven upstream `editorGroupModel.test.ts` cases are ported in `model.rs` (`editor-group-model`
   in `upstream/ports.toml`); the rest are model tests, and `config/e2e.rs` drives the workbench headless
   (preview replaced and pinned by an edit, `enablePreview` off, `openPositioning`, the limit, deleted files).
+
+## ADR-0036 — Word wrap: a view-line projection in `vsr-editor` (2026-11-09)
+
+`editor.wordWrap`, `wordWrapColumn`, `wrappingIndent`, `wrappingStrategy`, `wordWrapIndicator`, `wordBreak` and
+`wordSeparators` are wired (group "Word wrap" in `config/wired.rs`); Alt+Z is `editor.action.toggleWordWrap`
+(registry, ADR-0030, palette label "View: Toggle Word Wrap").
+
+- **UI-free layer (`vsr-editor/src/wrap/`).** `line_breaks.rs` is a port of upstream's
+  `MonospaceLineBreaksComputerFactory` (`createLineBreaks`: break-before/after classes, CJK and Kinsoku Shori,
+  `keepAll`, wrapping indent none/same/indent/deepIndent, tabs, surrogate pairs, two-cell full-width,
+  `wrapOnEscapedLineFeeds`), with widths as `f64` in units of one character advance (the unit is a parameter,
+  so the tests use upstream's 7 px font). `projection_data.rs` ports `ModelLineProjectionData` (offset
+  translation, affinity). `view_lines.rs` projects a `TextBuffer`: per model line an optional wrapping, a
+  prefix sum of view line counts, model <-> view positions, view line content (continuation indent as
+  spaces). Offsets are UTF-16 units like `Position` columns. Not ported: injected text,
+  `createLineBreaksFromPreviousLineBreaks` (upstream's resize shortcut: a resize recomputes every line, its
+  results are the same), hidden areas, the DOM computer of `wrappingStrategy: advanced` (read as `simple`).
+- **Incremental.** `ViewLines::sync` matches the buffer's lines against the last sync from both ends by a content
+  hash and recomputes only the lines in between (the lines an edit event would name; it also covers undo and
+  reload). The `Editor` owns the projection behind a `RefCell` (`Editor::set_wrapping(&self, ..)`,
+  `view_lines()`), synced lazily and only when the editor version or the parameters changed, so the app can set
+  it while rendering and `main.rs` is untouched. Per edit the sync costs one hash pass over the buffer
+  (O(bytes)), like the widest-line scan it sits next to.
+- **Cursor.** Up/Down/PageUp/PageDown move by view lines, keeping the desired visible column in view
+  coordinates (the continuation indent counts), as upstream `_moveDownByViewLines`. Home goes to the view
+  line's first non-blank / start when on a continuation row, else the model line's (the toggle); End goes to the
+  end of the view line, and from there (or on the last row) to the model line's end (`_moveToLineStart` /
+  `_moveToLineEnd`). The state is the model position plus `caret_trailing`: a caret on a wrap boundary is drawn
+  at the end of the earlier view line (upstream `PositionAffinity.Left`); clicks at the end of a row set it.
+- **View.** The list has one row per view line; `rows()` draws the part of the model line the row shows and maps
+  every decoration (selection with its line-break stub, find matches, whitespace markers, brackets, occurrences,
+  caret, current-line box, indent guides, rulers) into it by clipping model columns to the row and shifting them
+  by the continuation indent (`wrap.rs::Seg`). The line number shows on a line's first row. Hit-testing,
+  IME bounds, scroll-to-caret and reveal use rows; the minimap draws and counts view lines (its image key
+  includes the wrapping column). Wrapped lines fit the list width (`FitList`), no horizontal scroll.
+  Tabs after a break are expanded from the row's start (upstream counts them from the model line); this only
+  differs for a tab in the middle of a continuation row.
+- **Width.** `wordWrapColumn`: that column. `on` / `bounded`: viewport columns = floor((painted width - gutter - 2) /
+  character advance) (upstream `viewportColumn`), minus one with `wordWrapIndicator`, `bounded` takes the
+  minimum with `wordWrapColumn`. The advance is the shaped width of a space measured at paint (estimated from the
+  font size before that). The first frame has no width, so `on` does not wrap yet; the canvas that records
+  the surface bounds asks for another frame when the width or advance differs from what the wrapping used
+  (the minimap's pattern). Headless tests inject the width (`viewport_columns_override`), the test text system
+  measures nothing.
+- **Alt+Z** is a per-document override held by the view (upstream `wordWrapOverride2`), not a settings write:
+  wrapped becomes off, otherwise wrap at the viewport.
+- **`editor.wordSeparators`** replaces the constant in the word moves and double-click (`Editor::set_word_separators`,
+  applied by the view before each command and click) and in the whole-word check of selection highlights. Left
+  on the defaults: the word at the caret for occurrence highlights (upstream reads the language's word
+  definition there) and the Find widget (`\b`, noted in the coverage doc).
+- **Blocked:** `editor.wordSegmenterLocales` (needs UAX #29 / ICU word segmentation in the editing core).
+- **Performance** (10k lines, `editor.wordWrapColumn` 20 so every line wraps, debug build, headless, one test
+  thread, including layout and paint): 38 ms per keystroke with word wrap on against 39 ms without; changing the
+  wrapping column (every line recomputed) 32-38 ms. The projection itself is not the cost; the list is still
+  virtualised, so only visible rows are shaped.
+- **Tests.** 24 of upstream's 37 `monospaceLineBreaksComputer.test.ts` tests (the injected-text ones are left
+  out), `Basic` of `lineBreakData.test.ts` and `SplitLine` of `modelLineProjection.test.ts` are ported
+  (`editor-word-wrap` in `upstream/ports.toml`); own tests for the projection, incremental sync and the
+  view-line cursor rules (`vsr-editor/tests/wrap.rs`), the wrapping column and row geometry (`wrap.rs`), the
+  settings, and headless E2E in `editor_view/wrap_e2e.rs` (scenarios in `tests/e2e-scenarios/preferences.md`).

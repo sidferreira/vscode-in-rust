@@ -17,12 +17,16 @@
 //! Known costs (10k-line file): per keystroke we rescan line lengths for the widest line
 //! (`O(lines)`, ~0.3 ms) and `offset_at` for IME queries is `O(lines)`. Rows are virtualised
 //! (`uniform_list`), only visible rows are shaped, and text shaping is cached by gpui.
-//! Known gaps: multi-cursor, word wrap, syntax colors, horizontal reveal of the caret,
+//! Word wrap (ADR-0036): the list has one row per view line of `vsr_editor::wrap`; `wrap.rs` has the
+//! wrapping column and the geometry of a row, `rows()` draws the part of a model line a row shows and
+//! maps the decorations (keyed by model line and column) into it.
+//! Known gaps: multi-cursor, syntax colors, horizontal reveal of the caret,
 //! drag auto-scroll, IME candidate-window placement precision.
 
 mod decorations;
 pub(crate) mod find;
 mod minimap;
+mod wrap;
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -42,13 +46,14 @@ use gpui_kit::InteractiveElement;
 use vsr_editor::Position;
 
 use crate::config::settings::{
-    CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers, OccurrencesHighlight,
+    CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers, OccurrencesHighlight, WordWrap,
 };
 use crate::keymap::{self, BINDINGS, Command};
 use crate::model::{Editors, OpenEditor, SaveTransforms};
 use crate::text_layout::{column_for_x, expand_tabs, expanded_byte_for_column, visual_column};
 use crate::theme::Theme;
 use crate::ui::to_gpui;
+use self::wrap::Seg;
 
 /// Half period of the `blink` cursor style.
 const BLINK: Duration = Duration::from_millis(500);
@@ -97,12 +102,20 @@ pub struct EditorView {
     minimap: minimap::MinimapView,
     /// The bracket pair highlighted at the caret (`editor.matchBrackets`).
     brackets: decorations::BracketCache,
+    /// Alt+Z (`editor.action.toggleWordWrap`): per-document override of `editor.wordWrap`.
+    wrap_override: HashMap<PathBuf, bool>,
+    /// The advance of one character as shaped at the last paint (0 until measured).
+    measured_char_w: Rc<Cell<f32>>,
+    /// Tests: the viewport width in columns, instead of measuring the painted size.
+    #[cfg(test)]
+    pub(crate) viewport_columns_override: Option<usize>,
 }
 
 impl EditorView {
     pub fn forget(&mut self, path: &PathBuf) {
         self.scrolls.remove(path);
         self.widest.remove(path);
+        self.wrap_override.remove(path);
         if self.focused_for.as_ref() == Some(path) {
             self.focused_for = None;
         }
@@ -127,8 +140,9 @@ impl EditorView {
         self.focused_for = None;
         self.activity = Some(Instant::now());
         let line = e.editor.selection().active.line;
+        let row = e.editor.caret_view_position().map_or(line.saturating_sub(1), |(vline, _)| vline);
         let scroll = self.scrolls.entry(e.path.clone()).or_default();
-        scroll.scroll_to_item(line.saturating_sub(1), ScrollStrategy::Center);
+        scroll.scroll_to_item(row, ScrollStrategy::Center);
     }
 
     fn focus_handle(&mut self, cx: &mut App) -> FocusHandle {
@@ -148,8 +162,9 @@ impl EditorView {
     fn after_change(&mut self, e: &OpenEditor, edited: bool, window: &mut Window) {
         self.activity = Some(Instant::now());
         let line = e.editor.selection().active.line;
+        let row = e.editor.caret_view_position().map_or(line - 1, |(vline, _)| vline);
         if let Some(s) = self.scrolls.get(&e.path) {
-            s.scroll_to_item(line - 1, ScrollStrategy::Nearest);
+            s.scroll_to_item(row, ScrollStrategy::Nearest);
         }
         if let Some(f) = &self.focus {
             if edited {
@@ -157,6 +172,22 @@ impl EditorView {
             }
             window.notify_text_selection_changed(f);
         }
+    }
+
+    /// One character's advance: as shaped at the last paint, else estimated from the font size.
+    fn char_width(&self) -> f32 {
+        let measured = self.measured_char_w.get();
+        if measured > 0.0 { measured } else { self.cfg.char_width() }
+    }
+
+    /// The width of the text area in columns, `None` until the first paint has measured it.
+    fn viewport_columns(&self, gutter: f32) -> Option<usize> {
+        #[cfg(test)]
+        if let Some(columns) = self.viewport_columns_override {
+            return Some(columns);
+        }
+        let width = f32::from(self.bounds.get().size.width);
+        (width > 0.0).then(|| wrap::viewport_columns(width - gutter, self.char_width()))
     }
 
     fn rows_per_page(&self) -> usize {
@@ -180,16 +211,32 @@ impl EditorView {
         let lines = editor.buffer().line_count();
         let scroll = self.scrolls.entry(editor.path.clone()).or_default().clone();
         let version = editor.editor.version();
-        let widest = match self.widest.get(&editor.path) {
-            Some(&(v, i)) if v == version => i,
-            _ => {
-                let i = widest_line(editor);
-                self.widest.insert(editor.path.clone(), (version, i));
-                i
-            }
-        };
         let gutter = gutter_width(lines, &cfg);
         self.gutter = gutter;
+        // Word wrap: the wrapping column comes from the settings and, for `on` and `bounded`, from the
+        // width painted last; the paint below asks for another frame when that width changes.
+        let wrap_mode = wrap::effective_mode(cfg.word_wrap, self.wrap_override.get(&editor.path).copied());
+        let viewport_dependent = matches!(wrap_mode, WordWrap::On | WordWrap::Bounded);
+        let used_width = f32::from(self.bounds.get().size.width);
+        let used_char_w = self.char_width();
+        let wrap_column = wrap::wrapping_column(wrap_mode, cfg.word_wrap_column, self.viewport_columns(gutter), cfg.word_wrap_indicator);
+        editor.editor.set_wrapping(wrap_column.map(|c| cfg.wrap_params(c)));
+        let wrapping = editor.editor.is_wrapping();
+        let view_line_count = editor.editor.view_line_count();
+        let wrap_indicator = (wrapping && cfg.word_wrap_indicator).then(|| wrap_column.unwrap_or(0) as usize);
+        let widest = if wrapping {
+            0
+        } else {
+            match self.widest.get(&editor.path) {
+                Some(&(v, i)) if v == version => i,
+                _ => {
+                    let i = widest_line(editor);
+                    self.widest.insert(editor.path.clone(), (version, i));
+                    i
+                }
+            }
+        };
+        let measured_char_w = self.measured_char_w.clone();
         let minimap = self.minimap.build(
             minimap::BuildInput { editor, theme, cfg: settings, scroll: &scroll, gutter, text_bounds: &self.bounds },
             cx,
@@ -208,7 +255,7 @@ impl EditorView {
         let id: SharedString = editor.path.display().to_string().into();
         let list_focus = focus.clone();
         // `editor.scrollBeyondLastLine`: empty rows after the last line (the page is measured at paint).
-        let rows_total = decorations::scroll_rows(lines, self.rows_per_page(), cfg.scroll_beyond_last_line);
+        let rows_total = decorations::scroll_rows(view_line_count, self.rows_per_page(), cfg.scroll_beyond_last_line);
         let list = uniform_list(
             id,
             rows_total,
@@ -220,14 +267,21 @@ impl EditorView {
                     list_focus.focus(window, cx);
                 }
                 let focused = list_focus.is_focused(window);
+                if let Some(s) = shape(window, &cfg, " ") {
+                    view.measured_char_w.set(f32::from(s.width));
+                }
                 let find = view.find.highlights(e);
                 let pair = view.brackets.get(&e.path, e.buffer(), e.editor.version(), e.editor.selection().active, cfg.match_brackets);
-                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair)
+                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator)
             }),
         )
-        .track_scroll(&scroll)
-        .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
-        .with_width_from_item(Some(widest))
+        .track_scroll(&scroll);
+        // Wrapped lines fit the viewport; otherwise the list scrolls to the widest line.
+        let list = if wrapping {
+            list.with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::FitList)
+        } else {
+            list.with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained).with_width_from_item(Some(widest))
+        }
         .size_full();
 
         let bounds_cell = self.bounds.clone();
@@ -242,6 +296,17 @@ impl EditorView {
                     EditorInput { view: entity, bounds },
                     cx,
                 );
+                // Wrapping at the viewport width: ask for another frame when the width (or the
+                // character advance) the wrapping assumed is not the one painted.
+                if viewport_dependent {
+                    let measured = measured_char_w.get();
+                    let stale = (f32::from(bounds.size.width) - used_width).abs() > 0.5
+                        || (measured > 0.0 && (measured - used_char_w).abs() > 0.01);
+                    if stale {
+                        let view = window.current_view();
+                        window.defer(cx, move |_, cx| cx.notify(view));
+                    }
+                }
             },
         )
         .absolute()
@@ -305,6 +370,9 @@ impl EditorView {
 fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, cx: &mut Context<T>) {
     let (editors, view) = this.editor_host();
     let Some(i) = editors.active else { return };
+    if let Some(e) = editors.open.get_mut(i) {
+        e.editor.set_word_separators(&view.cfg.word_separators);
+    }
     match cmd {
         Command::CloseTab => {
             if let Some(path) = editors.open.get(i).map(|e| e.path.clone()) {
@@ -324,6 +392,11 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
                     if let Err(err) = e.save_with(transforms) {
                         eprintln!("rscode: save {}: {err}", e.path.display());
                     }
+                }
+                Command::ToggleWordWrap => {
+                    // Upstream toggleWordWrap.ts: wrapped becomes off, anything else wraps at the viewport.
+                    let wrapped = e.editor.is_wrapping();
+                    view.wrap_override.insert(e.path.clone(), !wrapped);
                 }
                 Command::Copy => {
                     let text = e.editor.selected_text();
@@ -388,8 +461,9 @@ fn font_features(cfg: &EditorSettings) -> gpui_kit::FontFeatures {
     gpui_kit::FontFeatures(std::sync::Arc::new(cfg.font_features.clone()))
 }
 
-/// Document position under window point `p`.
-fn hit_test(view: &EditorView, e: &OpenEditor, p: Point<Pixels>, window: &Window) -> Position {
+/// Document position under window point `p`, and whether it is the end of a wrapped row (the
+/// caret then belongs at the end of that row, not at the start of the next).
+fn hit_test(view: &EditorView, e: &OpenEditor, p: Point<Pixels>, window: &Window) -> (Position, bool) {
     let bounds = view.bounds.get();
     let (offset_x, offset_y) = view.scrolls.get(&e.path).map_or((0.0, 0.0), |s| {
         let o = s.0.borrow().base_handle.offset();
@@ -397,16 +471,29 @@ fn hit_test(view: &EditorView, e: &OpenEditor, p: Point<Pixels>, window: &Window
     });
     let buf = e.buffer();
     let y = f32::from(p.y - bounds.origin.y) - offset_y;
-    let line = ((y / view.cfg.line_height).floor().max(0.0) as usize + 1).min(buf.line_count());
+    let row = (y / view.cfg.line_height).floor().max(0.0) as usize;
     let x = f32::from(p.x - bounds.origin.x) - view.gutter - offset_x;
     let tab = e.editor.options().tab_size;
+    if let Some(v) = e.editor.view_lines() {
+        // A wrapped view: the row shows `indent` spaces and then a part of a model line.
+        let row = row.min(v.view_line_count().saturating_sub(1));
+        let seg = Seg::of_view_line(v.view_line(row));
+        let display = v.view_line_content(buf, row);
+        let shaped = shape(window, &view.cfg, &expand_tabs(&display, tab));
+        let display_column = column_for_x(&display, tab, x, |byte| {
+            shaped.as_ref().map_or(0.0, |s| f32::from(s.x_for_index(byte)))
+        });
+        let column = (seg.start + display_column.saturating_sub(seg.indent + 1)).min(seg.end);
+        return (Position::new(seg.line, column), column == seg.end && !seg.last);
+    }
+    let line = (row + 1).min(buf.line_count());
     let text = buf.line_content(line);
     let expanded = expand_tabs(text, tab);
     let shaped = shape(window, &view.cfg, &expanded);
     let column = column_for_x(text, tab, x, |byte| {
         shaped.as_ref().map_or(0.0, |s| f32::from(s.x_for_index(byte)))
     });
-    Position::new(line, column)
+    (Position::new(line, column), false)
 }
 
 fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<T>) {
@@ -415,9 +502,10 @@ fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Win
     if let Some(f) = &view.focus {
         f.focus(window, cx);
     }
-    let pos = hit_test(view, e, ev.position, window);
+    e.editor.set_word_separators(&view.cfg.word_separators);
+    let (pos, trailing) = hit_test(view, e, ev.position, window);
     match ev.click_count {
-        0 | 1 => e.editor.set_cursor(pos, ev.modifiers.shift),
+        0 | 1 => e.editor.set_cursor_with_affinity(pos, ev.modifiers.shift, trailing),
         2 => {
             // Double click: select the word under the pointer.
             e.editor.set_cursor(pos, false);
@@ -447,9 +535,9 @@ fn mouse_move<T: EditorHost>(this: &mut T, ev: &MouseMoveEvent, window: &mut Win
         return;
     }
     let Some(e) = editors.active.and_then(|i| editors.open.get_mut(i)) else { return };
-    let pos = hit_test(view, e, ev.position, window);
+    let (pos, trailing) = hit_test(view, e, ev.position, window);
     if pos != e.editor.selection().active {
-        e.editor.set_cursor(pos, true);
+        e.editor.set_cursor_with_affinity(pos, true, trailing);
         view.after_change(e, false, window);
         cx.notify();
     }
@@ -591,10 +679,17 @@ impl<T: EditorHost> InputHandler for EditorInput<T> {
             let buf = e.buffer();
             let pos = buf.position_at(range_utf16.start.min(buf.len_utf16()));
             let tab = e.editor.options().tab_size;
-            let text = buf.line_content(pos.line);
-            let shaped = shape(window, &view.cfg, &expand_tabs(text, tab));
+            // With word wrap the position is in a view line: its row, and its column in the row text.
+            let (row, text, column) = match e.editor.view_lines() {
+                Some(v) => {
+                    let (vline, vcol) = v.view_position_of(pos, vsr_editor::wrap::PositionAffinity::None);
+                    (vline, v.view_line_content(buf, vline), vcol)
+                }
+                None => (pos.line - 1, buf.line_content(pos.line).to_string(), pos.column),
+            };
+            let shaped = shape(window, &view.cfg, &expand_tabs(&text, tab));
             let x = shaped.map_or(0.0, |s| {
-                f32::from(s.x_for_index(expanded_byte_for_column(text, tab, pos.column)))
+                f32::from(s.x_for_index(expanded_byte_for_column(&text, tab, column)))
             });
             let (offset_x, offset_y) = view.scrolls.get(&e.path).map_or((0.0, 0.0), |s| {
                 let o = s.0.borrow().base_handle.offset();
@@ -602,7 +697,7 @@ impl<T: EditorHost> InputHandler for EditorInput<T> {
             });
             let origin = point(
                 bounds.origin.x + px(view.gutter + x + offset_x),
-                bounds.origin.y + px((pos.line - 1) as f32 * view.cfg.line_height + offset_y),
+                bounds.origin.y + px(row as f32 * view.cfg.line_height + offset_y),
             );
             Bounds::new(origin, gpui_kit::size(px(view.cfg.line_cursor_width()), px(view.cfg.line_height)))
         })
@@ -615,7 +710,7 @@ impl<T: EditorHost> InputHandler for EditorInput<T> {
         cx: &mut App,
     ) -> Option<usize> {
         self.with(cx, |e, view| {
-            let pos = hit_test(view, e, point, window);
+            let (pos, _) = hit_test(view, e, point, window);
             e.buffer().offset_at(pos)
         })
     }
@@ -695,7 +790,7 @@ fn occurrence_source(e: &OpenEditor, cfg: &EditorSettings) -> Option<decorations
         .then(|| e.editor.word_at(sel.active).map(|r| e.buffer().value_in_range(r)))
         .flatten();
     let max = cfg.selection_highlight.then_some(cfg.selection_highlight_max_length);
-    decorations::occurrences_for(selection.as_deref(), word.as_deref(), max)
+    decorations::occurrences_for(selection.as_deref(), word.as_deref(), max, &cfg.word_separators)
 }
 
 /// The gutter text of `line` for `editor.lineNumbers` (lineNumbers.ts: `relative` shows the distance
@@ -743,6 +838,18 @@ fn caret_element(
     }
 }
 
+/// The text a row shows: the continuation indent as spaces, then the segment of the model line.
+fn row_text(text: &str, seg: &Seg) -> String {
+    if seg.first && seg.last {
+        return text.to_string();
+    }
+    let part = vsr_editor::wrap::slice_utf16(text, seg.start - 1, seg.end - 1);
+    let mut out = String::with_capacity(seg.indent + part.len());
+    out.extend(std::iter::repeat_n(' ', seg.indent));
+    out.push_str(part);
+    out
+}
+
 #[allow(clippy::too_many_arguments)]
 fn rows(
     e: &OpenEditor,
@@ -755,6 +862,7 @@ fn rows(
     focused: bool,
     find: Option<&find::Highlights<'_>>,
     brackets: Option<(Position, Position)>,
+    wrap_indicator: Option<usize>,
 ) -> Vec<AnyElement> {
     let buf = e.buffer();
     let sel = e.editor.selection();
@@ -763,6 +871,9 @@ fn rows(
     let space_w = shape(window, cfg, " ").map_or(cfg.char_width(), |s| f32::from(s.width));
     let sel_bg = if focused { t.selection_bg } else { t.inactive_selection_bg };
     let caret_line = sel.active.line;
+    // With word wrap the caret, and the current-line box, are on one row of its line.
+    let view_lines = e.editor.view_lines();
+    let caret_view = e.editor.caret_view_position();
     let hl = cfg.render_line_highlight;
     // The border box of the current line: content only (`line`, empty selection), gutter only
     // (`gutter`), or the whole row (`all`).
@@ -777,38 +888,53 @@ fn rows(
         .flatten();
     range
         .map(|ix| {
-            let line = ix + 1;
-            if line > buf.line_count() {
+            // The part of a model line this row shows (the whole line without word wrap).
+            let seg = match view_lines.as_ref() {
+                Some(v) if ix < v.view_line_count() => Seg::of_view_line(v.view_line(ix)),
+                Some(_) => return div().h(px(lh)).into_any_element(),
+                None if ix < buf.line_count() => Seg::whole(ix + 1, buf.line_max_column(ix + 1)),
                 // The room after the last line (`scrollBeyondLastLine`) is empty.
-                return div().h(px(lh)).into_any_element();
-            }
+                None => return div().h(px(lh)).into_any_element(),
+            };
+            let line = seg.line;
             let text = buf.line_content(line);
-            let is_active = line == caret_line;
-            let expanded = expand_tabs(text, tab);
-            let selected = selection_on_line(e, line);
-            let has_caret = is_active && caret_on;
-            let found = find.map_or_else(Vec::new, |f| f.matches_on_line(line, buf.line_max_column(line)));
-            let markers = decorations::whitespace_marks(text, cfg.render_whitespace, selected.map(|(from, to, _)| (from, to)));
+            let display = row_text(text, &seg);
+            let is_caret_row = caret_view.map_or(line == caret_line, |(vline, _)| vline == ix);
+            let is_active = line == caret_line && seg.first;
+            let expanded = expand_tabs(&display, tab);
+            let selected_full = selection_on_line(e, line);
+            let selected = selected_full.and_then(|(from, to, past)| seg.clip_selection(from, to, past));
+            let has_caret = is_caret_row && caret_on;
+            let found: Vec<(usize, usize, bool)> = find.map_or_else(Vec::new, |f| f.matches_on_line(line, buf.line_max_column(line)))
+                .into_iter()
+                .filter_map(|(from, to, current)| seg.clip(from, to).map(|(a, b)| (a, b, current)))
+                .collect();
+            let markers: Vec<_> = decorations::whitespace_marks(text, cfg.render_whitespace, selected_full.map(|(from, to, _)| (from, to)))
+                .into_iter()
+                .filter(|m| m.column >= seg.start && m.column < seg.end)
+                .collect();
             // The bracket boxes of this line (the pair's two brackets, when they are on it).
             let bracket_cols: Vec<usize> = brackets
                 .into_iter()
                 .flat_map(|(a, b)| [a, b])
-                .filter(|p| p.line == line)
+                .filter(|p| p.line == line && p.column >= seg.start && p.column < seg.end)
                 .map(|p| p.column)
                 .collect();
             // Occurrences of the selection or of the word at the caret, on this line.
             let occurrence_cols: Vec<(usize, usize)> = occurrences.as_ref().map_or_else(Vec::new, |o| {
-                decorations::occurrences_in_line(text, &o.needle, o.whole_word)
+                decorations::occurrences_in_line(text, &o.needle, o.whole_word, &cfg.word_separators)
                     .into_iter()
-                    .filter(|&(from, to)| !(o.is_selection && selected.is_some_and(|(sf, st, _)| (sf, st) == (from, to))))
+                    .filter(|&(from, to)| !(o.is_selection && selected_full.is_some_and(|(sf, st, _)| (sf, st) == (from, to))))
+                    .filter_map(|(from, to)| seg.clip(from, to))
                     .collect()
             });
             let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty() || !bracket_cols.is_empty() || !occurrence_cols.is_empty())
                 .then(|| shape(window, cfg, &expanded))
                 .flatten();
+            // The x of model column `col` (clamped to this row's part of the line).
             let x_at = |col: usize| -> f32 {
                 shaped.as_ref().map_or(0.0, |s| {
-                    f32::from(s.x_for_index(expanded_byte_for_column(text, tab, col)))
+                    f32::from(s.x_for_index(expanded_byte_for_column(&display, tab, seg.display_column(col))))
                 })
             };
 
@@ -893,10 +1019,16 @@ fn rows(
             }
             text_box = text_box.text_color(to_gpui(t.editor_fg)).child(expanded);
             if has_caret {
-                let col = sel.active.column;
-                let x = x_at(col);
-                let glyph = text.chars().nth(col - 1).filter(|c| *c != '\t').map(|c| c.to_string());
-                let cell = (x_at(col + 1) - x).max(0.0);
+                // The caret's column in the row's text (`caret_view` includes the continuation indent).
+                let col = caret_view.map_or(sel.active.column, |(_, vcol)| vcol);
+                let x = f32::from(
+                    shaped.as_ref().map_or(px(0.), |s| s.x_for_index(expanded_byte_for_column(&display, tab, col))),
+                );
+                let x_next = shaped.as_ref().map_or(0.0, |s| {
+                    f32::from(s.x_for_index(expanded_byte_for_column(&display, tab, col + 1)))
+                });
+                let glyph = display.chars().nth(col - 1).filter(|c| *c != '\t').map(|c| c.to_string());
+                let cell = (x_next - x).max(0.0);
                 let cell = if glyph.is_some() && cell > 0.5 { cell } else { space_w };
                 text_box = text_box.child(caret_element(cfg, t, x, cell, glyph.as_deref()));
             }
@@ -910,7 +1042,8 @@ fn rows(
                 .font_family(SharedString::from(cfg.font_family.clone()))
                 .font_weight(gpui_kit::FontWeight(cfg.font_weight))
                 .font_features(font_features(cfg))
-                .text_size(px(cfg.font_size));
+                .text_size(px(cfg.font_size))
+                .debug_selector(|| format!("row:{ix}"));
             if let Some(f) = find.filter(|f| f.line_in_scope(line)) {
                 // "Find in Selection": the lines of the scope get the range highlight.
                 row = row.child(
@@ -947,28 +1080,37 @@ fn rows(
                         .debug_selector(|| format!("ruler:{}", ruler.column)),
                 );
             }
-            if is_active && (hl_content || hl_gutter) {
+            // `editor.wordWrapIndicator`: a marker in the last column of a row that continues.
+            if let Some(col) = wrap_indicator.filter(|_| !seg.last) {
+                row = row.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(px(gutter + col as f32 * space_w))
+                        .text_color(to_gpui(t.whitespace_fg))
+                        .debug_selector(|| format!("wrap-indicator:{ix}"))
+                        .child("\u{21a9}"),
+                );
+            }
+            if is_caret_row && (hl_content || hl_gutter) {
                 let left = if hl_content && !hl_gutter { gutter } else { 0.0 };
                 let mut highlight = div().absolute().top_0().bottom_0().left(px(left)).border_2().border_color(to_gpui(t.line_highlight_border));
                 highlight = if hl_content { highlight.right_0() } else { highlight.w(px(gutter)) };
                 row = row.child(highlight);
             }
-            row.child(
-                div()
-                    .flex_none()
-                    .debug_selector(|| format!("gutter:{line}"))
-                    .w(px(gutter))
-                    .pr(px(26.))
-                    .text_right()
-                    .text_color(to_gpui(if is_active {
-                        t.line_number_active_fg
-                    } else {
-                        t.line_number_fg
-                    }))
-                    .child(line_number_label(cfg.line_numbers, line, caret_line)),
-            )
-            .child(text_box)
-            .into_any_element()
+            // The line number is shown on the first row of a wrapped line only.
+            let number = if seg.first { line_number_label(cfg.line_numbers, line, caret_line) } else { String::new() };
+            let mut number_box = div()
+                .flex_none()
+                .w(px(gutter))
+                .pr(px(26.))
+                .text_right()
+                .text_color(to_gpui(if is_active { t.line_number_active_fg } else { t.line_number_fg }))
+                .child(number);
+            if seg.first {
+                number_box = number_box.debug_selector(|| format!("gutter:{line}"));
+            }
+            row.child(number_box).child(text_box).into_any_element()
         })
         .collect()
 }
@@ -1002,3 +1144,5 @@ mod tests {
 mod e2e;
 #[cfg(test)]
 mod find_e2e;
+#[cfg(test)]
+mod wrap_e2e;

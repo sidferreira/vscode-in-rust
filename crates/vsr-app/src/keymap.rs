@@ -45,6 +45,8 @@ pub enum Command {
     Paste,
     Save,
     CloseTab,
+    /// Alt+Z: wrap long lines at the viewport, or stop wrapping (`editor.action.toggleWordWrap`).
+    ToggleWordWrap,
 }
 
 use Command::*;
@@ -94,6 +96,7 @@ pub const BINDINGS: &[(&str, Command)] = &[
     ("shift-cmd-z", Redo),
     ("cmd-s", Save),
     ("cmd-w", CloseTab),
+    ("alt-z", ToggleWordWrap),
 ];
 
 #[cfg(test)]
@@ -142,7 +145,7 @@ pub fn apply(editor: &mut Editor, cmd: Command, page: usize) -> bool {
         Redo => {
             editor.redo();
         }
-        Copy | Cut | Paste | Save | CloseTab => return false,
+        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap => return false,
     }
     true
 }
@@ -170,6 +173,7 @@ mod tests {
         assert_eq!(resolve("delete"), Some(Delete));
         assert_eq!(resolve("cmd-s"), Some(Save));
         assert_eq!(resolve("cmd-w"), Some(CloseTab));
+        assert_eq!(resolve("alt-z"), Some(ToggleWordWrap));
         assert_eq!(resolve("ctrl-q"), None);
     }
 

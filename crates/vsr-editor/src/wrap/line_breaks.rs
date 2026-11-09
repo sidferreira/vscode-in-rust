@@ -174,19 +174,16 @@ impl LineBreaksComputer {
         while i < len {
             let char_start = i;
             let code = text[i];
-            let class;
-            let width;
-            let pixel_width;
-            if is_high_surrogate(code) {
+            let (class, width, pixel_width) = if is_high_surrogate(code) {
                 i += 1;
-                class = NONE;
-                width = 2.0;
-                pixel_width = 2.0 * half;
+                (NONE, 2.0, 2.0 * half)
             } else {
-                class = self.class(code);
-                width = char_width(code, visible_column, tab_size, columns_for_full_width, p.use_two_cell_fullwidth);
-                pixel_width = char_pixel_width(code, visible_column, tab_size, p);
-            }
+                (
+                    self.class(code),
+                    char_width(code, visible_column, tab_size, columns_for_full_width, p.use_two_cell_fullwidth),
+                    char_pixel_width(code, visible_column, tab_size, p),
+                )
+            };
 
             let mut wrap_escaped_line_feed = false;
             if wrap_on_escaped_line_feeds && is_escaped_line_break_at(text, char_start) {

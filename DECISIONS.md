@@ -381,3 +381,18 @@ Launcher bug found while doing this: `cp -f` over the bundle's executable while 
 instance ran from it made the next launch die with `SIGKILL (Code Signature Invalid)` and popped
 macOS's crash reporter. Fix: copy to a temp file + `mv` (new inode), and ad-hoc sign the whole
 bundle (`codesign --force --sign -`), since macOS validates the bundle, not just the binary.
+
+## ADR-0025 — Settings migration tracker and policy (2026-11-09)
+
+`scripts/settings-port` inventories all 2062 settings (TOC placement, source, feature group,
+upstream registration + consumer files) and assigns a status: **wired** (in
+`crates/vsr-app/src/config/wired.rs` `WIRED_KEYS`), **exthost** (contributed by a built-in
+extension, expected to work once the Node extension host runs it, ADR-0020), **n/a** (with a
+reason), or **todo** (P1/P2/P3). `next` emits one feature group per task with acceptance criteria
+(live effect, headless E2E test, added to wired.rs). Process: `docs/settings-migration.md`.
+
+Initial counts: wired 19, exthost 426, n/a 540, todo 1077 (P1 316, P2 596, P3 164), 263 groups.
+Policy (in `upstream/settings.toml`, **pending the user's review**): AI chat/agents/Copilot/MCP
+(314), deprecated (140), remote/tunnels, Windows- or Linux-only, web-only, telemetry,
+auto-update, settings sync and the integrated browser are n/a. Per ROADMAP.md, the migration
+starts after Search.

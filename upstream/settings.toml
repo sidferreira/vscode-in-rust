@@ -1,0 +1,151 @@
+# Settings port policy: read by scripts/settings-port (see docs/settings-migration.md).
+#
+# This file is the only place where we decide what a setting means for rscode. Every n/a,
+# priority and grouping choice below is a POLICY decision the user should review. Keep the
+# subset of TOML simple: tables, [[arrays of tables]], strings, string arrays, ints, bools.
+#
+# Status precedence per setting: wired (crates/vsr-app/src/config/wired.rs) > first matching
+# [[rule]] > deprecated policy > exthost (contributed by a built-in extension) > todo.
+# Patterns are upstream-style globs: `*` is a wildcard, case-insensitive, whole key.
+# Rule `match` is against the setting key; `source` (optional) against the export's source.
+
+[upstream]
+# The clone is read from its working tree at the pinned commit (UPSTREAM.md).
+clone = "../vscode-original"
+pinned = "50e1350fc78df67b11049b903d96b530f28d26a5"
+
+[policy]
+# Settings marked `deprecated` upstream (165 keys) are n/a. Change to "todo" to implement them.
+deprecated = "n/a"
+
+[priority]
+# P1: visible in everyday editing (editor basics, files, explorer, search, layout, window chrome).
+# Commonly Used settings are P1 regardless of this list.
+p1 = [
+  "editor.font", "editor.cursor", "editor.tab", "editor.word", "editor.format", "editor.find",
+  "editor.render", "editor.minimap", "editor.suggest", "editor.hover", "editor.folding",
+  "editor.scroll", "editor.stickyScroll", "editor.gotoLocation", "editor.guides",
+  "editor.selection", "files", "files.*", "explorer", "explorer.*", "search", "search.*",
+  "workbench.activityBar", "workbench.sash", "workbench.editor", "workbench.commandPalette",
+  "window", "breadcrumbs.show", "outline.show",
+]# P3: niche, preview/experimental or language-specific tooling nobody needs first.
+p3 = [
+  "*.experimental", "*experimental*", "mergeEditor", "multiDiffEditor", "imageCarousel",
+  "mediaPreview", "timeline", "references", "grunt", "gulp", "jake", "php*", "ipynb",
+  "simpleBrowser", "notebook*", "interactiveWindow", "emmet*", "npm*", "merge-conflict",
+  "screencastMode", "comments", "testing*", "markdown-mermaid", "markdown-math", "jsts-chat-features",
+  "diffEditor*", "multiDiffEditor*",
+]
+
+# Group overrides: first match wins. Default grouping is `a.b` or `a.<word>` (see
+# assign_groups in the script). Example: [[group]] match = ["editor.wordWrap*"] id = "editor.wrap"
+# Keep the list empty until a group is clearly wrong.
+
+# ---------------------------------------------------------------------------------------------
+# n/a rules. Each reason is listed so the user can review it. Explicit key lists are preferred
+# over broad globs wherever a glob would catch a setting we do want.
+# ---------------------------------------------------------------------------------------------
+
+[[rule]]
+status = "n/a"
+reason = "windows-only setting"
+comment = "Keys with a .windows suffix (profiles, env) or a Windows-only name. macOS and Linux do not read them."
+match = ["*.windows", "terminal.integrated.windowsUseConptyDll", "terminal.integrated.windowsReparentConsoleWindow",
+         "terminal.integrated.enableWin32InputMode", "terminal.integrated.suggest.windowsExecutableExtensions",
+         "git.ignoreWindowsGit27Warning", "terminal.external.windowsExec"]
+
+[[rule]]
+status = "n/a"
+reason = "no effect on macOS (upstream description)"
+comment = "Menubar mnemonics (Alt+F). The upstream description says it does nothing on macOS."
+match = ["terminal.integrated.allowMnemonics"]
+
+[[rule]]
+status = "n/a"
+reason = "linux-only setting"
+comment = "Keys with a .linux suffix, plus the Linux external-terminal exec."
+match = ["*.linux", "terminal.external.linuxExec"]
+
+[[rule]]
+status = "n/a"
+reason = "web-only"
+comment = "Web worker extension host and the web variant of the TypeScript server; rscode is desktop-only (ADR-0019)."
+match = ["extensions.webWorker", "*tsserver.web.*"]
+
+[[rule]]
+status = "n/a"
+reason = "telemetry (rscode ships none)"
+comment = "No telemetry pipeline is planned; the settings would configure nothing."
+match = ["telemetry.*"]
+
+[[rule]]
+status = "n/a"
+reason = "auto-update (product)"
+comment = "rscode has no updater; update channels are a product service."
+match = ["update.*"]
+
+[[rule]]
+status = "n/a"
+reason = "remote development / tunnels (out of scope)"
+comment = "Remote and tunnel features are not planned; ADR-0019 scopes rscode to local desktop."
+match = ["remote.*", "debug.javascript.automaticallyTunnelRemoteServer"]
+
+[[rule]]
+status = "n/a"
+reason = "settings sync (product service)"
+comment = "Cloud settings sync is a Microsoft account service."
+match = ["settingsSync.*"]
+
+[[rule]]
+status = "n/a"
+reason = "AI chat, agents and copilot (product)"
+comment = "rscode does not ship Copilot or chat. Accessibility signals named chat* stay todo (they are under accessibility.*)."
+match = ["chat.*", "inlineChat.*", "mcp.*", "agents.*", "sessions.*", "dictation.*", "github.*",
+         "github-enterprise.*", "onboarding.*", "accessibility.verbosity.browserElementCommenting"]
+
+[[rule]]
+status = "n/a"
+reason = "accounts, sign-in, cloud and issue reporter (product)"
+comment = "Account and sign-in UI belongs to the product services; the issue reporter is hidden on desktop."
+match = ["workbench.accounts.*", "workbench.cloudChanges.*", "workbench.experimental.cloudChanges.*", "issueReporter.*"]
+
+[[rule]]
+status = "n/a"
+reason = "integrated browser (product feature; revisit)"
+comment = "workbench.browser.* configures the built-in browser pane, a product feature. Revisit if rscode gets one."
+match = ["workbench.browser.*"]
+
+[[rule]]
+status = "n/a"
+reason = "sign-in and Microsoft/GitHub account extensions (product)"
+comment = "Extension-contributed settings from the GitHub and Microsoft authentication and sign-in extensions."
+source = ["vscode.github", "vscode.github-authentication", "vscode.github-enterprise*", "vscode.microsoft-authentication",
+          "vscode.microsoft-sovereign-cloud", "TypeScriptTeam.jsts-chat-features"]
+
+# ---------------------------------------------------------------------------------------------
+# rscode component map for `next` briefs (first match wins; match is against the group id).
+# ---------------------------------------------------------------------------------------------
+
+[[component]]
+match = ["editor", "editor.*", "diffEditor*", "multiDiffEditor*"]
+path = "crates/vsr-app/src/editor_view.rs (and crates/vsr-editor / vsr-text for behaviour)"
+
+[[component]]
+match = ["keyboard*", "*keybinding*"]
+path = "crates/vsr-app/src/keymap.rs"
+
+[[component]]
+match = ["workbench.colorTheme*", "workbench.*color*", "workbench.*font*", "workbench.iconTheme*"]
+path = "crates/vsr-app/src/theme.rs"
+
+[[component]]
+match = ["workbench.settings*", "settings*"]
+path = "crates/vsr-app/src/settings_view.rs"
+
+[[component]]
+match = ["files*", "explorer*", "search*", "outline*", "breadcrumbs*", "workbench*", "window*", "zenMode*", "terminal*", "debug*", "scm*", "git*", "task*"]
+path = "crates/vsr-app/src/ui.rs (no dedicated module yet; create one when the first setting in this group lands)"
+
+[[component]]
+match = ["*"]
+path = "crates/vsr-app/src/ui.rs"

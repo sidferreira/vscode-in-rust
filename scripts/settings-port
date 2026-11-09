@@ -1,0 +1,1075 @@
+#!/usr/bin/env python3
+"""settings-port: track which VS Code settings rscode has migrated, and hand out the next work.
+
+Stdlib-only, Python >= 3.8. Run from the repo root: python3 -I scripts/settings-port <command>.
+Read-only on the upstream clone (it is never built, fetched or modified).
+
+Commands:
+  inventory [--rebuild]                  per-setting inventory: TOC placement, feature group,
+                                         upstream registration and consumer files (cached)
+  status [--group G] [--json] [--rebuild]
+                                         counts by status, by feature group and by TOC section;
+                                         with --group, the settings of one group
+  next [--n 3] [--rebuild]               next feature groups to implement, P1 first, as task briefs
+  report [--rebuild]                     write upstream/SETTINGS_PORT_REPORT.md
+  diff-export OLD NEW [--json]           added / removed / changed settings between two exports
+
+Inputs:
+  crates/vsr-settings/assets/default-configuration.json  the exported settings (2062)
+  crates/vsr-settings/assets/settings-layout.json        the Settings editor TOC (port of tocData)
+  upstream/settings.toml                                 policy: n/a rules, group overrides,
+                                                         priorities, rscode component map
+  crates/vsr-app/src/config/wired.rs                     keys the app reads (absent = none wired)
+  upstream clone (default ../vscode-original)            consumer index, read from its working tree
+
+Status precedence per setting: wired > first matching rule in settings.toml > exthost (source
+is an extension) > todo. Deprecated settings are n/a when [policy] deprecated = "n/a".
+
+The consumer index is cached in ~/Library/Caches/rscode-settings-port/inventory.json, keyed by
+the export's SHA-256 and the clone's HEAD. --rebuild ignores the cache. Settings.toml and
+wired.rs are read on every run, so policy edits never need a rebuild.
+"""
+
+import argparse
+import collections
+import hashlib
+import json
+import multiprocessing
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+EXPORT_PATH = os.path.join(REPO_ROOT, "crates", "vsr-settings", "assets", "default-configuration.json")
+LAYOUT_PATH = os.path.join(REPO_ROOT, "crates", "vsr-settings", "assets", "settings-layout.json")
+CONFIG_PATH = os.path.join(REPO_ROOT, "upstream", "settings.toml")
+REPORT_PATH = os.path.join(REPO_ROOT, "upstream", "SETTINGS_PORT_REPORT.md")
+WIRED_PATH = os.path.join(REPO_ROOT, "crates", "vsr-app", "src", "config", "wired.rs")
+DEFAULT_CLONE = os.path.join(os.path.dirname(REPO_ROOT), "vscode-original")
+CACHE_PATH = os.path.join(os.path.expanduser("~"), "Library", "Caches", "rscode-settings-port",
+                          "inventory.json")
+
+STATUSES = ("wired", "exthost", "n/a", "todo")
+PRIORITIES = ("P1", "P2", "P3")
+MAX_GROUP = 30            # a feature group larger than this is split one level further
+MIN_GROUP = 3             # a smaller group is merged into its parent (drop the last segment)
+TOP_CONSUMERS = 8
+ADVANCED_TAG = "advanced"
+# Settings the upstream layout lists under two nodes: they stay claimable by the second node.
+MULTI_GROUP = frozenset(["accessibility.signals.chatUserActionRequired",
+                         "accessibility.signals.chatResponseReceived"])
+DIFF_FIELDS = ("type", "default", "enum", "enumDescriptions", "description",
+               "markdownDescription", "minimum", "maximum", "scope", "tags",
+               "deprecationMessage", "markdownDeprecationMessage")
+SECTION_ORDER = ("editor", "workbench", "window", "chat", "features", "application", "security",
+                 "other", "advanced", "extensions")
+
+KEY_PAT = r"[A-Za-z][\w/-]*(?:\.[\w/-]+)+"
+LIT_RE = re.compile(r"""['"`](""" + KEY_PAT + r""")['"`]""")
+REG_RE = re.compile(r"""['"`](""" + KEY_PAT + r""")['"`]\s*:\s*\{""")
+ENUM_RE = re.compile(r"\bEditorOption\.([A-Za-z_]\w*)")
+EDITOR_NAME_RE = re.compile(r"EditorOption\.([A-Za-z_]\w*),\s*'([A-Za-z]\w*)'")
+ENUM_BLOCK_RE = re.compile(r"export const enum EditorOption \{(.*?)\n\}", re.S)
+ENUM_MEMBER_RE = re.compile(r"^\t([A-Za-z_]\w*),?\s*$", re.M)
+WIRED_RE = re.compile(r'"(' + KEY_PAT + r')"')
+EDITOR_OPTIONS_PATH = "src/vs/editor/common/config/editorOptions.ts"
+
+
+class SettingsPortError(Exception):
+    pass
+
+
+# --------------------------------------------------------------------------
+# Config: a TOML subset (tables, arrays of tables, strings, ints, bools, string arrays)
+# --------------------------------------------------------------------------
+
+class _NeedMore(Exception):
+    pass
+
+
+def _skip_ws(s, p):
+    while p < len(s):
+        c = s[p]
+        if c in " \t\r\n":
+            p += 1
+        elif c == "#":
+            nl = s.find("\n", p)
+            p = len(s) if nl < 0 else nl
+        else:
+            break
+    return p
+
+
+def _parse_value(s, p):
+    p = _skip_ws(s, p)
+    if p >= len(s):
+        raise _NeedMore()
+    c = s[p]
+    if c == '"':
+        out = []
+        p += 1
+        escapes = {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}
+        while True:
+            if p >= len(s):
+                raise _NeedMore()
+            ch = s[p]
+            if ch == "\\":
+                if p + 1 >= len(s):
+                    raise _NeedMore()
+                out.append(escapes.get(s[p + 1], s[p + 1]))
+                p += 2
+            elif ch == '"':
+                return "".join(out), p + 1
+            else:
+                out.append(ch)
+                p += 1
+    if c == "[":
+        items = []
+        p += 1
+        while True:
+            p = _skip_ws(s, p)
+            if p >= len(s):
+                raise _NeedMore()
+            if s[p] == "]":
+                return items, p + 1
+            if s[p] == ",":
+                p += 1
+                continue
+            value, p = _parse_value(s, p)
+            items.append(value)
+    m = re.compile(r"true|false|-?\d+").match(s, p)
+    if not m:
+        raise SettingsPortError("unsupported TOML value at: %r" % s[p:p + 30])
+    text = m.group()
+    if text in ("true", "false"):
+        return text == "true", m.end()
+    return int(text), m.end()
+
+
+def parse_toml(text):
+    """Parse the TOML subset used by upstream/settings.toml. Anything fancier is an error."""
+    root = {}
+    current = root
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        i += 1
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[["):
+            name = line[2:line.index("]]")].strip()
+            current = {}
+            root.setdefault(name, []).append(current)
+        elif line.startswith("["):
+            name = line[1:line.index("]")].strip()
+            current = root.setdefault(name, {})
+        else:
+            eq = line.find("=")
+            if eq < 0:
+                raise SettingsPortError("settings.toml line %d: expected key = value" % i)
+            key = line[:eq].strip().strip('"')
+            rest = line[eq + 1:]
+            while True:
+                try:
+                    value, end = _parse_value(rest, 0)
+                except _NeedMore:
+                    if i >= len(lines):
+                        raise SettingsPortError("settings.toml: unterminated value for %s" % key)
+                    rest += "\n" + lines[i]
+                    i += 1
+                    continue
+                trailing = rest[_skip_ws(rest, end):]
+                if trailing:
+                    raise SettingsPortError("settings.toml line %d: trailing text %r" % (i, trailing))
+                break
+            current[key] = value
+    return root
+
+
+def _as_list(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
+def load_config(path=CONFIG_PATH):
+    """Return the policy with every table normalised. Missing file = empty policy."""
+    if not os.path.exists(path):
+        raw = {}
+    else:
+        with open(path, encoding="utf-8") as fh:
+            raw = parse_toml(fh.read())
+    cfg = {
+        "upstream": raw.get("upstream", {}),
+        "policy": raw.get("policy", {}),
+        "priority": {k: _as_list(v) for k, v in raw.get("priority", {}).items()},
+        "groups": [],
+        "rules": [],
+        "components": [],
+    }
+    for g in raw.get("group", []):
+        if "match" not in g or "id" not in g:
+            raise SettingsPortError("[[group]] needs match and id")
+        cfg["groups"].append({"match": _as_list(g["match"]), "id": g["id"]})
+    for r in raw.get("rule", []):
+        status = r.get("status")
+        if status not in ("n/a", "exthost", "todo"):
+            raise SettingsPortError("[[rule]] status must be n/a, exthost or todo: %r" % status)
+        if not r.get("match") and not r.get("source"):
+            raise SettingsPortError("[[rule]] needs match or source")
+        cfg["rules"].append({
+            "match": _as_list(r.get("match")), "source": _as_list(r.get("source")),
+            "status": status, "reason": r.get("reason", ""), "comment": r.get("comment", ""),
+        })
+    for c in raw.get("component", []):
+        cfg["components"].append({"match": _as_list(c.get("match")), "path": c.get("path", "")})
+    return cfg
+
+
+# --------------------------------------------------------------------------
+# Upstream TOC resolution (port of settingsTree.ts `_resolveSettingsTree`)
+# --------------------------------------------------------------------------
+
+def glob_match(pattern, text):
+    """Upstream key patterns: `*` is a wildcard, the whole key must match, case is ignored."""
+    rx = ".*".join(re.escape(part) for part in pattern.lower().split("*"))
+    return re.fullmatch(rx, text.lower()) is not None
+
+
+def any_glob(patterns, text):
+    return any(glob_match(p, text) for p in patterns)
+
+
+def node_hidden(node, platform=sys.platform):
+    """`hideOn` is a port of upstream `hide:`: `desktop` is `!isWeb` (always hidden here, since
+    rscode is desktop-only), `windows` is `isWindows`."""
+    hide_on = node.get("hideOn")
+    if hide_on == "desktop":
+        return True
+    if hide_on == "windows":
+        return platform.startswith("win")
+    return False
+
+
+def resolve_toc(layout, core_settings):
+    """Place core settings in the TOC. Children claim first, then a node takes what is left that
+    matches its own patterns; first claim wins. Advanced settings are not placed.
+
+    Returns (placement, paths): placement maps key -> node id, paths maps node id -> label path."""
+    placement = {}
+    paths = {}
+    claimed = set()
+    pool = [s["key"] for s in core_settings if ADVANCED_TAG not in s.get("tags", [])]
+
+    def visit(node, parents):
+        if node_hidden(node):
+            return
+        path = parents + [node["label"]]
+        paths[node["id"]] = " > ".join(path)
+        for child in node.get("children", []):
+            visit(child, path)
+        patterns = node.get("settings")
+        if not patterns:
+            return
+        for key in pool:
+            if key in claimed or not any_glob(patterns, key):
+                continue
+            placement.setdefault(key, node["id"])
+            if key not in MULTI_GROUP:
+                claimed.add(key)
+
+    for top in layout["toc"]:
+        visit(top, [])
+    return placement, paths
+
+
+def section_of(node_id):
+    return node_id.split("/")[0]
+
+
+# --------------------------------------------------------------------------
+# Feature groups
+# --------------------------------------------------------------------------
+
+def first_word(segment):
+    m = re.match(r"[a-z0-9]+|[A-Z][a-z0-9]*|[A-Z]+", segment)
+    return m.group(0) if m else segment
+
+
+def group_candidates(key):
+    """(level2, level3) candidate group ids for a key; level3 is None when not applicable."""
+    parts = key.split(".")
+    a = parts[0]
+    if len(parts) == 1:
+        return a, None
+    if len(parts) == 2:
+        return a + "." + first_word(parts[1]), None
+    level2 = a + "." + parts[1]
+    level3 = level2 + "." + first_word(parts[2])
+    return level2, level3
+
+
+def assign_groups(keys, overrides):
+    """Feature group per key. First matching [[group]] override wins; otherwise
+    `a.b` (3+ segments) or `a.<first word of b>` (2 segments) when that group has at least two
+    keys; a group bigger than MAX_GROUP is split by the next segment's first word."""
+    counts2 = collections.Counter()
+    counts3 = collections.Counter()
+    cands = {}
+    for key in keys:
+        cands[key] = group_candidates(key)
+        counts2[cands[key][0]] += 1
+        if cands[key][1]:
+            counts3[cands[key][1]] += 1
+    result = {}
+    for key in keys:
+        override = next((o["id"] for o in overrides if any_glob(o["match"], key)), None)
+        if override:
+            result[key] = override
+            continue
+        level2, level3 = cands[key]
+        group = level2
+        if len(key.split(".")) == 2 and counts2[level2] < 2:
+            group = key.split(".")[0]
+        if counts2[level2] > MAX_GROUP and level3 and counts3[level3] >= 2:
+            group = level3
+        result[key] = group
+    # Merge tiny groups into their parent, so the list of tasks stays readable.
+    overridden = {k for k in keys if any(any_glob(o["match"], k) for o in overrides)}
+    for _ in range(4):
+        sizes = collections.Counter(result.values())
+        moved = False
+        for key in keys:
+            group = result[key]
+            if key in overridden or sizes[group] >= MIN_GROUP or "." not in group:
+                continue
+            result[key] = group.rsplit(".", 1)[0]
+            moved = True
+        if not moved:
+            break
+    return result
+
+
+# --------------------------------------------------------------------------
+# Status, priority, plain text
+# --------------------------------------------------------------------------
+
+def decide_status(record, cfg, wired):
+    """(status, reason). Precedence: wired > first matching rule > deprecated policy > exthost."""
+    key = record["key"]
+    if key in wired:
+        return "wired", "wired in " + os.path.relpath(WIRED_PATH, REPO_ROOT)
+    for rule in cfg["rules"]:
+        key_ok = (not rule["match"]) or any_glob(rule["match"], key)
+        src_ok = (not rule["source"]) or any_glob(rule["source"], record.get("source", "core"))
+        if key_ok and src_ok:
+            return rule["status"], rule["reason"]
+    if record.get("deprecated") and cfg["policy"].get("deprecated") == "n/a":
+        return "n/a", "deprecated upstream"
+    if record.get("source", "core") != "core":
+        return "exthost", "built-in extension " + record["source"]
+    return "todo", ""
+
+
+def decide_priority(record, group, cfg, commonly):
+    """P1 = Commonly Used or a P1 group; P3 = experimental/preview/advanced or a P3 group."""
+    p = cfg["priority"]
+    if record["key"] in commonly or any_glob(p.get("p1", []), group):
+        return "P1"
+    tags = record.get("tags", [])
+    if any(t in tags for t in ("experimental", "preview", ADVANCED_TAG)) or any_glob(p.get("p3", []), group):
+        return "P3"
+    return "P2"
+
+
+def plain(text):
+    """Markdown-ish description to one plain line."""
+    if not text:
+        return ""
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    t = re.sub(r"[`*#]", "", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def first_sentence(text, limit=200):
+    t = plain(text)
+    m = re.search(r"(?<=[.!?])\s", t)
+    s = t[:m.start()] if m and m.start() < limit else t[:limit]
+    return s.strip()
+
+
+def type_of(record):
+    t = record.get("type")
+    if t is None:
+        return "any"
+    return "|".join(t) if isinstance(t, list) else t
+
+
+def default_of(record):
+    if "default" not in record:
+        return "(none)"
+    return json.dumps(record["default"], ensure_ascii=False)
+
+
+# --------------------------------------------------------------------------
+# Upstream consumer index (one pass over the clone's working tree)
+# --------------------------------------------------------------------------
+
+def git(clone, *args):
+    r = subprocess.run(["git", "-C", clone] + list(args), stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, check=False)
+    if r.returncode != 0:
+        raise SettingsPortError("git %s failed: %s" % (" ".join(args), r.stderr.decode(errors="replace").strip()))
+    return r.stdout.decode("utf-8", errors="replace")
+
+
+def is_test_path(rel):
+    parts = rel.split("/")
+    base = parts[-1]
+    return (any(p in ("test", "tests", "__tests__") for p in parts[:-1])
+            or ".test." in base or base.endswith(".d.ts"))
+
+
+def upstream_files(clone):
+    """(rel, abs, is_manifest) for TypeScript consumers and extension manifests."""
+    listed = git(clone, "ls-files", "-z", "--", "src/vs", "extensions").split("\0")
+    out = []
+    for rel in listed:
+        if not rel:
+            continue
+        if rel.startswith("extensions/") and rel.endswith("/package.json") and rel.count("/") == 2:
+            out.append((rel, os.path.join(clone, rel), True))
+        elif rel.endswith(".ts") and not rel.endswith(".d.ts") and not is_test_path(rel):
+            out.append((rel, os.path.join(clone, rel), False))
+    return out
+
+
+_WORKER = {}
+
+
+def _worker_init(keys, enum_members):
+    _WORKER["keys"] = keys
+    _WORKER["enum"] = enum_members
+
+
+def _scan_file(item):
+    rel, path, manifest = item
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return rel, manifest, None, [], None
+    keys = _WORKER["keys"]
+    regs = sorted({m for m in REG_RE.findall(text) if m in keys})
+    if manifest:
+        return rel, True, None, regs, None
+    lits = collections.Counter(m for m in LIT_RE.findall(text) if m in keys)
+    enums = collections.Counter(m for m in ENUM_RE.findall(text) if m in _WORKER["enum"])
+    return rel, False, lits, regs, enums
+
+
+def editor_option_map(clone):
+    """{editor setting name: EditorOption member} from editorOptions.ts."""
+    path = os.path.join(clone, EDITOR_OPTIONS_PATH)
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+    block = ENUM_BLOCK_RE.search(text)
+    members = set(ENUM_MEMBER_RE.findall(block.group(1))) if block else set()
+    mapping = {}
+    for member, name in EDITOR_NAME_RE.findall(text):
+        if member in members:
+            mapping.setdefault(name, member)
+    return mapping, members
+
+
+def build_index(clone, keys):
+    """Return per-key consumer and registration data, plus the EditorOption mapping."""
+    option_map, members = editor_option_map(clone)
+    files = upstream_files(clone)
+    lits = collections.defaultdict(collections.Counter)
+    enums = collections.defaultdict(collections.Counter)
+    regs = collections.defaultdict(list)
+    ctx = multiprocessing.get_context("fork")
+    with ctx.Pool(processes=max(1, (os.cpu_count() or 2)), initializer=_worker_init,
+                  initargs=(set(keys), members)) as pool:
+        for rel, manifest, lit_counts, reg_keys, enum_counts in pool.imap_unordered(_scan_file, files, chunksize=64):
+            for k in reg_keys:
+                regs[k].append(rel)
+            if manifest:
+                continue
+            for k, c in lit_counts.items():
+                lits[k][rel] += c
+            for n, c in enum_counts.items():
+                enums[n][rel] += c
+    return {"files": len(files), "lits": lits, "enums": enums, "regs": regs,
+            "option_map": option_map}
+
+
+def registration_for(key, reg_files):
+    """Prefer a configuration/registry file over an arbitrary object literal."""
+    if not reg_files:
+        return None
+    ranked = sorted(reg_files, key=lambda p: (0 if re.search(r"config|contribution|registry|settings",
+                                                              p, re.I) else 1, p))
+    return ranked[0]
+
+
+def consumers_for(key, index, option_member, reg_files):
+    counts = collections.Counter(index["lits"].get(key, {}))
+    if option_member:
+        counts.update(index["enums"].get(option_member, {}))
+    for path in reg_files:
+        counts.pop(path, None)
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    top = [[p, n] for p, n in ranked[:TOP_CONSUMERS]]
+    return top, sum(counts.values()), len(counts)
+
+
+def raw_record(s):
+    keep = {k: s[k] for k in ("key", "type", "default", "source", "scope", "tags", "enum",
+                              "minimum", "maximum", "order", "deprecationMessage",
+                              "markdownDeprecationMessage", "description", "markdownDescription",
+                              "enumDescriptions") if k in s}
+    keep["deprecated"] = ("deprecationMessage" in s or "markdownDeprecationMessage" in s)
+    keep.setdefault("source", "core")
+    keep.setdefault("tags", [])
+    return keep
+
+
+def load_export(path=EXPORT_PATH):
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    return data
+
+
+def export_sha(path=EXPORT_PATH):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def upstream_state(clone):
+    try:
+        head = git(clone, "rev-parse", "HEAD").strip()
+        dirty = bool(git(clone, "status", "--porcelain", "--", "src/vs", "extensions").strip())
+    except (SettingsPortError, OSError) as exc:
+        raise SettingsPortError("upstream clone not usable at %s: %s" % (clone, exc))
+    return head, dirty
+
+
+def load_or_build_raw(args):
+    """Inventory of raw per-setting data (no policy applied), from the cache when valid."""
+    clone = os.path.abspath(args.clone)
+    head, dirty = upstream_state(clone)
+    sha = export_sha()
+    if not args.rebuild and os.path.exists(CACHE_PATH):
+        try:
+            with open(CACHE_PATH, encoding="utf-8") as fh:
+                cached = json.load(fh)
+            if cached.get("exportSha256") == sha and cached.get("upstreamHead") == head:
+                return cached
+        except (OSError, ValueError):
+            pass
+    t0 = time.time()
+    export = load_export()
+    keys = [s["key"] for s in export["settings"]]
+    index = build_index(clone, keys)
+    option_map = index["option_map"]
+    records = []
+    for s in export["settings"]:
+        rec = raw_record(s)
+        option_name = rec["key"].split(".")[1] if rec["key"].startswith("editor.") and rec["key"].count(".") >= 1 else None
+        member = option_map.get(option_name) if option_name else None
+        reg_files = index["regs"].get(rec["key"], [])
+        if member and not reg_files:
+            reg_files = [EDITOR_OPTIONS_PATH]
+        top, hits, files = consumers_for(rec["key"], index, member, reg_files)
+        rec["registration"] = registration_for(rec["key"], reg_files)
+        if rec["registration"] is None:
+            # Dynamic registration (a `const` plus a key: field): the likeliest configuration file.
+            guess = [p for p, _ in top if re.search(r"config|contribution|settings|registry|options", p, re.I)]
+            rec["registration"] = guess[0] if guess else None
+            rec["registrationGuessed"] = bool(guess)
+        if member:
+            rec["editorOption"] = member
+        rec["consumers"] = top
+        rec["consumerHits"] = hits
+        rec["consumerFiles"] = files
+        records.append(rec)
+    cached = {
+        "exportSha256": sha, "upstreamHead": head, "upstreamDirty": dirty,
+        "exportedFrom": export.get("exportedFrom", {}), "upstreamFiles": index["files"],
+        "builtSeconds": round(time.time() - t0, 1), "settings": records,
+    }
+    os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
+    with open(CACHE_PATH, "w", encoding="utf-8") as fh:
+        json.dump(cached, fh, ensure_ascii=False)
+    return cached
+
+
+# --------------------------------------------------------------------------
+# Analysis: applies the TOC, groups, policy and status to the raw inventory
+# --------------------------------------------------------------------------
+
+def load_wired(path=WIRED_PATH, keys=None):
+    if not os.path.exists(path):
+        return set()
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    # Only the WIRED_KEYS table counts: tests further down the file mention unwired
+    # keys (e.g. as "shows the unsupported marker" examples).
+    start = text.find("WIRED_KEYS")
+    if start != -1:
+        end = text.find("];", start)
+        text = text[start:end if end != -1 else len(text)]
+    found = set(WIRED_RE.findall(text))
+    return found & keys if keys is not None else found
+
+
+def analyze(raw, cfg, layout, wired):
+    """Return (settings, groups). Each setting carries status, reason, priority, group, toc."""
+    records = raw["settings"]
+    core = [r for r in records if r.get("source", "core") == "core"]
+    placement, paths = resolve_toc(layout, core)
+    labels = {node["id"]: node["label"] for node in layout["toc"]}
+    commonly = set(layout.get("commonlyUsed", []))
+    keys = [r["key"] for r in records]
+    groups_of = assign_groups(keys, cfg["groups"])
+
+    settings = []
+    for rec in records:
+        key = rec["key"]
+        group = groups_of[key]
+        status, reason = decide_status(rec, cfg, wired)
+        if rec.get("source", "core") != "core":
+            toc, section, path = "extensions", "extensions", "Extensions"
+        elif ADVANCED_TAG in rec.get("tags", []):
+            toc, section, path = "advanced", "advanced", "Advanced"
+        elif key in placement:
+            toc = placement[key]
+            section = section_of(toc)
+            path = paths[toc]
+        else:
+            toc, section, path = "other", "other", "Other (not in layout)"
+        priority = decide_priority(rec, group, cfg, commonly) if status == "todo" else None
+        settings.append({
+            "key": key, "type": type_of(rec), "default": default_of(rec),
+            "description": first_sentence(rec.get("markdownDescription") or rec.get("description") or ""),
+            "source": rec.get("source", "core"), "tags": rec.get("tags", []),
+            "deprecated": rec.get("deprecated", False), "commonlyUsed": key in commonly,
+            "status": status, "reason": reason, "priority": priority, "group": group,
+            "toc": toc, "section": section, "tocPath": path,
+            "registration": rec.get("registration"), "editorOption": rec.get("editorOption"),
+            "registrationGuessed": rec.get("registrationGuessed", False),
+            "consumers": rec.get("consumers", []), "consumerHits": rec.get("consumerHits", 0),
+            "consumerFiles": rec.get("consumerFiles", 0),
+        })
+    groups = build_groups(settings, cfg, labels)
+    return settings, groups
+
+
+def build_groups(settings, cfg, labels):
+    by_group = collections.OrderedDict()
+    for s in settings:
+        by_group.setdefault(s["group"], []).append(s)
+    groups = []
+    for gid, items in by_group.items():
+        counts = collections.Counter(s["status"] for s in items)
+        todo = [s for s in items if s["status"] == "todo"]
+        prios = [s["priority"] for s in todo]
+        prio = min(prios) if prios else None
+        sections = collections.Counter(s["section"] for s in items)
+        section = sections.most_common(1)[0][0]
+        paths = collections.Counter(s["tocPath"] for s in items if s["section"] == section)
+        groups.append({
+            "id": gid, "keys": sorted(s["key"] for s in items), "total": len(items),
+            "counts": {st: counts.get(st, 0) for st in STATUSES},
+            "todo": len(todo), "priority": prio, "section": section,
+            "sectionLabel": labels.get(section, section.capitalize()),
+            "tocPath": paths.most_common(1)[0][0] if paths else "",
+            "hits": sum(s["consumerHits"] for s in items),
+            "commonlyUsed": sum(1 for s in items if s["commonlyUsed"]),
+        })
+    groups.sort(key=lambda g: (SECTION_ORDER.index(g["section"]) if g["section"] in SECTION_ORDER else 99, g["id"]))
+    return groups
+
+
+def next_groups(groups):
+    """Groups with todo work, P1 first, then by upstream consumer hits."""
+    order = {"P1": 0, "P2": 1, "P3": 2}
+    todo = [g for g in groups if g["todo"]]
+    return sorted(todo, key=lambda g: (order.get(g["priority"], 3), -g["hits"], g["id"]))
+
+
+def component_for(group_id, cfg):
+    for c in cfg["components"]:
+        if any_glob(c["match"], group_id):
+            return c["path"]
+    return "(no component mapped: choose the owning module in crates/vsr-app/src and add a [[component]] entry)"
+
+
+def tally(settings):
+    total = collections.Counter(s["status"] for s in settings)
+    reasons = collections.Counter(s["reason"] for s in settings if s["status"] == "n/a")
+    prios = collections.Counter(s["priority"] for s in settings if s["status"] == "todo")
+    return total, reasons, prios
+
+
+# --------------------------------------------------------------------------
+# Output helpers
+# --------------------------------------------------------------------------
+
+def pct(a, b):
+    return "%.1f%%" % (100.0 * a / b) if b else "0.0%"
+
+
+def table(headers, rows):
+    widths = [len(h) for h in headers]
+    for r in rows:
+        for i, cell in enumerate(r):
+            widths[i] = max(widths[i], len(str(cell)))
+    lines = ["  ".join(str(h).ljust(widths[i]) for i, h in enumerate(headers)),
+             "  ".join("-" * widths[i] for i in range(len(headers)))]
+    for r in rows:
+        lines.append("  ".join(str(c).ljust(widths[i]) for i, c in enumerate(r)))
+    return "\n".join(lines)
+
+
+def md_table(headers, rows):
+    lines = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
+    for r in rows:
+        lines.append("| " + " | ".join(str(c).replace("|", "\\|") for c in r) + " |")
+    return "\n".join(lines)
+
+
+def load_all(args):
+    raw = load_or_build_raw(args)
+    cfg = load_config(args.config)
+    with open(LAYOUT_PATH, encoding="utf-8") as fh:
+        layout = json.load(fh)
+    keys = {r["key"] for r in raw["settings"]}
+    wired = load_wired(keys=keys)
+    settings, groups = analyze(raw, cfg, layout, wired)
+    return raw, cfg, settings, groups
+
+
+def summary_lines(raw, settings, groups):
+    total, reasons, prios = tally(settings)
+    n = len(settings)
+    lines = ["settings: %d (core %d, extensions %d)" % (
+        n, sum(1 for s in settings if s["source"] == "core"), sum(1 for s in settings if s["source"] != "core"))]
+    lines.append("feature groups: %d (with todo work: %d)" % (len(groups), sum(1 for g in groups if g["todo"])))
+    rows = [(st, total.get(st, 0), pct(total.get(st, 0), n)) for st in STATUSES]
+    lines.append(table(["status", "count", "share"], rows))
+    if reasons:
+        lines.append("")
+        lines.append("n/a by reason:")
+        lines.append(table(["reason", "count"], [(r, c) for r, c in reasons.most_common()]))
+    if prios:
+        lines.append("")
+        lines.append("todo by priority:")
+        lines.append(table(["priority", "count"], [(p, prios.get(p, 0)) for p in PRIORITIES]))
+    return lines
+
+
+# --------------------------------------------------------------------------
+# Commands
+# --------------------------------------------------------------------------
+
+def cmd_inventory(args):
+    t0 = time.time()
+    raw, cfg, settings, groups = load_all(args)
+    print("upstream: %s%s (files scanned: %d)" % (
+        raw["upstreamHead"][:12], " (working tree dirty)" if raw.get("upstreamDirty") else "",
+        raw.get("upstreamFiles", 0)))
+    pinned = load_export().get("upstream", {}).get("pinnedCommit", "")
+    if pinned and not raw["upstreamHead"].startswith(pinned[:12]):
+        print("warning: clone HEAD %s differs from pinned %s; index reads the clone's working tree"
+              % (raw["upstreamHead"][:12], pinned[:12]))
+    print("\n".join(summary_lines(raw, settings, groups)))
+    with_consumers = sum(1 for s in settings if s["consumers"])
+    with_reg = sum(1 for s in settings if s["registration"])
+    editor = sum(1 for s in settings if s["editorOption"])
+    print("")
+    print(table(["metric", "count"], [
+        ("with a registration file", "%d (%s)" % (with_reg, pct(with_reg, len(settings)))),
+        ("  of which guessed (dynamic registration)", sum(1 for s in settings if s["registrationGuessed"])),
+        ("with consumer files", "%d (%s)" % (with_consumers, pct(with_consumers, len(settings)))),
+        ("mapped to EditorOption", editor),
+        ("wired (wired.rs)", sum(1 for s in settings if s["status"] == "wired")),
+    ]))
+    print("\ncache: %s (built in %ss; %.1fs total)" % (CACHE_PATH, raw.get("builtSeconds", "cached"), time.time() - t0))
+    return 0
+
+
+def _setting_line(s):
+    return "%-48s %-9s %-12s %-6s %s" % (s["key"], s["type"], s["status"], s["priority"] or "-", s["description"])
+
+
+def cmd_status(args):
+    raw, cfg, settings, groups = load_all(args)
+    if args.group:
+        group = next((g for g in groups if g["id"] == args.group), None)
+        if group is None:
+            raise SettingsPortError("no feature group %r (see `status` for the list)" % args.group)
+        items = [s for s in settings if s["group"] == args.group]
+        if args.json:
+            print(json.dumps({"group": group, "settings": items}, indent=2, ensure_ascii=False))
+            return 0
+        print("%s  (%s · %s)  total %d · wired %d · exthost %d · n/a %d · todo %d" % (
+            group["id"], group["sectionLabel"], group["tocPath"], group["total"],
+            group["counts"]["wired"], group["counts"]["exthost"], group["counts"]["n/a"], group["todo"]))
+        for s in items:
+            extra = s["reason"] if s["status"] in ("n/a", "wired", "exthost") else ""
+            print("  " + _setting_line(s) + ("  [" + extra + "]" if extra else ""))
+        return 0
+    if args.json:
+        total, reasons, prios = tally(settings)
+        out = {
+            "totals": {st: total.get(st, 0) for st in STATUSES},
+            "naReasons": dict(reasons), "todoPriorities": {p: prios.get(p, 0) for p in PRIORITIES},
+            "groups": [{k: g[k] for k in ("id", "section", "total", "counts", "todo", "priority", "hits")}
+                       for g in groups],
+            "sections": {sec: dict(collections.Counter(s["status"] for s in settings if s["section"] == sec))
+                         for sec in sorted({s["section"] for s in settings})},
+        }
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return 0
+    print("\n".join(summary_lines(raw, settings, groups)))
+    print("\nby TOC section:")
+    rows = []
+    for sec in SECTION_ORDER:
+        items = [s for s in settings if s["section"] == sec]
+        if not items:
+            continue
+        c = collections.Counter(s["status"] for s in items)
+        rows.append((sec, len(items), c["wired"], c["exthost"], c["n/a"], c["todo"]))
+    print(table(["section", "total", "wired", "exthost", "n/a", "todo"], rows))
+    return 0
+
+
+def component_hint_brief(group, settings_by_group, cfg, group_by_id):
+    todo = [s for s in settings_by_group[group["id"]] if s["status"] == "todo"]
+    out = []
+    out.append("## %s  (%s · %d todo of %d · %s)" % (
+        group["id"], group["priority"] or "-", group["todo"], group["total"], group["tocPath"]))
+    out.append("")
+    out.append("Settings to implement:")
+    for s in todo:
+        out.append("- `%s` · %s · default %s · %s" % (s["key"], s["type"], s["default"], s["description"] or "(no description)"))
+    out.append("")
+    first = next((s for s in todo if s["registration"]), None)
+    if first is None:
+        out.append("Upstream registration: (not found by the index; check upstream by hand)")
+    else:
+        note = " (guessed from the consumer list; verify)" if first["registrationGuessed"] else ""
+        out.append("Upstream registration: %s%s" % (first["registration"], note))
+    cons = []
+    seen = set()
+    for s in todo:
+        for path, hits in s["consumers"]:
+            if path not in seen:
+                seen.add(path)
+                cons.append((path, hits))
+    cons.sort(key=lambda kv: -kv[1])
+    out.append("Upstream consumers (top %d by hits):" % TOP_CONSUMERS)
+    for path, hits in cons[:TOP_CONSUMERS]:
+        out.append("- %s (%d)" % (path, hits))
+    if not cons:
+        out.append("- (none found by the index)")
+    out.append("")
+    out.append("rscode component (guess, from [[component]] in upstream/settings.toml): %s" % component_for(group["id"], cfg))
+    out.append("")
+    out.append("Acceptance criteria:")
+    out.append("1. Every todo setting above changes behaviour live (no restart) when set in settings.json or the Settings editor, and its default matches upstream.")
+    out.append("2. A headless E2E test (gpui TestAppContext, see docs/testing.md) proves each effect; the scenario goes in tests/e2e-scenarios/<area>.md.")
+    out.append("3. Each key is added to the wired list in crates/vsr-app/src/config/wired.rs; `scripts/settings-port status --group %s` then shows it wired." % group["id"])
+    out.append("4. A setting you decide not to implement gets a [[rule]] in upstream/settings.toml with a reason, never a silent skip.")
+    return "\n".join(out)
+
+
+def cmd_next(args):
+    raw, cfg, settings, groups = load_all(args)
+    picks = next_groups(groups)[: args.n]
+    if not picks:
+        print("no todo groups left")
+        return 0
+    by_group = collections.defaultdict(list)
+    for s in settings:
+        by_group[s["group"]].append(s)
+    gbid = {g["id"]: g for g in groups}
+    briefs = [component_hint_brief(g, by_group, cfg, gbid) for g in picks]
+    print("\n\n".join(briefs))
+    return 0
+
+
+def cmd_report(args):
+    raw, cfg, settings, groups = load_all(args)
+    total, reasons, prios = tally(settings)
+    n = len(settings)
+    lines = []
+    lines.append("# Settings port report")
+    lines.append("")
+    lines.append("Generated by `scripts/settings-port report`; do not edit by hand. Policy lives in "
+                 "`upstream/settings.toml`, the method in `docs/settings-migration.md`.")
+    lines.append("")
+    exp = raw.get("exportedFrom", {})
+    lines.append("- Export: VS Code %s (`%s`), %d settings" % (exp.get("vscodeVersion", "?"),
+                                                              str(exp.get("vscodeCommit", ""))[:12], n))
+    lines.append("- Upstream clone: `%s`%s" % (raw["upstreamHead"][:12],
+                                             " (working tree dirty; index may be stale)" if raw.get("upstreamDirty") else ""))
+    lines.append("- Feature groups: %d (%d with todo work)" % (len(groups), sum(1 for g in groups if g["todo"])))
+    lines.append("")
+    lines.append("## Totals by status")
+    lines.append("")
+    lines.append(md_table(["status", "count", "share"],
+                          [(st, total.get(st, 0), pct(total.get(st, 0), n)) for st in STATUSES]))
+    lines.append("")
+    lines.append("## n/a by reason")
+    lines.append("")
+    lines.append(md_table(["reason", "count"], reasons.most_common() or [("(none)", 0)]))
+    lines.append("")
+    lines.append("## todo by priority")
+    lines.append("")
+    lines.append(md_table(["priority", "count"], [(p, prios.get(p, 0)) for p in PRIORITIES]))
+    lines.append("")
+    lines.append("## By TOC section")
+    lines.append("")
+    rows = []
+    for sec in SECTION_ORDER:
+        items = [s for s in settings if s["section"] == sec]
+        if items:
+            c = collections.Counter(s["status"] for s in items)
+            rows.append((sec, len(items), c["wired"], c["exthost"], c["n/a"], c["todo"]))
+    lines.append(md_table(["section", "total", "wired", "exthost", "n/a", "todo"], rows))
+    lines.append("")
+    lines.append("## Feature groups")
+    lines.append("")
+    rows = []
+    for g in groups:
+        rows.append((g["id"], g["sectionLabel"], g["total"], g["counts"]["wired"], g["counts"]["exthost"],
+                     g["counts"]["n/a"], g["todo"], g["priority"] or "-"))
+    lines.append(md_table(["group", "section", "total", "wired", "exthost", "n/a", "todo", "priority"], rows))
+    lines.append("")
+    lines.append("## Next groups (`scripts/settings-port next`)")
+    lines.append("")
+    nxt = next_groups(groups)[:10]
+    lines.append(md_table(["#", "group", "priority", "todo", "upstream consumer hits"],
+                          [(i + 1, g["id"], g["priority"], g["todo"], g["hits"]) for i, g in enumerate(nxt)]))
+    lines.append("")
+    text = "\n".join(lines)
+    with open(REPORT_PATH, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    print("wrote %s (%d groups)" % (REPORT_PATH, len(groups)))
+    return 0
+
+
+def _plain_field(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def diff_exports(old, new):
+    old_map = {s["key"]: s for s in old["settings"]}
+    new_map = {s["key"]: s for s in new["settings"]}
+    added = sorted(set(new_map) - set(old_map))
+    removed = sorted(set(old_map) - set(new_map))
+    changed = []
+    for key in sorted(set(old_map) & set(new_map)):
+        fields = []
+        for f in DIFF_FIELDS:
+            a, b = old_map[key].get(f), new_map[key].get(f)
+            if _plain_field(a) != _plain_field(b):
+                fields.append((f, a, b))
+        if fields:
+            changed.append((key, fields))
+    return added, removed, changed
+
+
+def cmd_diff_export(args):
+    with open(args.old, encoding="utf-8") as fh:
+        old = json.load(fh)
+    with open(args.new, encoding="utf-8") as fh:
+        new = json.load(fh)
+    cfg = load_config(args.config)
+    wired = load_wired()
+    added, removed, changed = diff_exports(old, new)
+    old_map = {s["key"]: s for s in old["settings"]}
+    new_map = {s["key"]: s for s in new["settings"]}
+    if args.json:
+        out = {
+            "added": [{"key": k, "status": decide_status(raw_record(new_map[k]), cfg, wired)[0]} for k in added],
+            "removed": [{"key": k, "status": decide_status(raw_record(old_map[k]), cfg, wired)[0]} for k in removed],
+            "changed": [{"key": k, "status": decide_status(raw_record(new_map[k]), cfg, wired)[0],
+                         "fields": [f for f, _, _ in fl]} for k, fl in changed],
+        }
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return 0
+    print("old: %s (%d)   new: %s (%d)" % (args.old, len(old["settings"]), args.new, len(new["settings"])))
+    print("added: %d   removed: %d   changed: %d" % (len(added), len(removed), len(changed)))
+    if added:
+        print("\nadded (status under current policy):")
+        for k in added:
+            print("  %-48s %s" % (k, decide_status(raw_record(new_map[k]), cfg, wired)[0]))
+    if removed:
+        print("\nremoved (status it had under current policy):")
+        for k in removed:
+            print("  %-48s %s" % (k, decide_status(raw_record(old_map[k]), cfg, wired)[0]))
+    if changed:
+        print("\nchanged:")
+        for k, fl in changed:
+            status = decide_status(raw_record(new_map[k]), cfg, wired)[0]
+            print("  %-48s %s" % (k, status))
+            for f, a, b in fl:
+                print("      %s: %s -> %s" % (f, _plain_field(a)[:80], _plain_field(b)[:80]))
+    return 0
+
+
+def build_parser():
+    p = argparse.ArgumentParser(prog="settings-port", description=__doc__.split("\n\n")[0])
+    p.add_argument("--clone", default=DEFAULT_CLONE, help="upstream clone (default ../vscode-original)")
+    p.add_argument("--config", default=CONFIG_PATH, help="policy file (default upstream/settings.toml)")
+    sub = p.add_subparsers(dest="cmd")
+    s = sub.add_parser("inventory", help="build the per-setting inventory")
+    s.add_argument("--rebuild", action="store_true", help="ignore the cached consumer index")
+    s = sub.add_parser("status", help="counts by status, group and TOC section")
+    s.add_argument("--group", help="list the settings of one feature group")
+    s.add_argument("--json", action="store_true")
+    s.add_argument("--rebuild", action="store_true")
+    s = sub.add_parser("next", help="next feature groups as task briefs")
+    s.add_argument("--n", type=int, default=3)
+    s.add_argument("--rebuild", action="store_true")
+    s = sub.add_parser("report", help="write upstream/SETTINGS_PORT_REPORT.md")
+    s.add_argument("--rebuild", action="store_true")
+    s = sub.add_parser("diff-export", help="added / removed / changed settings between two exports")
+    s.add_argument("old")
+    s.add_argument("new")
+    s.add_argument("--json", action="store_true")
+    return p
+
+
+def main(argv=None):
+    if hasattr(signal, "SIGPIPE"):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)   # `settings-port next | head` exits quietly
+    p = build_parser()
+    args = p.parse_args(argv)
+    if not args.cmd:
+        p.print_help()
+        return 2
+    args.clone = os.path.abspath(args.clone)
+    handlers = {"inventory": cmd_inventory, "status": cmd_status, "next": cmd_next,
+                "report": cmd_report, "diff-export": cmd_diff_export}
+    try:
+        return handlers[args.cmd](args)
+    except SettingsPortError as exc:
+        print("settings-port: %s" % exc, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

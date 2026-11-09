@@ -25,6 +25,9 @@ futures = "0.3"
 notify = "8.2.1"
 # Move deleted files to the macOS Trash (ADR-0039). Behind the `Trash` trait.
 trash = "5"
+# Natural (numeric-aware, case-insensitive) name order for explorer.sortOrder, as upstream's
+# `Intl.Collator(numeric: true)` in compareFileNames (ADR-0041).
+natord = "1"
 regex = "1"
 serde_json = "1"
 # Session storage (ADR-0040): atomic file replacement and stable content hashes, not hand-rolled.

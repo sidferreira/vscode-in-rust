@@ -957,6 +957,59 @@ in `upstream/settings.toml`.
   view-line cursor rules (`vsr-editor/tests/wrap.rs`), the wrapping column and row geometry (`wrap.rs`), the
   settings, and headless E2E in `editor_view/wrap_e2e.rs` (scenarios in `tests/e2e-scenarios/preferences.md`).
 
+## ADR-0037 — Theme service: VS Code colour themes from their JSON (2026-11-09)
+
+Every colour of the workbench comes from the active VS Code colour theme, replacing the hard-coded Dark
+Modern of `theme.rs`. Settings wired (group "Themes"): `workbench.colorTheme`, `workbench.preferredDarkColorTheme`,
+`workbench.preferredLightColorTheme`, `window.autoDetectColorScheme`, `workbench.colorCustomizations`.
+
+- **`vsr-theme` (UI-free).** `color.rs` ports `Color`/`RGBA`/`HSLA` with upstream's exact arithmetic (truncated
+  channels, three-decimal rounding), so a derived colour is the same `#RRGGBBAA` as in VS Code. `theme.rs`
+  ports `ColorThemeData`: JSONC (the existing `vsr_settings::jsonc::strip_jsonc`), `include` chains (outer
+  wins, `"default"` removes a colour), `colors`, `tokenColors`, `semanticTokenColors`, the legacy `settings`
+  array, and the customisations (global keys, `[Theme]` blocks with `*` wildcards, token groups and
+  `textMateRules`). `selection.rs` ports `ThemeConfiguration` (which setting names the theme, system colour
+  mode, high contrast) and `catalog.rs` the ten themes of the `theme-defaults` extension, bundled unchanged
+  (MIT, Microsoft; README of the crate has the provenance).
+- **Registry defaults are generated, not typed.** `scripts/gen-color-defaults` parses the `registerColor(...)`
+  calls of the upstream colour files into `assets/color-defaults.json` (611 colours, per dark / light / hc dark /
+  hc light, as expression trees) and fails on any construct it does not know. `registry.rs` evaluates them with
+  the semantics of `executeTransform` (`transparent`, `lighten`, `darken`, `opacity`, `opaque`, `mix`, `oneOf`,
+  `ifDefinedThenElse`, `lessProminent`). A colour a theme does not set resolves through its default, which may
+  refer to the theme's other colours.
+- **Resolution order** (`getColor`): customisation, theme file, registry default. A customisation of `"default"`
+  means the registry default of the theme type, not the theme file's colour.
+- **App.** `theme.rs` stays the mapping of what rscode paints (the `Theme` fields) to colour keys (the
+  `theme_fields!` table; `sideBar.foreground` falls back to `foreground`). `chrome_bg`, `border`, `sidebar_fg` and
+  `accent` were split into per-surface fields (activity bar, side bar, title bar, status bar, tabs) because themes
+  colour them differently. A test keeps the old hard-coded table and asserts Dark Modern from the JSON reproduces
+  all 112 fields. `ThemeService` (a gpui `Global`) owns the active theme: it observes `AppConfig`, the window
+  appearance, and the theme picker's preview; views read `ThemeService::theme(cx)` in `render`, and the
+  Workbench re-renders on every change. It also re-aligns gpui-kit's component theme (inputs).
+- **`Preferences: Color Theme`** (`workbench.action.selectTheme`, Cmd+K Cmd+T, in the command registry): the Quick
+  Pick grouped light / dark / high contrast, preselecting the current theme, previewing on arrow keys (new
+  `QuickPickEvent::ActiveChange`), Escape reverts, Enter saves to the setting that names the theme (a preferred
+  setting while auto detecting).
+- **Token colours for the highlighter.** `ColorTheme::token_colors() -> &[TokenColorRule]` (scope selector
+  strings as written + `{ foreground, background, fontStyle }`, default rule first, user customisations last,
+  colours normalised) and `semantic_token_rules()`; scope matching is the highlighter's. `ThemeService::color_theme(cx)`
+  gives the active one.
+- **Decisions to review.** (1) The default theme stays Dark Modern, not upstream 1.147's Dark 2026 (the
+  look rscode had so far); unknown theme names (extension themes in the setting's dropdown) fall back to the
+  default of the colour mode; the Settings editor still prints "Dark 2026" as the default text. (2) The preview
+  applies at once, upstream waits 200 ms. (3) Existing crates were not swapped in for the colour port: the
+  arithmetic must match VS Code to the last rounding step, which a general colour library does not promise.
+
+**Consequences.**
+- `window.autoDetectHighContrast`, `workbench.preferredHighContrast*ColorTheme` and `window.systemColorTheme` stay
+  blocked (gpui has no OS high contrast signal; window chrome appearance is not driven). The service takes a
+  `HostColorScheme { dark, high_contrast }` so the signal can be added later. Icon and product icon themes stay
+  blocked ("needs file icon themes").
+- `editor.tokenColorCustomizations` and `editor.semanticTokenColorCustomizations` are read and applied to
+  `token_colors()`, but change nothing on screen until the syntax highlighter lands.
+- Not ported: tmTheme (plist) token files, theme storage, transient colours, extension-contributed colours and
+  themes, `Toggle between Light/Dark Themes`.
+
 ## ADR-0038 — Languages and syntax highlighting: our own TextMate engine on Oniguruma (2026-11-09)
 
 rscode needs the language of a file (status bar, `files.associations`, Change Language Mode) and
@@ -1062,6 +1115,43 @@ semantic highlighting, language configuration (brackets, comments, auto-closing)
 Association" entries of Change Language Mode. Tokenizing off the UI thread means the first paint of a big file
 shows plain text for a moment.
 
+## ADR-0039 — File watcher, live explorer, explorer file operations, save conflicts (2026-11-09)
+
+**Context.** The explorer was a read-only snapshot: folders were listed when first expanded, and nothing noticed
+files created, renamed or deleted outside the app. Open editors were polled for existence only (ADR-0033), so an
+edit made by another program was never seen. The explorer had no create, rename or delete. Blocked settings:
+`files.watcherExclude`, `files.saveConflictResolution`, `files.enableTrash`.
+
+**Decision.**
+- `explorer/watcher.rs`: a recursive `notify` 8.2.1 watcher (FSEvents) behind a `FileWatcher` trait. Raw events
+  are coalesced for 100 ms into batches of paths. `files.watcherExclude` defaults to upstream's object-store globs
+  (a user map replaces the default). `Workbench::new` takes no watcher (tests); the app uses `with_services`.
+- Live refresh: a batch re-lists the folders the tree has loaded, forgets folders that are gone (and their
+  expansion), reloads clean editors whose file changed, and closes editors of deleted files when
+  `workbench.editor.closeOnFileDelete` is on. Renames need no pairing: the parent folders are re-listed.
+- Save conflicts: an editor remembers the file's modification time when its buffer last matched the disk. A save
+  of a dirty editor whose file changed refuses under `askUser` and shows the conflict bar (upstream's
+  `staleSaveError` text, with Overwrite and Revert; Compare waits for a diff editor). `overwriteFileOnDisk` saves.
+  Auto save never overwrites a changed file.
+- `explorer/names.rs`: upstream `validateFileName` (messages as plain text) and `incrementFileName` (simple and
+  smart), with the upstream tests ported.
+- `explorer/trash.rs`: delete to the macOS Trash through `NSFileManager trashItemAtURL` (the `trash` crate with
+  `DeleteMethod::NsFileManager`). The crate's default method drives Finder through `osascript`, which is not used.
+  The `Trash` trait has a real, a refusing (`NoTrash`, the default of `Workbench::new`) and a fake implementation.
+- `explorer/workbench.rs`: create, rename and delete on the disk, then the tree and the open editors follow.
+
+**Consequences.**
+- `files.watcherExclude` and `files.saveConflictResolution` are wired. `files.enableTrash` is honoured by the
+  workbench operation, but no command or key reaches it yet, so it stays blocked.
+- Not done: the inline name input and its keys, the explorer context menu, the `explorer.*` view settings
+  (`sortOrder`, `compactFolders`, `autoReveal`, `incrementalNaming`, `confirmDelete`), copy, paste and duplicate,
+  `watcherInclude`, and Compare on the conflict bar.
+- Tests never start a real watcher or touch the Trash: the watcher is a `FakeWatcher` the test drives, and the
+  Trash is a `FakeTrash` that moves into a test folder. One real-FSEvents test is `#[ignore]`d.
+- Renaming a folder collapses it (its expansion is not carried to the new path).
+- Watched paths are compared as given; a workspace reached through a symbolic link does not match FSEvents'
+  resolved paths yet.
+
 ## ADR-0040 — Session restore, hot exit and the Welcome page (2026-11-09)
 
 User's choice (2026-11-09): the Welcome page becomes the startup default, and unsaved text survives quitting.
@@ -1118,92 +1208,64 @@ serialization, `gettingStarted`.
   files kept, discard), the debounce, settings. Headless E2E in `session/e2e_tests.rs` (scenarios in
   `tests/e2e-scenarios/workbench.md`). Ports in `upstream/ports.toml`: `session-restore`, `hot-exit`, `welcome-page`.
 
-## ADR-0039 — File watcher, live explorer, explorer file operations, save conflicts (2026-11-09)
+## ADR-0041 — Explorer UI: commands, keys, inline name input, delete confirmation, explorer settings (2026-11-09)
 
-**Context.** The explorer was a read-only snapshot: folders were listed when first expanded, and nothing noticed
-files created, renamed or deleted outside the app. Open editors were polled for existence only (ADR-0033), so an
-edit made by another program was never seen. The explorer had no create, rename or delete. Blocked settings:
-`files.watcherExclude`, `files.saveConflictResolution`, `files.enableTrash`.
+**Context.** ADR-0039 built the Explorer's file operations behind no UI: create, rename and delete
+existed in the workbench and in tests only. The Explorer tree had no focus, selection or keys, and
+the `explorer.*` view settings were absent. Blocked: `files.enableTrash` and the explorer settings.
 
-**Decision.**
-- `explorer/watcher.rs`: a recursive `notify` 8.2.1 watcher (FSEvents) behind a `FileWatcher` trait. Raw events
-  are coalesced for 100 ms into batches of paths. `files.watcherExclude` defaults to upstream's object-store globs
-  (a user map replaces the default). `Workbench::new` takes no watcher (tests); the app uses `with_services`.
-- Live refresh: a batch re-lists the folders the tree has loaded, forgets folders that are gone (and their
-  expansion), reloads clean editors whose file changed, and closes editors of deleted files when
-  `workbench.editor.closeOnFileDelete` is on. Renames need no pairing: the parent folders are re-listed.
-- Save conflicts: an editor remembers the file's modification time when its buffer last matched the disk. A save
-  of a dirty editor whose file changed refuses under `askUser` and shows the conflict bar (upstream's
-  `staleSaveError` text, with Overwrite and Revert; Compare waits for a diff editor). `overwriteFileOnDisk` saves.
-  Auto save never overwrites a changed file.
-- `explorer/names.rs`: upstream `validateFileName` (messages as plain text) and `incrementFileName` (simple and
-  smart), with the upstream tests ported.
-- `explorer/trash.rs`: delete to the macOS Trash through `NSFileManager trashItemAtURL` (the `trash` crate with
-  `DeleteMethod::NsFileManager`). The crate's default method drives Finder through `osascript`, which is not used.
-  The `Trash` trait has a real, a refusing (`NoTrash`, the default of `Workbench::new`) and a fake implementation.
-- `explorer/workbench.rs`: create, rename and delete on the disk, then the tree and the open editors follow.
+**Decision.** The Explorer UI follows upstream `fileActions.contribution.ts`, `explorerView.ts`,
+`inlineEditInputBox.ts` and `files.contribution.ts` (ids, titles and keys are upstream's; see
+`explorer/actions.rs`).
 
-**Consequences.**
-- `files.watcherExclude` and `files.saveConflictResolution` are wired. `files.enableTrash` is honoured by the
-  workbench operation, but no command or key reaches it yet, so it stays blocked.
-- Not done: the inline name input and its keys, the explorer context menu, the `explorer.*` view settings
-  (`sortOrder`, `compactFolders`, `autoReveal`, `incrementalNaming`, `confirmDelete`), copy, paste and duplicate,
-  `watcherInclude`, and Compare on the conflict bar.
-- Tests never start a real watcher or touch the Trash: the watcher is a `FakeWatcher` the test drives, and the
-  Trash is a `FakeTrash` that moves into a test folder. One real-FSEvents test is `#[ignore]`d.
-- Renaming a folder collapses it (its expansion is not carried to the new path).
-- Watched paths are compared as given; a workspace reached through a symbolic link does not match FSEvents'
-  resolved paths yet.
-
-## ADR-0037 — Theme service: VS Code colour themes from their JSON (2026-11-09)
-
-Every colour of the workbench comes from the active VS Code colour theme, replacing the hard-coded Dark
-Modern of `theme.rs`. Settings wired (group "Themes"): `workbench.colorTheme`, `workbench.preferredDarkColorTheme`,
-`workbench.preferredLightColorTheme`, `window.autoDetectColorScheme`, `workbench.colorCustomizations`.
-
-- **`vsr-theme` (UI-free).** `color.rs` ports `Color`/`RGBA`/`HSLA` with upstream's exact arithmetic (truncated
-  channels, three-decimal rounding), so a derived colour is the same `#RRGGBBAA` as in VS Code. `theme.rs`
-  ports `ColorThemeData`: JSONC (the existing `vsr_settings::jsonc::strip_jsonc`), `include` chains (outer
-  wins, `"default"` removes a colour), `colors`, `tokenColors`, `semanticTokenColors`, the legacy `settings`
-  array, and the customisations (global keys, `[Theme]` blocks with `*` wildcards, token groups and
-  `textMateRules`). `selection.rs` ports `ThemeConfiguration` (which setting names the theme, system colour
-  mode, high contrast) and `catalog.rs` the ten themes of the `theme-defaults` extension, bundled unchanged
-  (MIT, Microsoft; README of the crate has the provenance).
-- **Registry defaults are generated, not typed.** `scripts/gen-color-defaults` parses the `registerColor(...)`
-  calls of the upstream colour files into `assets/color-defaults.json` (611 colours, per dark / light / hc dark /
-  hc light, as expression trees) and fails on any construct it does not know. `registry.rs` evaluates them with
-  the semantics of `executeTransform` (`transparent`, `lighten`, `darken`, `opacity`, `opaque`, `mix`, `oneOf`,
-  `ifDefinedThenElse`, `lessProminent`). A colour a theme does not set resolves through its default, which may
-  refer to the theme's other colours.
-- **Resolution order** (`getColor`): customisation, theme file, registry default. A customisation of `"default"`
-  means the registry default of the theme type, not the theme file's colour.
-- **App.** `theme.rs` stays the mapping of what rscode paints (the `Theme` fields) to colour keys (the
-  `theme_fields!` table; `sideBar.foreground` falls back to `foreground`). `chrome_bg`, `border`, `sidebar_fg` and
-  `accent` were split into per-surface fields (activity bar, side bar, title bar, status bar, tabs) because themes
-  colour them differently. A test keeps the old hard-coded table and asserts Dark Modern from the JSON reproduces
-  all 112 fields. `ThemeService` (a gpui `Global`) owns the active theme: it observes `AppConfig`, the window
-  appearance, and the theme picker's preview; views read `ThemeService::theme(cx)` in `render`, and the
-  Workbench re-renders on every change. It also re-aligns gpui-kit's component theme (inputs).
-- **`Preferences: Color Theme`** (`workbench.action.selectTheme`, Cmd+K Cmd+T, in the command registry): the Quick
-  Pick grouped light / dark / high contrast, preselecting the current theme, previewing on arrow keys (new
-  `QuickPickEvent::ActiveChange`), Escape reverts, Enter saves to the setting that names the theme (a preferred
-  setting while auto detecting).
-- **Token colours for the highlighter.** `ColorTheme::token_colors() -> &[TokenColorRule]` (scope selector
-  strings as written + `{ foreground, background, fontStyle }`, default rule first, user customisations last,
-  colours normalised) and `semantic_token_rules()`; scope matching is the highlighter's. `ThemeService::color_theme(cx)`
-  gives the active one.
-- **Decisions to review.** (1) The default theme stays Dark Modern, not upstream 1.147's Dark 2026 (the
-  look rscode had so far); unknown theme names (extension themes in the setting's dropdown) fall back to the
-  default of the colour mode; the Settings editor still prints "Dark 2026" as the default text. (2) The preview
-  applies at once, upstream waits 200 ms. (3) Existing crates were not swapped in for the colour port: the
-  arithmetic must match VS Code to the last rounding step, which a general colour library does not promise.
+- **Commands** (`commands.rs`, ADR-0030): `explorer.newFile` "New File..." and `explorer.newFolder`
+  "New Folder..." (palette, category File); `workbench.files.action.refreshFilesExplorer` "Refresh
+  Explorer" and `workbench.files.action.collapseExplorerFolders` "Collapse Folders in Explorer"
+  (palette); `renameFile` "Rename...", `moveFileToTrash` "Delete" and `deleteFile` "Delete
+  Permanently" (not in the palette, as upstream). The handlers live on the workbench root, so a
+  palette pick works from any focus and key presses bubble up to them.
+- **Keys** (context `FilesExplorer`, which is the tree; `explorer/actions.rs`): Up, Down, Left
+  (collapse or select the parent), Right (expand or select the first child), Space (open the file
+  or toggle the folder), Enter (Rename; confirms a pending delete), Cmd+Backspace and Delete
+  (Delete), Cmd+Alt+Backspace (Delete Permanently), Escape (cancel a pending delete). Upstream's
+  macOS `list.select` (Cmd+Down) is not bound.
+- **Inline name input** (`explorer/inline.rs`): New File and New Folder go into the selected folder
+  (or the selected file's folder, or the root); Rename changes the selected item. A gpui-component
+  `InputState` in the tree. Enter commits a valid name (an error keeps the box open with the message
+  of `names::validate_file_name` under it), Escape cancels, and losing focus commits a valid name or
+  cancels an invalid one (upstream `InlineEditInputBox`). Rename selects the name without its last
+  extension. While the box is open the tree's key context is off, so Space, arrows and Delete type.
+- **Delete** (`explorer/delete.rs`): with `explorer.confirmDelete` on (default), a confirmation bar
+  shows above the tree with the upstream question ("Are you sure you want to delete 'x'?", "... and
+  its contents?" for folders) and detail ("You can restore this file from the Trash."), with Move to
+  Trash or Delete Permanently and Cancel. Permanent deletes say "This action is irreversible!" and
+  ask "permanently delete". With `files.enableTrash` off, Delete is permanent and asks that stronger
+  question. Deviations: upstream's "Undo" wording is not used (rscode has no undo for files), dirty
+  editors are not asked about (they stay open with their text, as ADR-0039), and only one item is
+  deleted at a time (no multi-select).
+- **View title actions**: New File, New Folder, Refresh Explorer and Collapse Folders in Explorer
+  (codicons new-file, new-folder, refresh, collapse-all) show while the Explorer header is hovered.
+- **Settings** (`explorer/settings.rs`, wired in `config/wired.rs`; blocked rule in
+  `upstream/settings.toml`): `explorer.confirmDelete`, `explorer.sortOrder`,
+  `explorer.compactFolders`, `explorer.autoReveal` and `files.enableTrash` are read live. Sort orders
+  (`explorer/sort.rs`): default, mixed, filesFirst, type and modified; names compare
+  case-insensitively with numbers in order (the `natord` crate, as upstream's numeric collator).
+  `foldersNestsFiles` sorts as default because rscode has no file nesting. Compacted folders
+  (`a/b/c`) are computed when a row is drawn: the row stands for the deepest folder, which is the one
+  it opens, and `New File` on it creates inside that folder. `autoReveal` runs when an editor opens
+  (not yet on a tab switch); `focusNoScroll` selects without scrolling.
+- **Not built**: `explorer.incrementalNaming` (it names pasted and duplicated items; there is no copy,
+  paste or duplicate yet) is blocked. The naming functions it needs are in `explorer/names.rs`.
 
 **Consequences.**
-- `window.autoDetectHighContrast`, `workbench.preferredHighContrast*ColorTheme` and `window.systemColorTheme` stay
-  blocked (gpui has no OS high contrast signal; window chrome appearance is not driven). The service takes a
-  `HostColorScheme { dark, high_contrast }` so the signal can be added later. Icon and product icon themes stay
-  blocked ("needs file icon themes").
-- `editor.tokenColorCustomizations` and `editor.semanticTokenColorCustomizations` are read and applied to
-  `token_colors()`, but change nothing on screen until the syntax highlighter lands.
-- Not ported: tmTheme (plist) token files, theme storage, transient colours, extension-contributed colours and
-  themes, `Toggle between Light/Dark Themes`.
+- The Explorer has its own focus handle and scroll handle (`ExplorerState`, `explorer/state.rs`).
+  The tree rendering moved from `main.rs` to `explorer/view.rs`.
+- The headless tests (`explorer/e2e_tree.rs`, scenarios in `tests/e2e-scenarios/explorer.md`) drive
+  the keys through the real bindings. One behaviour is not observable headless: the scroll position
+  after `autoReveal: true` (the scroll request is made; gpui's test platform does not move the
+  offset), so that row is `pending`.
+- A file's editor steals focus on the first render after it opens, so a test that presses keys in
+  the tree after opening a file must focus the tree again (`focus_tree` in the tests).
+- Renaming a file inside a folder that is collapsed reveals the folder first (`expand_to`).
+- `natord` is a new dependency; adding it changed other lock entries (`windows` 0.62, `getrandom`
+  0.4) that cargo re-resolved.

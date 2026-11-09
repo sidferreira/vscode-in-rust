@@ -33,29 +33,32 @@ pub struct DirEntry {
     pub path: PathBuf,
     pub name: String,
     pub is_dir: bool,
+    /// Last modification time, for `explorer.sortOrder: modified`.
+    pub modified: Option<SystemTime>,
 }
 
 /// List a directory like the VS Code explorer's default sort: folders first, then files, each
 /// case-insensitively by name. Entries matching `files.exclude` (`exclude`, matched against the
 /// path relative to `root`) are hidden.
 pub fn list_dir(dir: &Path, root: &Path, exclude: &ExcludeMatcher) -> io::Result<Vec<DirEntry>> {
-    let all: Vec<(String, PathBuf, bool)> = fs::read_dir(dir)?
+    let all: Vec<(String, PathBuf, bool, Option<SystemTime>)> = fs::read_dir(dir)?
         .filter_map(Result::ok)
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            let is_dir = e.file_type().ok()?.is_dir();
-            Some((name, e.path(), is_dir))
+            let file_type = e.file_type().ok()?;
+            let modified = e.metadata().ok().and_then(|m| m.modified().ok());
+            Some((name, e.path(), file_type.is_dir(), modified))
         })
         .collect();
-    let siblings: HashSet<&str> = all.iter().map(|(n, _, _)| n.as_str()).collect();
+    let siblings: HashSet<&str> = all.iter().map(|(n, _, _, _)| n.as_str()).collect();
     let has_sibling = |name: &str| siblings.contains(name);
     let mut entries: Vec<DirEntry> = all
         .iter()
-        .filter(|(_, path, _)| {
+        .filter(|(_, path, _, _)| {
             let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy().into_owned();
             exclude.is_empty() || !exclude.is_excluded(&rel, &has_sibling)
         })
-        .map(|(name, path, is_dir)| DirEntry { path: path.clone(), name: name.clone(), is_dir: *is_dir })
+        .map(|(name, path, is_dir, modified)| DirEntry { path: path.clone(), name: name.clone(), is_dir: *is_dir, modified: *modified })
         .collect();
     entries.sort_by(|a, b| {
         b.is_dir

@@ -211,6 +211,27 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
         r.register(d, action(Run(cmd), Editor));
     }
 
+    // Explorer (ADR-0041). Delete and Rename are keys and menu items upstream, not palette entries.
+    r.register(
+        D::new("workbench.files.action.refreshFilesExplorer", "Refresh Explorer").f1(),
+        action(crate::explorer::actions::RefreshAll, Workbench),
+    );
+    r.register(
+        D::new("workbench.files.action.collapseExplorerFolders", "Collapse Folders in Explorer").f1(),
+        action(crate::explorer::actions::CollapseAll, Workbench),
+    );
+    r.register(
+        D::new("explorer.newFile", "New File...").category("File").f1(),
+        action(crate::explorer::actions::NewFile, Workbench),
+    );
+    r.register(
+        D::new("explorer.newFolder", "New Folder...").category("File").f1(),
+        action(crate::explorer::actions::NewFolder, Workbench),
+    );
+    r.register(D::new("renameFile", "Rename..."), action(crate::explorer::actions::RenameFile, Workbench));
+    r.register(D::new("moveFileToTrash", "Delete"), action(crate::explorer::actions::MoveFileToTrash, Workbench));
+    r.register(D::new("deleteFile", "Delete Permanently"), action(crate::explorer::actions::DeleteFile, Workbench));
+
     // Find widget (ADR-0027).
     for (id, title, f1, a) in [
         ("actions.find", "Find", true, Box::new(fnd::Find) as Box<dyn Action>),
@@ -363,6 +384,13 @@ mod tests {
             "workbench.action.openSettings",
             "workbench.view.search",
             "workbench.view.explorer",
+            "workbench.files.action.refreshFilesExplorer",
+            "workbench.files.action.collapseExplorerFolders",
+            "explorer.newFile",
+            "explorer.newFolder",
+            "renameFile",
+            "moveFileToTrash",
+            "deleteFile",
             "actions.find",
             "editor.action.startFindReplaceAction",
             "workbench.action.gotoLine",
@@ -386,6 +414,18 @@ mod tests {
         assert_eq!(label("workbench.action.quickOpen"), "Go to File...");
         assert_eq!(label("workbench.action.gotoLine"), "Go to Line/Column...");
         assert_eq!(label("actions.find"), "Find");
+    }
+
+    #[test]
+    fn explorer_palette_labels_follow_upstream() {
+        let r = registry();
+        let label = |id: &str| r.descriptor(id).unwrap().label();
+        assert_eq!(label("explorer.newFile"), "File: New File...");
+        assert_eq!(label("explorer.newFolder"), "File: New Folder...");
+        assert_eq!(label("workbench.files.action.refreshFilesExplorer"), "Refresh Explorer");
+        assert_eq!(label("workbench.files.action.collapseExplorerFolders"), "Collapse Folders in Explorer");
+        assert!(!r.palette_commands(&ContextKeys::default()).iter().any(|d| d.id == "renameFile" || d.id == "moveFileToTrash"),
+            "Rename and Delete are keys and menu items, not palette entries");
     }
 
     #[test]

@@ -361,3 +361,24 @@ fn rulers_follow_the_setting_live(cx: &mut TestAppContext) {
     set(cx, "editor.rulers", json!([]));
     assert!(cx.debug_bounds("ruler:5").is_none() && cx.debug_bounds("ruler:9").is_none());
 }
+
+#[gpui_kit::test]
+fn indent_guides_follow_the_settings_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "guides", None, &[("a.txt", "a\n  b\n      c\n")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    cx.run_until_parked(); // the list lays out its visible rows on the frame after the first
+    assert!(cx.debug_bounds("guide:1:0").is_none() && cx.debug_bounds("guide-active:1:0").is_none(), "no guide on a top-level line");
+    // The caret starts on line 1, a header of line 2: its guide (column 0) is the active one.
+    assert!(cx.debug_bounds("guide-active:2:0").is_some(), "the header's guide is active");
+    // A caret on line 3 (two levels deep) activates its innermost guide, the one at column 4.
+    let gutter = bounds(cx, "gutter:3").center();
+    cx.simulate_click(gutter, Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("guide-active:3:1").is_some(), "the innermost guide of the caret block");
+    assert!(cx.debug_bounds("guide:2:0").is_some(), "other guides are not active");
+    set(cx, "editor.guides.highlightActiveIndentation", json!(false));
+    assert!(cx.debug_bounds("guide-active:3:1").is_none());
+    assert!(cx.debug_bounds("guide:3:1").is_some());
+    set(cx, "editor.guides.indentation", json!(false));
+    assert!(cx.debug_bounds("guide:2:0").is_none() && cx.debug_bounds("guide:3:1").is_none());
+}

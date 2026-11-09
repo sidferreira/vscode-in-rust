@@ -38,6 +38,8 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.cursorWidth",
             "editor.renderWhitespace",
             "editor.rulers",
+            "editor.guides.indentation",
+            "editor.guides.highlightActiveIndentation",
         ],
     ),
     (

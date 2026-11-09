@@ -2,7 +2,15 @@
 //! bracket / occurrence highlights. The decision logic is pure (plain text in, marks out) so it
 //! is unit-tested without gpui; `rows()` in `editor_view.rs` turns the marks into boxes.
 //!
+//! upstream: src/vs/editor/common/model/guidesTextModelPart.ts @ 50e1350fc78d
+//! upstream: src/vs/editor/common/viewLayout/viewLineRenderer.ts @ 50e1350fc78d
+//! upstream: src/vs/editor/test/common/model/textModelWithTokens.test.ts @ 50e1350fc78d
+//!
 //! Columns are 1-based character columns of the model line; the view maps them to pixels.
+
+use std::ops::RangeInclusive;
+
+use vsr_text::TextBuffer;
 
 use crate::config::settings::RenderWhitespace;
 
@@ -84,10 +92,132 @@ pub fn whitespace_marks(
     out
 }
 
+/// Read access to the lines of a document (1-based numbers), so the indent rules can be tested
+/// on plain strings.
+pub trait Lines {
+    fn line_count(&self) -> usize;
+    fn line_text(&self, line: usize) -> &str;
+}
+
+impl Lines for TextBuffer {
+    fn line_count(&self) -> usize {
+        TextBuffer::line_count(self)
+    }
+    fn line_text(&self, line: usize) -> &str {
+        self.line_content(line)
+    }
+}
+
+/// The indent of a line in columns (tabs advance to the next multiple of `tab`), or `None` when
+/// the line holds nothing but whitespace (upstream `_computeIndentLevel` returns -1 for those).
+pub fn indent_columns(text: &str, tab: usize) -> Option<usize> {
+    let tab = tab.max(1);
+    let mut col = 0;
+    for ch in text.chars() {
+        match ch {
+            ' ' => col += 1,
+            '\t' => col = (col / tab + 1) * tab,
+            _ => return Some(col),
+        }
+    }
+    None
+}
+
+/// The indent level of `line` (1-based) for the indent guides: the number of guides it shows. A
+/// line with content has `ceil(indent / tab)` levels. A blank line takes its level from the
+/// nearest lines with content above and below, as upstream `getLinesIndentGuides` does (inside
+/// the region above when the region above is shallower, between two equal regions, inside the
+/// region below otherwise; 0 at the top or bottom of the file).
+///
+/// upstream: src/vs/editor/common/model/guidesTextModelPart.ts (`getLinesIndentGuides`,
+/// `_getIndentLevelForWhitespaceLine`)
+pub fn line_level(lines: &impl Lines, line: usize, tab: usize) -> usize {
+    let tab = tab.max(1);
+    if let Some(indent) = indent_columns(lines.line_text(line), tab) {
+        return indent.div_ceil(tab);
+    }
+    let above = (1..line).rev().find_map(|l| indent_columns(lines.line_text(l), tab));
+    let below = (line + 1..=lines.line_count()).find_map(|l| indent_columns(lines.line_text(l), tab));
+    match (above, below) {
+        (Some(a), Some(b)) if a < b => 1 + a / tab,
+        (Some(_), Some(b)) if matches!(above, Some(a) if a == b) => b.div_ceil(tab),
+        (Some(_), Some(b)) => 1 + b / tab,
+        _ => 0,
+    }
+}
+
+/// The active indent guide at `caret` (`editor.guides.highlightActiveIndentation`), as upstream
+/// `getActiveIndentGuide` picks it: the guide index `k` (the guide drawn at column `k * tab`) and
+/// the lines it spans. A caret on a header (the next line is deeper) or on a closing line (the
+/// line above is deeper) owns the guide of its own level, which spans the deeper lines; any other
+/// line owns the innermost guide it sits in. `None` when the caret is at the top level with no
+/// deeper neighbour.
+///
+/// upstream: src/vs/editor/common/model/guidesTextModelPart.ts (`getActiveIndentGuide`); the
+/// upstream test cases are ported in the tests below.
+pub fn active_indent_guide(lines: &impl Lines, caret: usize, tab: usize) -> Option<(usize, RangeInclusive<usize>)> {
+    let count = lines.line_count();
+    let level = line_level(lines, caret, tab);
+    // Only a neighbour exactly one level deeper makes this line a header or a closing line.
+    let next_deeper = caret < count && line_level(lines, caret + 1, tab) == level + 1;
+    let prev_deeper = caret > 1 && line_level(lines, caret - 1, tab) == level + 1;
+    let (k, anchor) = if next_deeper {
+        (level, caret + 1)
+    } else if prev_deeper {
+        (level, caret - 1)
+    } else if level > 0 {
+        (level - 1, caret)
+    } else {
+        return None;
+    };
+    // The span: the lines around the anchor that are at least `k + 1` levels deep.
+    let mut lo = anchor;
+    while lo > 1 && line_level(lines, lo - 1, tab) > k {
+        lo -= 1;
+    }
+    let mut hi = anchor;
+    while hi < count && line_level(lines, hi + 1, tab) > k {
+        hi += 1;
+    }
+    Some((k, lo..=hi))
+}
+
 #[cfg(test)]
 mod tests {
     use super::MarkKind::{Space, Tab};
     use super::*;
+
+    /// Lines of a test document; `Lines` over plain strings.
+    struct Doc<'a>(Vec<&'a str>);
+
+    impl Lines for Doc<'_> {
+        fn line_count(&self) -> usize {
+            self.0.len()
+        }
+        fn line_text(&self, line: usize) -> &str {
+            self.0[line - 1]
+        }
+    }
+
+    /// `(level, active start, active end, active indent, text)` per line, where the indent is
+    /// upstream's 1-based guide number (`k + 1`, 0 when nothing is active).
+    fn guides(lines: &[&str], tab: usize) -> Vec<(usize, usize, usize, usize, String)> {
+        let doc = Doc(lines.to_vec());
+        (1..=doc.line_count())
+            .map(|line| {
+                let level = line_level(&doc, line, tab);
+                let (start, end, indent) = match active_indent_guide(&doc, line, tab) {
+                    Some((k, r)) => (*r.start(), *r.end(), k + 1),
+                    None => (line, line, 0),
+                };
+                (level, start, end, indent, doc.line_text(line).to_string())
+            })
+            .collect()
+    }
+
+    fn row(level: usize, start: usize, end: usize, indent: usize, text: &str) -> (usize, usize, usize, usize, String) {
+        (level, start, end, indent, text.to_string())
+    }
 
     fn cols(text: &str, mode: RenderWhitespace, selected: Option<(usize, usize)>) -> Vec<(usize, MarkKind)> {
         whitespace_marks(text, mode, selected).into_iter().map(|m| (m.column, m.kind)).collect()
@@ -129,6 +259,108 @@ mod tests {
 
     #[test]
     fn empty_line_has_no_markers() {
+        for mode in [RenderWhitespace::All, RenderWhitespace::Boundary, RenderWhitespace::Trailing] {
+            assert!(cols("", mode, None).is_empty());
+        }
+    }
+
+    // upstream: TextModel.getLineIndentGuide > getLineIndentGuide one level 2
+    #[test]
+    fn indent_guides_one_level() {
+        assert_eq!(guides(&["A", "  A", "  A", "  A"], 2), [
+            row(0, 2, 4, 1, "A"),
+            row(1, 2, 4, 1, "  A"),
+            row(1, 2, 4, 1, "  A"),
+            row(1, 2, 4, 1, "  A"),
+        ]);
+    }
+
+    // upstream: TextModel.getLineIndentGuide > getLineIndentGuide two levels
+    #[test]
+    fn indent_guides_two_levels() {
+        assert_eq!(guides(&["A", "  A", "  A", "    A", "    A"], 2), [
+            row(0, 2, 5, 1, "A"),
+            row(1, 2, 5, 1, "  A"),
+            row(1, 4, 5, 2, "  A"),
+            row(2, 4, 5, 2, "    A"),
+            row(2, 4, 5, 2, "    A"),
+        ]);
+    }
+
+    // upstream: TextModel.getLineIndentGuide > getLineIndentGuide three levels
+    #[test]
+    fn indent_guides_three_levels() {
+        assert_eq!(guides(&["A", "  A", "    A", "      A", "A"], 2), [
+            row(0, 2, 4, 1, "A"),
+            row(1, 3, 4, 2, "  A"),
+            row(2, 4, 4, 3, "    A"),
+            row(3, 4, 4, 3, "      A"),
+            row(0, 5, 5, 0, "A"),
+        ]);
+    }
+
+    // upstream: TextModel.getLineIndentGuide > getLineIndentGuide decreasing indent
+    #[test]
+    fn indent_guides_decreasing_indent() {
+        assert_eq!(guides(&["    A", "  A", "A"], 2), [
+            row(2, 1, 1, 2, "    A"),
+            row(1, 1, 1, 2, "  A"),
+            row(0, 1, 2, 1, "A"),
+        ]);
+    }
+
+    // upstream: TextModel.getLineIndentGuide > getLineIndentGuide Java
+    #[test]
+    fn indent_guides_java() {
+        assert_eq!(guides(&[
+            "class A {",
+            "  void foo() {",
+            "    console.log(1);",
+            "    console.log(2);",
+            "  }",
+            "",
+            "  void bar() {",
+            "    console.log(3);",
+            "  }",
+            "}",
+            "interface B {",
+            "  void bar();",
+            "}",
+        ], 2), [
+            row(0, 2, 9, 1, "class A {"),
+            row(1, 3, 4, 2, "  void foo() {"),
+            row(2, 3, 4, 2, "    console.log(1);"),
+            row(2, 3, 4, 2, "    console.log(2);"),
+            row(1, 3, 4, 2, "  }"),
+            row(1, 2, 9, 1, ""),
+            row(1, 8, 8, 2, "  void bar() {"),
+            row(2, 8, 8, 2, "    console.log(3);"),
+            row(1, 8, 8, 2, "  }"),
+            row(0, 2, 9, 1, "}"),
+            row(0, 12, 12, 1, "interface B {"),
+            row(1, 12, 12, 1, "  void bar();"),
+            row(0, 12, 12, 1, "}"),
+        ]);
+    }
+
+    #[test]
+    fn blank_lines_take_the_level_of_their_neighbours() {
+        assert_eq!(line_level(&Doc(vec!["", "x"]), 1, 4), 0, "no content above");
+        assert_eq!(line_level(&Doc(vec!["        a", "", "    b"]), 2, 4), 2, "inside the deeper region above");
+        assert_eq!(line_level(&Doc(vec!["    a", "", "        b"]), 2, 4), 2, "inside the deeper region below");
+        assert_eq!(line_level(&Doc(vec!["    a", " ", "    b"]), 2, 4), 1, "between equal regions");
+        assert_eq!(line_level(&Doc(vec!["a", "\t\t", "b"]), 2, 4), 0, "whitespace-only lines are blank");
+        assert_eq!(indent_columns("\tx", 4), Some(4));
+        assert_eq!(indent_columns("  \t x", 4), Some(5), "a tab goes to the next stop, then one space");
+    }
+
+    #[test]
+    fn caret_on_a_top_level_line_with_nothing_deeper_has_no_active_guide() {
+        assert!(active_indent_guide(&Doc(vec!["a", "b"]), 1, 4).is_none());
+    }
+
+    #[test]
+    fn blank_whitespace_lines_have_no_markers() {
         for mode in [RenderWhitespace::All, RenderWhitespace::Boundary, RenderWhitespace::Trailing] {
             assert!(cols("", mode, None).is_empty());
         }

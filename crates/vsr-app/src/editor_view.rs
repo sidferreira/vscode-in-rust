@@ -710,6 +710,10 @@ fn rows(
     // (`gutter`), or the whole row (`all`).
     let hl_content = matches!(hl, LineHighlight::Line | LineHighlight::All) && sel.is_empty();
     let hl_gutter = matches!(hl, LineHighlight::Gutter | LineHighlight::All);
+    // The active indent guide is found once per paint, not per row (it may scan the block).
+    let active_guide = (cfg.guides_indentation && cfg.guides_highlight_active)
+        .then(|| decorations::active_indent_guide(buf, caret_line, tab))
+        .flatten();
     range
         .map(|ix| {
             let line = ix + 1;
@@ -803,6 +807,23 @@ fn rows(
                 row = row.child(
                     div().absolute().top_0().bottom_0().left(px(gutter)).right_0().bg(to_gpui(f.colors.range_highlight_bg)),
                 );
+            }
+            // Indent guides (`editor.guides.indentation`): one per indent level of the line.
+            if cfg.guides_indentation {
+                for k in 0..decorations::line_level(buf, line, tab) {
+                    let active = active_guide.as_ref().is_some_and(|(ak, span)| *ak == k && span.contains(&line));
+                    let color = if active { t.indent_guide_active_fg } else { t.indent_guide_fg };
+                    row = row.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left(px(gutter + (k * tab) as f32 * space_w))
+                            .w(px(1.))
+                            .bg(to_gpui(color))
+                            .debug_selector(|| if active { format!("guide-active:{line}:{k}") } else { format!("guide:{line}:{k}") }),
+                    );
+                }
             }
             // Rulers (`editor.rulers`): a 1px line after `column` characters, in every row.
             for ruler in &cfg.rulers {

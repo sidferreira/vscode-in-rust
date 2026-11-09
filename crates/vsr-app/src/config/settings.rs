@@ -195,6 +195,16 @@ pub fn parse_font_weight(value: &Value) -> f32 {
     n.filter(|n| (1.0..=1000.0).contains(n)).map_or(400.0, |n| n.round() as f32)
 }
 
+/// `editor.guides.highlightActiveIndentation`: `true`, `"always"` or `false`. Anything else is the
+/// default, `true`.
+pub fn parse_highlight_active(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Bool(on)) => *on,
+        Some(Value::String(s)) if s == "always" => true,
+        _ => true,
+    }
+}
+
 /// One entry of `editor.rulers`: a column, optionally with its own colour (`#rrggbb[aa]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ruler {
@@ -241,6 +251,10 @@ pub struct EditorSettings {
     pub cursor_width: f32,
     pub render_whitespace: RenderWhitespace,
     pub rulers: Vec<Ruler>,
+    /// `editor.guides.indentation`.
+    pub guides_indentation: bool,
+    /// `editor.guides.highlightActiveIndentation` (`true` and `"always"` both highlight).
+    pub guides_highlight_active: bool,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
     pub find: FindSettings,
@@ -264,6 +278,8 @@ impl Default for EditorSettings {
             cursor_width: 0.0,
             render_whitespace: RenderWhitespace::Selection,
             rulers: Vec::new(),
+            guides_indentation: true,
+            guides_highlight_active: true,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             find: FindSettings::default(),
@@ -290,6 +306,8 @@ impl EditorSettings {
             cursor_width: c.get_f64("editor.cursorWidth").unwrap_or(0.0) as f32,
             render_whitespace: c.get_enum("editor.renderWhitespace").unwrap_or(RenderWhitespace::Selection),
             rulers: parse_rulers(c.get_value("editor.rulers")),
+            guides_indentation: c.get_bool("editor.guides.indentation").unwrap_or(true),
+            guides_highlight_active: parse_highlight_active(c.get_value("editor.guides.highlightActiveIndentation")),
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             find: FindSettings::from_configuration(c),
@@ -408,6 +426,7 @@ mod tests {
         assert_eq!(e.line_cursor_width(), 2.0);
         assert_eq!(e.render_whitespace, RenderWhitespace::Selection);
         assert!(e.rulers.is_empty());
+        assert!(e.guides_indentation && e.guides_highlight_active);
         let l = LayoutSettings::from_configuration(&config(""));
         assert_eq!(l, LayoutSettings {
             side_bar: SideBarLocation::Left,
@@ -490,6 +509,9 @@ mod tests {
             Ruler { column: 120, color: None },
         ]);
         assert!(parse_rulers(Some(&json!("80"))).is_empty(), "not an array");
+        assert!(!parse_highlight_active(Some(&json!(false))));
+        assert!(parse_highlight_active(Some(&json!("always"))));
+        assert!(parse_highlight_active(Some(&json!("sometimes"))), "invalid: default");
     }
 
     #[test]

@@ -91,6 +91,8 @@ pub struct Theme {
     pub line_highlight_border: Rgba8,  // editor.lineHighlightBorder
     pub whitespace_fg: Rgba8,          // editorWhitespace.foreground (registry dark)
     pub ruler_fg: Rgba8,               // editorRuler.foreground (registry dark)
+    pub indent_guide_fg: Rgba8,        // editorIndentGuide.background1 (dark_vs.json)
+    pub indent_guide_active_fg: Rgba8, // editorIndentGuide.activeBackground1 (dark_vs.json)
     // ---- Search view (searchview.css, inputOption.*, badge.*) ----
     pub input_option_active_bg: Rgba8,        // inputOption.activeBackground (dark_modern)
     pub input_option_active_border: Rgba8,    // inputOption.activeBorder (dark_modern)
@@ -183,6 +185,8 @@ impl Theme {
             line_highlight_border: c("#282828"),
             whitespace_fg: c("#E3E4E229"),
             ruler_fg: c("#5A5A5A"),
+            indent_guide_fg: c("#404040"),
+            indent_guide_active_fg: c("#707070"),
             input_option_active_bg: c("#2489DB82"),
             input_option_active_border: c("#2488DB"),
             input_option_active_fg: c("#FFFFFF"),

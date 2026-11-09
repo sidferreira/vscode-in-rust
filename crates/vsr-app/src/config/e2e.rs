@@ -568,6 +568,21 @@ fn window_title_and_separator_apply_live_to_the_window(cx: &mut TestAppContext) 
     assert_eq!(window_title_of(&wb, cx), format!("Settings - {folder}"));
 }
 
+// ---- window.density.editorTabHeight ----------------------------------------------------------
+
+#[gpui_kit::test]
+fn compact_editor_tabs_are_shorter_and_apply_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "tab-density", None, &[("a.txt", "a")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    assert_eq!(bounds(cx, "tab-strip").size.height, gpui_kit::px(35.), "default tab height");
+
+    set(cx, "window.density.editorTabHeight", json!("compact"));
+    assert_eq!(bounds(cx, "tab-strip").size.height, gpui_kit::px(22.), "compact tab height");
+
+    set(cx, "window.density.editorTabHeight", json!("default"));
+    assert_eq!(bounds(cx, "tab-strip").size.height, gpui_kit::px(35.));
+}
+
 // ---- window.commandCenter -------------------------------------------------------------------
 
 #[gpui_kit::test]

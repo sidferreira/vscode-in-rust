@@ -439,6 +439,16 @@ pub struct LayoutSettings {
     pub tree_indent: f32,
     /// `window.commandCenter`: the search box in the title bar.
     pub command_center: bool,
+    /// `window.density.editorTabHeight`: compact tabs are shorter (22px, default 35px).
+    pub compact_tabs: bool,
+}
+
+/// `window.density.editorTabHeight`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TabHeight {
+    Default,
+    Compact,
 }
 
 impl LayoutSettings {
@@ -450,6 +460,7 @@ impl LayoutSettings {
             show_tabs: c.get_enum("workbench.editor.showTabs").unwrap_or(ShowTabs::Multiple),
             tree_indent: c.get_f64("workbench.tree.indent").unwrap_or(8.0) as f32,
             command_center: c.get_bool("window.commandCenter").unwrap_or(true),
+            compact_tabs: c.get_enum::<TabHeight>("window.density.editorTabHeight") == Some(TabHeight::Compact),
         }
     }
 }
@@ -652,6 +663,7 @@ mod tests {
             show_tabs: ShowTabs::Multiple,
             tree_indent: 8.0,
             command_center: true,
+            compact_tabs: false,
         });
     }
 

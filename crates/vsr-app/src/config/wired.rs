@@ -16,7 +16,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "workbench.tree.indent",
         ],
     ),
-    ("Window", &["window.title", "window.titleSeparator", "window.commandCenter"]),
+    ("Window", &["window.title", "window.titleSeparator", "window.commandCenter", "window.density.editorTabHeight"]),
     ("Explorer", &["files.exclude"]),
     (
         "Editor text",

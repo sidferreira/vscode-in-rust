@@ -862,11 +862,12 @@ impl Workbench {
 
     fn tab_strip(&self, cx: &mut Context<Self>, show_tabs: ShowTabs) -> impl IntoElement {
         let t = &self.theme;
+        let tab_height = if self.layout(cx).compact_tabs { m::COMPACT_TAB_HEIGHT } else { m::TAB_HEIGHT };
         let mut strip = div()
             .relative()
             .debug_selector(|| "tab-strip".to_string())
             .flex_none()
-            .h(px(m::TAB_HEIGHT))
+            .h(px(tab_height))
             .w_full()
             .flex()
             .flex_row()

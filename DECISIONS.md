@@ -630,3 +630,47 @@ Find and replace across files, matching `searchView.ts` / `searchWidget.ts` / `r
   Replace All with an open editor (disk updated, editor updated and saved, Cmd+Z restores and dirties),
   cancelling the question and staleness, per-match and per-file replace, regex `(\w+)@` -> `$1#`, Preserve
   Case, CRLF + multibyte on disk.
+
+## ADR-0032 — Editor rendering settings: whitespace, rulers, guides, brackets, occurrences, scrolling (2026-11-09)
+
+The high-visibility editor rendering settings are wired through the ADR-0022 path (`EditorSettings`
+built from `Configuration`, compared with `PartialEq`, rebuilt live; key listed in `config/wired.rs`).
+The decision logic is pure and lives in `editor_view/decorations.rs` (markers, indent levels, active
+guide, occurrences, scroll rows) and in `vsr-editor/src/brackets.rs` (bracket matching over the buffer).
+`rows()` only turns the results into boxes, each with a `debug_selector` (`ws:`, `ruler:`, `guide:` /
+`guide-active:`, `bracket:`, `occurrence:`, `selection:`) that the headless E2E tests in
+`config/e2e.rs` assert on. Colours are the Dark Modern chain (`dark_modern.json` -> `dark_plus.json` ->
+`dark_vs.json`) or the registry dark default when no theme sets them.
+
+**Wired:** `editor.renderWhitespace` (all five modes), `editor.rulers` (numbers and `{column, color}`),
+`editor.guides.indentation`, `editor.guides.highlightActiveIndentation`, `editor.matchBrackets`,
+`editor.selectionHighlight`, `editor.selectionHighlightMaxLength`, `editor.occurrencesHighlight`,
+`editor.roundedSelection`, `editor.renderLineHighlightOnlyWhenFocus`, `editor.fontLigatures`,
+`editor.scrollBeyondLastLine`.
+
+**Approximated (and why):**
+- Indent guides follow upstream's level and active-guide rules (`getLinesIndentGuides`,
+  `getActiveIndentGuide`, cases ported as unit tests). Bracket-pair guides are not drawn, so
+  `highlightActiveIndentation: "always"` behaves like `true`.
+- `matchBrackets` has no tokenizer: brackets inside single-line string literals and after `//` are
+  ignored; multi-line strings and block comments are not understood. The scan is budgeted.
+- Textual occurrence highlights (no language server): whole words for the caret's word, and for a
+  selection made of word characters. `occurrencesHighlight: "multiFile"` is read as `singleFile`.
+- Selection matches are per visible line; a selection spanning lines is not matched.
+  `editor.selectionHighlightMultiline` is a policy rule (n/a, not yet), which is the upstream default.
+- Whitespace markers use `·` and `→` drawn over the expanded text; tabs are still shown as spaces.
+- Rulers and guides are placed at visual columns times the space advance (monospace assumption).
+- `scrollBeyondLastLine` adds empty rows after the last line; the extra room is sized from the page
+  measured at the previous paint.
+
+**Not wired:** `editor.cursorSurroundingLines` and `...Style` (the list scroll is `Nearest`; the
+margin needs the keyboard/mouse distinction that `after_change` does not have yet), `editor.padding.*`
+(the list's bounds are used for hit-testing, so padding needs a wrapper that keeps them right),
+`editor.smoothScrolling` (no animated scrolling), `editor.letterSpacing` (gpui-pre 0.3.11 has no letter
+spacing on text runs), `editor.renderControlCharacters` and `editor.renderFinalNewline` (need
+control-character glyphs and final-line numbering), `editor.scrollPredominantAxis`,
+`editor.scrollOnMiddleClick`, `editor.scrollBeyondLastColumn` (horizontal scroll model).
+
+**Testing.** Pure logic is unit-tested (`decorations.rs`, `brackets.rs`, `settings.rs`); the effects
+are E2E tests in `config/e2e.rs` that change the setting and check the boxes appear or disappear.
+`docs/settings-coverage.md` is regenerated from `wired.rs`.

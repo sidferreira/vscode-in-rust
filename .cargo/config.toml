@@ -1,0 +1,8 @@
+# Keep debug builds lean on disk (see DECISIONS.md, ADR-0004).
+[profile.dev]
+debug = "line-tables-only"
+incremental = true
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 1

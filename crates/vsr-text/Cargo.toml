@@ -1,0 +1,9 @@
+[package]
+name = "vsr-text"
+description = "Text buffer and position/range primitives (mirrors vs/editor/common/core + model)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

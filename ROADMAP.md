@@ -17,6 +17,7 @@ Priority order set by the user (2026-11-09). Work top to bottom; details and rat
    - In progress (user's choice, 2026-11-09): **enabling features** that unblock many settings at once:
      theme service, language registry + syntax highlighting, file watcher + Explorer file operations,
      session restore + hot exit + welcome page (the welcome page becomes the startup default)
+     - [x] Session restore, hot exit and the Welcome page (ADR-0040)
 3. **Extensions** (ADR-0020)
    - P0 Node extension-host handshake → P1 ErrorLens → oxc (LSP) → TS / XML / Kotlin →
      GitLens → Claude Code → GitHub Pull Requests

@@ -37,17 +37,13 @@ use gpui_kit::{
 use gpui_kit::InteractiveElement;
 use vsr_editor::Position;
 
+use crate::config::settings::{CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers};
 use crate::keymap::{self, BINDINGS, Command};
-use crate::model::{Editors, OpenEditor};
+use crate::model::{Editors, OpenEditor, SaveTransforms};
 use crate::text_layout::{column_for_x, expand_tabs, expanded_byte_for_column, visual_column};
-use crate::theme::{Theme, metrics as m};
+use crate::theme::Theme;
 use crate::ui::to_gpui;
 
-/// Approximate advance of one Menlo digit at 12px, used for gutter sizing.
-const CHAR_WIDTH: f32 = 7.224;
-const FONT_FAMILY: &str = "Menlo";
-/// Width of the line cursor (`editor.cursorWidth` default 2).
-const CURSOR_WIDTH: f32 = 2.0;
 /// Half period of the `blink` cursor style.
 const BLINK: Duration = Duration::from_millis(500);
 /// Key context the bindings are scoped to.
@@ -86,6 +82,8 @@ pub struct EditorView {
     dragging: bool,
     /// The path the editor was last auto-focused for (focus follows tab changes).
     focused_for: Option<PathBuf>,
+    /// The editor settings of the last `element` call (fonts, cursor, line numbers, ...).
+    cfg: EditorSettings,
 }
 
 impl EditorView {
@@ -103,6 +101,10 @@ impl EditorView {
     }
 
     fn caret_visible(&self) -> bool {
+        // `smooth`, `phase` and `expand` blink like `blink` for now.
+        if self.cfg.cursor_blinking == CursorBlinking::Solid {
+            return true;
+        }
         let since = self.activity.map_or(Duration::ZERO, |t| t.elapsed());
         (since.as_millis() / BLINK.as_millis()).is_multiple_of(2)
     }
@@ -124,7 +126,7 @@ impl EditorView {
 
     fn rows_per_page(&self) -> usize {
         let h = f32::from(self.bounds.get().size.height);
-        ((h / m::EDITOR_LINE_HEIGHT) as usize).max(1)
+        ((h / self.cfg.line_height) as usize).max(1)
     }
 
     /// Build the editor element for `editor`.
@@ -132,8 +134,11 @@ impl EditorView {
         &mut self,
         editor: &OpenEditor,
         theme: &Theme,
+        settings: &EditorSettings,
         cx: &mut Context<T>,
     ) -> impl IntoElement {
+        self.cfg = settings.clone();
+        let cfg = settings.clone();
         let focus = self.focus_handle(cx);
         let lines = editor.buffer().line_count();
         let scroll = self.scrolls.entry(editor.path.clone()).or_default().clone();
@@ -146,7 +151,7 @@ impl EditorView {
                 i
             }
         };
-        let gutter = gutter_width(lines);
+        let gutter = gutter_width(lines, &cfg);
         self.gutter = gutter;
         if self.blink_task.is_none() {
             self.blink_task = Some(cx.spawn(async move |this, cx| {
@@ -172,7 +177,7 @@ impl EditorView {
                     list_focus.focus(window, cx);
                 }
                 let focused = list_focus.is_focused(window);
-                rows(e, &theme, gutter, range, window, focused && view.caret_visible(), focused)
+                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused)
             }),
         )
         .track_scroll(&scroll)
@@ -245,7 +250,11 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
             let page = view.rows_per_page();
             match cmd {
                 Command::Save => {
-                    if let Err(err) = e.save() {
+                    let transforms = SaveTransforms {
+                        trim_trailing_whitespace: view.cfg.trim_trailing_whitespace,
+                        insert_final_newline: view.cfg.insert_final_newline,
+                    };
+                    if let Err(err) = e.save_with(transforms) {
                         eprintln!("rscode: save {}: {err}", e.path.display());
                     }
                 }
@@ -280,13 +289,13 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
 
 // ---- mouse ---------------------------------------------------------------------------------
 
-fn shape(window: &Window, text: &str) -> Option<gpui_kit::ShapedLine> {
+fn shape(window: &Window, cfg: &EditorSettings, text: &str) -> Option<gpui_kit::ShapedLine> {
     if text.is_empty() {
         return None;
     }
     let run = TextRun {
         len: text.len(),
-        font: font(FONT_FAMILY),
+        font: editor_font(cfg),
         color: gpui_kit::white(),
         background_color: None,
         underline: None,
@@ -294,10 +303,16 @@ fn shape(window: &Window, text: &str) -> Option<gpui_kit::ShapedLine> {
     };
     Some(window.text_system().shape_line(
         SharedString::from(text.to_string()),
-        px(m::EDITOR_FONT_SIZE),
+        px(cfg.font_size),
         &[run],
         None,
     ))
+}
+
+fn editor_font(cfg: &EditorSettings) -> gpui_kit::Font {
+    let mut f = font(SharedString::from(cfg.font_family.clone()));
+    f.weight = gpui_kit::FontWeight(cfg.font_weight);
+    f
 }
 
 /// Document position under window point `p`.
@@ -309,12 +324,12 @@ fn hit_test(view: &EditorView, e: &OpenEditor, p: Point<Pixels>, window: &Window
     });
     let buf = e.buffer();
     let y = f32::from(p.y - bounds.origin.y) - offset_y;
-    let line = ((y / m::EDITOR_LINE_HEIGHT).floor().max(0.0) as usize + 1).min(buf.line_count());
+    let line = ((y / view.cfg.line_height).floor().max(0.0) as usize + 1).min(buf.line_count());
     let x = f32::from(p.x - bounds.origin.x) - view.gutter - offset_x;
     let tab = e.editor.options().tab_size;
     let text = buf.line_content(line);
     let expanded = expand_tabs(text, tab);
-    let shaped = shape(window, &expanded);
+    let shaped = shape(window, &view.cfg, &expanded);
     let column = column_for_x(text, tab, x, |byte| {
         shaped.as_ref().map_or(0.0, |s| f32::from(s.x_for_index(byte)))
     });
@@ -504,7 +519,7 @@ impl<T: EditorHost> InputHandler for EditorInput<T> {
             let pos = buf.position_at(range_utf16.start.min(buf.len_utf16()));
             let tab = e.editor.options().tab_size;
             let text = buf.line_content(pos.line);
-            let shaped = shape(window, &expand_tabs(text, tab));
+            let shaped = shape(window, &view.cfg, &expand_tabs(text, tab));
             let x = shaped.map_or(0.0, |s| {
                 f32::from(s.x_for_index(expanded_byte_for_column(text, tab, pos.column)))
             });
@@ -514,9 +529,9 @@ impl<T: EditorHost> InputHandler for EditorInput<T> {
             });
             let origin = point(
                 bounds.origin.x + px(view.gutter + x + offset_x),
-                bounds.origin.y + px((pos.line - 1) as f32 * m::EDITOR_LINE_HEIGHT + offset_y),
+                bounds.origin.y + px((pos.line - 1) as f32 * view.cfg.line_height + offset_y),
             );
-            Bounds::new(origin, gpui_kit::size(px(CURSOR_WIDTH), px(m::EDITOR_LINE_HEIGHT)))
+            Bounds::new(origin, gpui_kit::size(px(view.cfg.line_cursor_width()), px(view.cfg.line_height)))
         })
     }
 
@@ -561,10 +576,15 @@ pub fn indent_status(e: &OpenEditor) -> String {
 
 // ---- drawing ---------------------------------------------------------------------------------
 
-fn gutter_width(lines: usize) -> f32 {
+fn gutter_width(lines: usize, cfg: &EditorSettings) -> f32 {
+    // The 26px right of the numbers are the decorations and folding columns, which stay without
+    // line numbers.
+    if cfg.line_numbers == LineNumbers::Off {
+        return 26.0;
+    }
     let digits = lines.to_string().len().max(3);
     // VS Code: lineNumbersMinChars=5 worth of room, number right-aligned.
-    digits as f32 * CHAR_WIDTH + 34.0
+    digits as f32 * cfg.char_width() + 34.0
 }
 
 fn widest_line(e: &OpenEditor) -> usize {
@@ -591,9 +611,56 @@ fn selection_on_line(e: &OpenEditor, line: usize) -> Option<(usize, usize, bool)
     Some((from, to, past))
 }
 
+/// The gutter text of `line` for `editor.lineNumbers` (lineNumbers.ts: `relative` shows the distance
+/// to the caret line and the caret line's own number; `interval` every 10th line and the caret line).
+fn line_number_label(mode: LineNumbers, line: usize, caret_line: usize) -> String {
+    match mode {
+        LineNumbers::Off => String::new(),
+        LineNumbers::On => line.to_string(),
+        LineNumbers::Relative => {
+            if line == caret_line { line.to_string() } else { line.abs_diff(caret_line).to_string() }
+        }
+        LineNumbers::Interval => {
+            if line == caret_line || line.is_multiple_of(10) { line.to_string() } else { String::new() }
+        }
+    }
+}
+
+/// The caret as a positioned box (`viewCursor.ts`): `line` is `editor.cursorWidth` wide (2 when 0),
+/// `line-thin` 1px, `block` fills the character cell and redraws it inverted, `block-outline`
+/// outlines the cell, `underline` is 2px and `underline-thin` 1px under the cell.
+fn caret_element(
+    cfg: &EditorSettings,
+    t: &Theme,
+    x: f32,
+    cell_w: f32,
+    glyph: Option<&str>,
+) -> gpui_kit::Div {
+    let lh = cfg.line_height;
+    let base = div().absolute().left(px(x));
+    let cursor = to_gpui(t.cursor);
+    match cfg.cursor_style {
+        CursorStyle::Line => base.top_0().w(px(cfg.line_cursor_width())).h(px(lh)).bg(cursor),
+        CursorStyle::LineThin => base.top_0().w(px(1.)).h(px(lh)).bg(cursor),
+        CursorStyle::Block => base
+            .top_0()
+            .w(px(cell_w))
+            .h(px(lh))
+            .bg(cursor)
+            .text_color(to_gpui(t.editor_bg))
+            .whitespace_nowrap()
+            .children(glyph.map(|g| g.to_string())),
+        CursorStyle::BlockOutline => base.top_0().w(px(cell_w)).h(px(lh)).border_1().border_color(cursor),
+        CursorStyle::Underline => base.top(px(lh - 2.)).w(px(cell_w)).h(px(2.)).bg(cursor),
+        CursorStyle::UnderlineThin => base.top(px(lh - 1.)).w(px(cell_w)).h(px(1.)).bg(cursor),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn rows(
     e: &OpenEditor,
     t: &Theme,
+    cfg: &EditorSettings,
     gutter: f32,
     range: Range<usize>,
     window: &Window,
@@ -603,17 +670,24 @@ fn rows(
     let buf = e.buffer();
     let sel = e.editor.selection();
     let tab = e.editor.options().tab_size;
-    let space_w = shape(window, " ").map_or(CHAR_WIDTH, |s| f32::from(s.width));
+    let lh = cfg.line_height;
+    let space_w = shape(window, cfg, " ").map_or(cfg.char_width(), |s| f32::from(s.width));
     let sel_bg = if focused { t.selection_bg } else { t.inactive_selection_bg };
+    let caret_line = sel.active.line;
+    let hl = cfg.render_line_highlight;
+    // The border box of the current line: content only (`line`, empty selection), gutter only
+    // (`gutter`), or the whole row (`all`).
+    let hl_content = matches!(hl, LineHighlight::Line | LineHighlight::All) && sel.is_empty();
+    let hl_gutter = matches!(hl, LineHighlight::Gutter | LineHighlight::All);
     range
         .map(|ix| {
             let line = ix + 1;
             let text = buf.line_content(line);
-            let is_active = line == sel.active.line;
+            let is_active = line == caret_line;
             let expanded = expand_tabs(text, tab);
             let selected = selection_on_line(e, line);
             let has_caret = is_active && caret_on;
-            let shaped = (selected.is_some() || has_caret).then(|| shape(window, &expanded)).flatten();
+            let shaped = (selected.is_some() || has_caret).then(|| shape(window, cfg, &expanded)).flatten();
             let x_at = |col: usize| -> f32 {
                 shaped.as_ref().map_or(0.0, |s| {
                     f32::from(s.x_for_index(expanded_byte_for_column(text, tab, col)))
@@ -631,48 +705,40 @@ fn rows(
                             .top_0()
                             .left(px(x0))
                             .w(px(x1 - x0))
-                            .h(px(m::EDITOR_LINE_HEIGHT))
+                            .h(px(lh))
                             .bg(to_gpui(sel_bg)),
                     );
                 }
             }
             text_box = text_box.text_color(to_gpui(t.editor_fg)).child(expanded);
             if has_caret {
-                text_box = text_box.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left(px(x_at(sel.active.column)))
-                        .w(px(CURSOR_WIDTH))
-                        .h(px(m::EDITOR_LINE_HEIGHT))
-                        .bg(to_gpui(t.cursor)),
-                );
+                let col = sel.active.column;
+                let x = x_at(col);
+                let glyph = text.chars().nth(col - 1).filter(|c| *c != '\t').map(|c| c.to_string());
+                let cell = (x_at(col + 1) - x).max(0.0);
+                let cell = if glyph.is_some() && cell > 0.5 { cell } else { space_w };
+                text_box = text_box.child(caret_element(cfg, t, x, cell, glyph.as_deref()));
             }
 
             let mut row = div()
                 .relative()
                 .flex()
                 .flex_row()
-                .h(px(m::EDITOR_LINE_HEIGHT))
-                .line_height(px(m::EDITOR_LINE_HEIGHT))
-                .font_family(FONT_FAMILY)
-                .text_size(px(m::EDITOR_FONT_SIZE));
-            // `renderLineHighlight: line` draws the border box only while the selection is empty.
-            if is_active && sel.is_empty() {
-                row = row.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left(px(gutter))
-                        .right_0()
-                        .border_2()
-                        .border_color(to_gpui(t.line_highlight_border)),
-                );
+                .h(px(lh))
+                .line_height(px(lh))
+                .font_family(SharedString::from(cfg.font_family.clone()))
+                .font_weight(gpui_kit::FontWeight(cfg.font_weight))
+                .text_size(px(cfg.font_size));
+            if is_active && (hl_content || hl_gutter) {
+                let left = if hl_content && !hl_gutter { gutter } else { 0.0 };
+                let mut highlight = div().absolute().top_0().bottom_0().left(px(left)).border_2().border_color(to_gpui(t.line_highlight_border));
+                highlight = if hl_content { highlight.right_0() } else { highlight.w(px(gutter)) };
+                row = row.child(highlight);
             }
             row.child(
                 div()
                     .flex_none()
+                    .debug_selector(|| format!("gutter:{line}"))
                     .w(px(gutter))
                     .pr(px(26.))
                     .text_right()
@@ -681,12 +747,37 @@ fn rows(
                     } else {
                         t.line_number_fg
                     }))
-                    .child(line.to_string()),
+                    .child(line_number_label(cfg.line_numbers, line, caret_line)),
             )
             .child(text_box)
             .into_any_element()
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_number_labels_follow_the_setting() {
+        assert_eq!(line_number_label(LineNumbers::On, 7, 3), "7");
+        assert_eq!(line_number_label(LineNumbers::Off, 7, 3), "");
+        assert_eq!(line_number_label(LineNumbers::Relative, 7, 3), "4");
+        assert_eq!(line_number_label(LineNumbers::Relative, 3, 3), "3", "the caret line shows its own number");
+        assert_eq!(line_number_label(LineNumbers::Relative, 1, 3), "2");
+        assert_eq!(line_number_label(LineNumbers::Interval, 10, 3), "10");
+        assert_eq!(line_number_label(LineNumbers::Interval, 7, 3), "");
+        assert_eq!(line_number_label(LineNumbers::Interval, 3, 3), "3");
+    }
+
+    #[test]
+    fn gutter_is_narrow_without_line_numbers() {
+        let mut cfg = EditorSettings::default();
+        assert!(gutter_width(100, &cfg) > gutter_width(100, &{ cfg.line_numbers = LineNumbers::Off; cfg.clone() }));
+        cfg.line_numbers = LineNumbers::Off;
+        assert_eq!(gutter_width(100_000, &cfg), 26.0);
+    }
 }
 
 #[cfg(test)]

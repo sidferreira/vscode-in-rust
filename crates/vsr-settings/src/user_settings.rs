@@ -44,6 +44,11 @@ impl UserSettings {
         self.values.get(key)
     }
 
+    /// The keys and values the user has set, sorted by key.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
+        self.values.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
     pub fn set(&mut self, key: &str, value: Value) {
         self.values.insert(key.to_string(), value);
     }
@@ -65,15 +70,20 @@ impl UserSettings {
         self.values.is_empty()
     }
 
+    /// The document as pretty JSON with a trailing newline, as `save` writes it.
+    pub fn to_text(&self) -> String {
+        let mut text = serde_json::to_string_pretty(&Value::Object(self.values.clone()))
+            .expect("a JSON map always serializes");
+        text.push('\n');
+        text
+    }
+
     /// Writes the document as pretty JSON, creating parent directories.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let mut text = serde_json::to_string_pretty(&Value::Object(self.values.clone()))
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        text.push('\n');
-        fs::write(path, text)
+        fs::write(path, self.to_text())
     }
 }
 

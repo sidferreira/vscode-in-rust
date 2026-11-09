@@ -104,6 +104,11 @@ impl SettingsRegistry {
         self.settings.is_empty()
     }
 
+    /// All registered keys, in registration order.
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.settings.iter().map(|s| s.key.as_str())
+    }
+
     pub fn get(&self, key: &str) -> Option<&SettingSchema> {
         self.index.get(key).map(|&i| &self.settings[i])
     }

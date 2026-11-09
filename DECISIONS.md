@@ -313,6 +313,58 @@ Regression test `icons::tests::codicon_loads_in_real_macos_text_system` uses the
 `gpui_apple::AppleTextSystem`, because gpui's `TestAppContext` has a no-op text system that
 accepts any font (so headless E2E tests cannot catch font problems).
 
+## ADR-0022 — Configuration service: settings take effect (2026-11-09)
+
+Until now the Settings editor wrote settings.json and nothing read it. `vsr_settings::Configuration`
+(UI-free) layers the registered defaults with the user's settings (upstream `Configuration`, default
+and user layers; no workspace layer yet). `get_value`/`get_bool`/`get_f64`/`get_str`/`get::<T>`
+read it; `update_user` returns a `ConfigurationChange` whose `affects("editor")` is upstream's
+`affectsConfiguration` (whole segments: "editor" affects "editor.fontSize", "editor.font" does not;
+changed keys are the diff of the raw user documents). Validation is in the model, not in each
+consumer as upstream does it, with the same outcomes: wrong type or a value outside an enum falls
+back to the default, numbers are clamped to `minimum`/`maximum` like `editorOptions.ts`'s
+`clampedInt`, settings with a multi-type schema (`editor.fontWeight`) are validated by their reader.
+
+**App.** `config::AppConfig` is a gpui `Global`: the `Configuration`, the settings path, the last
+change and the last file error. Startup loads `default_user_settings_path()`; `RSCODE_USER_DATA_DIR=<dir>`
+uses `<dir>/User/settings.json` instead (sandboxed runs, manual tests). Tests install a temp path
+(or run in memory) and never touch the real file. The Settings editor writes through
+`AppConfig::set_value` (saves the file, updates the configuration, notifies), so a change applies
+at once; the workbench observes the global (`cx.observe_global`), rebuilds its typed views
+(`config::settings`: `EditorSettings`, `LayoutSettings`, compared with `PartialEq`), pushes
+`editor.tabSize`/`insertSpaces` into the open editors (`Editor::set_options`) and re-lists the
+explorer when `files.exclude` changed.
+
+**Live reload.** External edits are found by polling the file every 300 ms (no `notify`
+dependency, so nothing new passes the package firewall). Debounce: a changed text must be seen on
+two consecutive polls. Our own writes record the text they wrote, so the echo is ignored. A file with
+a syntax error keeps the previous configuration, shows the error in the Settings editor and refuses
+writes until it parses (upstream also refuses to write into an invalid settings file). Settings
+saved from the Settings editor still drop comments (ADR-0015).
+
+**Wired settings** (single list: `config/wired.rs`, 19 of 2062; `docs/settings-coverage.md` is
+generated from it by a test): `workbench.sideBar.location` (side bar and its sash move to the right
+of the editor, the activity bar stays on the side bar's outer edge, as in `layout.ts`),
+`workbench.activityBar.location` (`default`, `hidden`; `top`/`bottom` are a horizontal strip in the
+side bar column), `workbench.statusBar.visible`, `workbench.editor.showTabs`, `workbench.tree.indent`,
+`files.exclude` (merged with the default like upstream, so showing `.git` takes `"**/.git": false`; own glob matcher, `config/glob.rs`; `when: $(basename)` supported), `editor.fontSize`,
+`fontFamily` (first installed family), `fontWeight`, `lineHeight` (0 is 1.5 x font size, rounded,
+at least 8, values below 8 are multiples, as `fontInfo.ts`), `tabSize`, `insertSpaces`, `lineNumbers`
+(`relative`, `interval` included), `renderLineHighlight`, `cursorStyle` (all six), `cursorBlinking`,
+`cursorWidth` (0 means 2), `files.insertFinalNewline`, `files.trimTrailingWhitespace` (both applied
+on save as one undoable edit each, `vsr-editor/src/save_ops.rs`, in the order of upstream's save
+participants). The Settings editor shows "Not yet supported in rscode" under every setting not in
+the list.
+
+**Differences from upstream.** `cursorBlinking: smooth|phase|expand` blink like `blink`; no
+`editor.detectIndentation`; `files.exclude` patterns match the path relative to the opened folder
+only; `window.title` is not wired; with `activityBar.location: top|bottom` hiding the side bar leaves no control to bring it back (no Cmd+B yet); `trimTrailingWhitespace` has no regex/string exemption and the
+auto-save cursor-line rule exists in the core but is unused (no auto save).
+
+Testing: `config/e2e.rs` (headless, see `docs/testing.md`) covers the side bar and activity bar
+layout through the Settings UI, the status bar, tabs, tab size and insert spaces, live reload,
+own-write echo and invalid files, save transforms, `files.exclude` and the "not yet supported" marker.
+
 ## ADR-0024 — Background runs of the real app; safe .app bundle updates (2026-11-09)
 
 User asked that automated runs never cover their work. Two layers:

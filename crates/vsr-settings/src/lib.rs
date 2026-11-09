@@ -4,6 +4,7 @@
 //! Provenance of the bundled data is in `README.md`; `scripts/export-default-settings`
 //! regenerates the settings asset.
 
+mod configuration;
 mod jsonc;
 mod registry;
 mod schema;
@@ -11,6 +12,7 @@ mod title;
 mod toc;
 mod user_settings;
 
+pub use configuration::{Configuration, ConfigurationChange};
 pub use registry::SettingsRegistry;
 pub use schema::{SettingKind, SettingSchema};
 pub use title::{DisplayFormat, setting_key_to_display_format, wordify_key};

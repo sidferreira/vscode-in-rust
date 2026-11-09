@@ -12,6 +12,7 @@ mod cursor_columns;
 mod edit_ops;
 mod editor;
 mod move_ops;
+mod save_ops;
 mod selection;
 mod undo;
 mod word_ops;

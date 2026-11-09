@@ -5,6 +5,7 @@
 //!
 //! upstream: src/vs/workbench/browser/layout.ts @ 50e1350fc78d
 
+mod config;
 mod editor_view;
 mod icons;
 mod keymap;
@@ -21,6 +22,9 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+use config::glob::ExcludeMatcher;
+use config::settings::{ActivityBarLocation, EditorSettings, LayoutSettings, ShowTabs, SideBarLocation};
+use config::AppConfig;
 use editor_view::{EditorHost, EditorView};
 use model::{DirEntry, Editors, list_dir};
 use theme::{Theme, metrics as m};
@@ -40,6 +44,7 @@ fn main() {
         gpui_kit::init(cx);
         icons::install(cx);
         install_app_lifecycle(cx);
+        AppConfig::install(cx, Some(settings_path())); // defaults + settings.json, live reload
         settings_view::install(cx); // Cmd+, binding + component theme
         editor_view::init(cx); // editor key bindings
 
@@ -62,7 +67,7 @@ fn main() {
             focus: !background_mode(),
             ..Default::default()
         };
-        gpui_kit::open_window(options, cx, |_, cx| cx.new(|_| Workbench::new(root)))
+        gpui_kit::open_window(options, cx, |_, cx| cx.new(|cx| Workbench::new(root, cx)))
             .expect("failed to open window");
         if !background_mode() {
             cx.activate(true);
@@ -118,8 +123,13 @@ struct Workbench {
     /// Settings editor tab (one instance) and whether it is the active tab.
     settings: Option<Entity<SettingsView>>,
     settings_active: bool,
-    /// settings.json the Settings editor edits (overridable so tests never touch the real one).
-    settings_path: PathBuf,
+    /// The editor settings in effect (fonts resolved), rebuilt when the configuration changes.
+    editor_settings: EditorSettings,
+    /// `files.exclude`.
+    exclude: ExcludeMatcher,
+    /// Installed font families, read once when first needed.
+    installed_fonts: Option<HashSet<String>>,
+    _config_sub: Subscription,
     /// Root focus handle so workbench-level actions (Cmd+,) dispatch even before anything is focused.
     focus: Option<FocusHandle>,
     branch: Option<String>,
@@ -127,7 +137,14 @@ struct Workbench {
 }
 
 impl Workbench {
-    fn new(root: PathBuf) -> Self {
+    fn new(root: PathBuf, cx: &mut Context<Self>) -> Self {
+        if !cx.has_global::<AppConfig>() {
+            AppConfig::install(cx, None); // in memory: tests and embedders that set no file
+        }
+        let configuration = AppConfig::get(cx).configuration();
+        let exclude = ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null));
+        let editor_settings = EditorSettings::from_configuration(configuration);
+        let editors = Editors { options: editor_settings.editor_options(), ..Editors::default() };
         let mut wb = Self {
             theme: Theme::dark_modern(),
             root: root.clone(),
@@ -137,16 +154,20 @@ impl Workbench {
             resizing_sidebar: false,
             expanded: HashSet::new(),
             children: HashMap::new(),
-            editors: Editors::default(),
+            editors,
             editor_view: EditorView::default(),
             settings: None,
             settings_active: false,
-            settings_path: settings_path(),
+            editor_settings,
+            exclude,
+            installed_fonts: None,
+            _config_sub: cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)),
             focus: None,
             branch: git_branch(&root),
             error: None,
         };
-        wb.children.insert(root.clone(), list_dir(&root).unwrap_or_default());
+        wb.resolve_editor_font(cx);
+        wb.children.insert(root.clone(), wb.list(&root));
         // Open a README if there is one, so the first launch shows real text.
         for name in ["README.md", "Cargo.toml"] {
             let p = root.join(name);
@@ -156,6 +177,60 @@ impl Workbench {
             }
         }
         wb
+    }
+
+    // ---- configuration --------------------------------------------------------
+
+    fn layout(&self, cx: &App) -> LayoutSettings {
+        LayoutSettings::from_configuration(AppConfig::get(cx).configuration())
+    }
+
+    fn list(&self, dir: &Path) -> Vec<DirEntry> {
+        list_dir(dir, &self.root, &self.exclude).unwrap_or_default()
+    }
+
+    /// Picks the first installed family of `editor.fontFamily`.
+    fn resolve_editor_font(&mut self, cx: &mut Context<Self>) {
+        let fonts = self
+            .installed_fonts
+            .get_or_insert_with(|| cx.text_system().all_font_names().into_iter().collect());
+        self.editor_settings.resolve_font(|name| fonts.contains(name));
+    }
+
+    /// The configuration changed (Settings editor or an edit of settings.json): re-read what the
+    /// workbench uses and apply it to what is already open.
+    fn on_config_changed(&mut self, cx: &mut Context<Self>) {
+        let app = AppConfig::get(cx);
+        let configuration = app.configuration();
+        let affects_exclude = app.last_change().affects("files.exclude");
+        let new_exclude = affects_exclude
+            .then(|| ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null)));
+        let new_settings = EditorSettings::from_configuration(configuration);
+
+        let old_options = self.editor_settings.editor_options();
+        if new_settings.font_families != self.editor_settings.font_families {
+            self.editor_settings = new_settings;
+            self.resolve_editor_font(cx);
+        } else {
+            let family = self.editor_settings.font_family.clone();
+            self.editor_settings = EditorSettings { font_family: family, ..new_settings };
+        }
+        let options = self.editor_settings.editor_options();
+        if options != old_options {
+            self.editors.options = options;
+            for e in &mut self.editors.open {
+                e.editor.set_options(options);
+            }
+        }
+        if let Some(exclude) = new_exclude {
+            self.exclude = exclude;
+            let dirs: Vec<PathBuf> = self.children.keys().cloned().collect();
+            for dir in dirs {
+                let entries = self.list(&dir);
+                self.children.insert(dir, entries);
+            }
+        }
+        cx.notify();
     }
 
     fn open(&mut self, path: &Path) {
@@ -169,8 +244,7 @@ impl Workbench {
 
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.is_none() {
-            let this_path = self.settings_path.clone();
-            let view = cx.new(|cx| SettingsView::new(this_path, window, cx));
+            let view = cx.new(|cx| SettingsView::new(None, window, cx));
             cx.subscribe(&view, |this, _, ev: &SettingsEvent, cx| match ev {
                 SettingsEvent::OpenSettingsJson(path) => {
                     this.open(path);
@@ -272,7 +346,7 @@ impl Workbench {
             self.expanded.insert(path.to_path_buf());
             self.children
                 .entry(path.to_path_buf())
-                .or_insert_with(|| list_dir(path).unwrap_or_default());
+                .or_insert_with(|| list_dir(path, &self.root, &self.exclude).unwrap_or_default());
         }
     }
 
@@ -364,6 +438,7 @@ impl Workbench {
 
         div()
             .flex_none()
+            .debug_selector(|| "status-bar".to_string())
             .h(px(m::STATUS_BAR_HEIGHT))
             .w_full()
             .flex()
@@ -379,16 +454,21 @@ impl Workbench {
             .child(right)
     }
 
-    fn activity_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The activity bar: a vertical bar next to the side bar (`default`; on the side bar's outer
+    /// edge, so right of it when the side bar is on the right, like layout.ts) or, for `top` and
+    /// `bottom`, a horizontal strip in the side bar column.
+    fn activity_bar(&self, cx: &mut Context<Self>, side: SideBarLocation, location: ActivityBarLocation) -> impl IntoElement {
         let t = &self.theme;
+        let horizontal = location != ActivityBarLocation::Default;
+        let (cell_w, cell_h) = if horizontal { (40., 35.) } else { (m::ACTIVITY_BAR_WIDTH, m::ACTIVITY_BAR_WIDTH) };
         let cell = |id: &'static str, ix: usize, glyph: char, tip: &'static str, active: bool| {
             let fg = if active { t.activity_fg } else { t.activity_inactive_fg };
             div()
                 .id((id, ix))
                 .relative()
                 .flex_none()
-                .w(px(m::ACTIVITY_BAR_WIDTH))
-                .h(px(m::ACTIVITY_BAR_WIDTH))
+                .w(px(cell_w))
+                .h(px(cell_h))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -398,21 +478,21 @@ impl Workbench {
                 .text_color(to_gpui(fg))
                 .hover(|s| s.text_color(to_gpui(t.activity_fg)))
                 .when(active, |d| {
-                    d.child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .top_0()
-                            .w(px(2.))
-                            .h_full()
-                            .bg(to_gpui(t.accent)),
-                    )
+                    let bar = div().absolute().bg(to_gpui(t.accent));
+                    d.child(match (horizontal, side) {
+                        (true, _) => bar.left_0().bottom_0().w_full().h(px(2.)),
+                        (false, SideBarLocation::Left) => bar.left_0().top_0().w(px(2.)).h_full(),
+                        (false, SideBarLocation::Right) => bar.right_0().top_0().w(px(2.)).h_full(),
+                    })
                 })
                 .child(icons::glyph(glyph))
                 .tooltip(move |w, cx| Tooltip::new(tip).build(w, cx))
         };
 
-        let mut top = div().flex().flex_col();
+        let mut top = div().flex();
+        if !horizontal {
+            top = top.flex_col();
+        }
         for (i, (view, glyph, tip)) in [
             (ActivityView::Explorer, icons::FILES, "Explorer (⇧⌘E)"),
             (ActivityView::Search, icons::SEARCH, "Search (⇧⌘F)"),
@@ -438,9 +518,11 @@ impl Workbench {
         }
 
         // Global activities pinned to the bottom.
-        let bottom = div()
-            .flex()
-            .flex_col()
+        let mut bottom = div().flex();
+        if !horizontal {
+            bottom = bottom.flex_col();
+        }
+        let bottom = bottom
             .child(cell("global", 0, icons::ACCOUNT, "Accounts", false))
             .child(
                 cell("global", 1, icons::SETTINGS_GEAR, "Manage (Settings)", false).on_click(cx.listener(
@@ -448,21 +530,24 @@ impl Workbench {
                 )),
             );
 
-        div()
-            .flex_none()
-            .w(px(m::ACTIVITY_BAR_WIDTH))
-            .h_full()
-            .flex()
-            .flex_col()
-            .justify_between()
-            .bg(to_gpui(t.chrome_bg))
-            .border_r_1()
-            .border_color(to_gpui(t.border))
-            .child(top)
-            .child(bottom)
+        let bar = div().flex_none().flex().justify_between().bg(to_gpui(t.chrome_bg)).border_color(to_gpui(t.border));
+        match location {
+            ActivityBarLocation::Default => {
+                let bar = bar.w(px(m::ACTIVITY_BAR_WIDTH)).h_full().flex_col();
+                match side {
+                    SideBarLocation::Left => bar.border_r_1(),
+                    SideBarLocation::Right => bar.border_l_1(),
+                }
+            }
+            ActivityBarLocation::Bottom => bar.w_full().h(px(cell_h)).border_t_1(),
+            _ => bar.w_full().h(px(cell_h)).border_b_1(),
+        }
+        .debug_selector(|| "activity-bar".to_string())
+        .child(top)
+        .child(bottom)
     }
 
-    fn side_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn side_bar(&self, cx: &mut Context<Self>, activity: ActivityBarLocation) -> impl IntoElement {
         let t = &self.theme;
         let heading = match self.view {
             ActivityView::Explorer => "EXPLORER",
@@ -479,6 +564,11 @@ impl Workbench {
                 .child("Not implemented yet.")
                 .into_any_element(),
         };
+        // `top` / `bottom` activity bar: a strip above or below the view.
+        let strip = (activity != ActivityBarLocation::Default && activity != ActivityBarLocation::Hidden)
+            .then(|| self.activity_bar(cx, SideBarLocation::Left, activity).into_any_element());
+        let (strip_top, strip_bottom) =
+            if activity == ActivityBarLocation::Top { (strip, None) } else { (None, strip) };
         div()
             .flex_none()
             .w(px(self.sidebar_width))
@@ -487,6 +577,8 @@ impl Workbench {
             .flex_col()
             .bg(to_gpui(t.chrome_bg))
             .text_color(to_gpui(t.sidebar_fg))
+            .debug_selector(|| "side-bar".to_string())
+            .children(strip_top)
             .child(
                 div()
                     .flex_none()
@@ -498,10 +590,12 @@ impl Workbench {
                     .child(heading),
             )
             .child(body)
+            .children(strip_bottom)
     }
 
     fn explorer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = &self.theme;
+        let indent = self.layout(cx).tree_indent;
         let mut rows = Vec::new();
         self.flatten(&self.root, 0, &mut rows);
         let active = self.editors.active_editor().map(|e| e.path.clone());
@@ -538,7 +632,7 @@ impl Workbench {
                 .w_full()
                 .flex()
                 .items_center()
-                .pl(px(8. + depth as f32 * 8.))
+                .pl(px(8. + depth as f32 * indent))
                 .text_size(px(13.))
                 .cursor_pointer()
                 .when(is_active, |d| d.bg(to_gpui(t.list_active_bg)))
@@ -577,10 +671,11 @@ impl Workbench {
             )
     }
 
-    fn tab_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn tab_strip(&self, cx: &mut Context<Self>, show_tabs: ShowTabs) -> impl IntoElement {
         let t = &self.theme;
         let mut strip = div()
             .relative()
+            .debug_selector(|| "tab-strip".to_string())
             .flex_none()
             .h(px(m::TAB_HEIGHT))
             .w_full()
@@ -598,7 +693,12 @@ impl Workbench {
                     .h(px(1.))
                     .bg(to_gpui(t.border)),
             );
+        let single = show_tabs == ShowTabs::Single;
         for (i, e) in self.editors.open.iter().enumerate() {
+            // `workbench.editor.showTabs: single` shows only the active editor's tab.
+            if single && (self.editors.active != Some(i) || self.settings_active) {
+                continue;
+            }
             let active = self.editors.active == Some(i) && !self.settings_active;
             let fg = to_gpui(if active { t.tab_active_fg } else { t.tab_inactive_fg });
             let line = |d: Div, c| d.absolute().left_0().w_full().h(px(1.)).bg(to_gpui(c));
@@ -655,6 +755,7 @@ impl Workbench {
                 );
             let tab = div()
                 .id(("tab", i))
+                .debug_selector(|| format!("tab:{i}"))
                 .group(format!("tab-{i}"))
                 .relative()
                 .flex_none()
@@ -701,16 +802,19 @@ impl Workbench {
                 );
             strip = strip.child(tab);
         }
-        strip = strip.children(self.settings_tab(cx));
+        if !single || self.settings_active {
+            strip = strip.children(self.settings_tab(cx));
+        }
         strip
     }
 
-    fn editor_group(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn editor_group(&mut self, cx: &mut Context<Self>, show_tabs: ShowTabs) -> impl IntoElement {
         let t = self.theme.clone();
+        let settings = self.editor_settings.clone();
         let settings_surface = self.settings.clone().filter(|_| self.settings_active);
         let surface = match self.editors.active.and_then(|i| self.editors.open.get(i)) {
             _ if settings_surface.is_some() => settings_surface.unwrap().into_any_element(),
-            Some(editor) => self.editor_view.element(editor, &t, cx).into_any_element(),
+            Some(editor) => self.editor_view.element(editor, &t, &settings, cx).into_any_element(),
             None => div()
                 .size_full()
                 .flex()
@@ -728,7 +832,8 @@ impl Workbench {
             .flex()
             .flex_col()
             .bg(to_gpui(t.editor_bg))
-            .child(self.tab_strip(cx))
+            .debug_selector(|| "editor-group".to_string())
+            .when(show_tabs != ShowTabs::None, |d| d.child(self.tab_strip(cx, show_tabs)))
             .child(div().flex_1().min_h_0().overflow_hidden().child(surface))
     }
 }
@@ -745,47 +850,59 @@ impl Render for Workbench {
             }
         };
         let t = self.theme.clone();
-        let sidebar = self.sidebar_visible;
+        let layout = self.layout(cx);
+        let right = layout.side_bar == SideBarLocation::Right;
+        let vertical_activity = layout.activity_bar == ActivityBarLocation::Default;
 
-        let mut middle = div()
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            .flex()
-            .flex_row()
-            .child(self.activity_bar(cx));
-        if sidebar {
-            middle = middle
-                .child(self.side_bar(cx))
-                // Drag handle on the side bar's right edge (also its border).
+        // Left to right: [activity bar] [side bar + sash] editor group [sash + side bar] [activity
+        // bar]; the activity bar stays on the side bar's outer edge (layout.ts).
+        let mut middle = div().flex_1().min_h_0().w_full().flex().flex_row();
+        if vertical_activity && !right {
+            middle = middle.child(self.activity_bar(cx, layout.side_bar, layout.activity_bar));
+        }
+        let side = self.sidebar_visible.then(|| {
+            let sash = div()
+                .id("sidebar-resize")
+                .flex_none()
+                .w(px(1.))
+                .h_full()
+                .bg(to_gpui(t.border))
+                .relative()
+                .debug_selector(|| "sidebar-resize".to_string())
                 .child(
                     div()
-                        .id("sidebar-resize")
-                        .flex_none()
-                        .w(px(1.))
+                        .absolute()
+                        .top_0()
+                        .left(px(-2.))
+                        .w(px(5.))
                         .h_full()
-                        .bg(to_gpui(t.border))
-                        .relative()
-                        .child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .left(px(-2.))
-                                .w(px(5.))
-                                .h_full()
-                                .cursor_col_resize()
-                                .hover(|s| s.bg(to_gpui(t.accent)))
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(|this, _, _, cx| {
-                                        this.resizing_sidebar = true;
-                                        cx.notify();
-                                    }),
-                                ),
+                        .cursor_col_resize()
+                        .hover(|s| s.bg(to_gpui(t.accent)))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.resizing_sidebar = true;
+                                cx.notify();
+                            }),
                         ),
                 );
+            (self.side_bar(cx, layout.activity_bar).into_any_element(), sash.into_any_element())
+        });
+        let mut right_group = Vec::new();
+        match side {
+            Some((side_bar, sash)) if !right => {
+                middle = middle.child(side_bar).child(sash);
+            }
+            Some((side_bar, sash)) => {
+                right_group.push(sash.into_any_element());
+                right_group.push(side_bar.into_any_element());
+            }
+            None => {}
         }
-        middle = middle.child(self.editor_group(cx));
+        middle = middle.child(self.editor_group(cx, layout.show_tabs)).children(right_group);
+        if vertical_activity && right {
+            middle = middle.child(self.activity_bar(cx, layout.side_bar, layout.activity_bar));
+        }
 
         div()
             .size_full()
@@ -798,10 +915,15 @@ impl Render for Workbench {
             .key_context("Workbench")
             .track_focus(&focus)
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)))
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {
-                        let x = f32::from(ev.position.x) - m::ACTIVITY_BAR_WIDTH;
+                        let layout = this.layout(cx);
+                        let activity = if layout.activity_bar == ActivityBarLocation::Default { m::ACTIVITY_BAR_WIDTH } else { 0. };
+                        let x = match layout.side_bar {
+                            SideBarLocation::Left => f32::from(ev.position.x) - activity,
+                            SideBarLocation::Right => f32::from(window.viewport_size().width) - f32::from(ev.position.x) - activity,
+                        };
                         this.sidebar_width = x.clamp(170., 600.);
                     } else {
                         this.resizing_sidebar = false;
@@ -820,7 +942,7 @@ impl Render for Workbench {
             )
             .child(self.title_bar())
             .child(middle)
-            .child(self.status_bar())
+            .when(layout.status_bar_visible, |d| d.child(self.status_bar()))
     }
 }
 
@@ -836,8 +958,13 @@ fn git_branch(root: &Path) -> Option<String> {
     (out.status.success() && !name.is_empty()).then_some(name)
 }
 
+/// The settings.json the app reads and writes. `RSCODE_USER_DATA_DIR=<dir>` puts it at
+/// `<dir>/User/settings.json` instead of the default user location (for sandboxed runs and tests).
 fn settings_path() -> PathBuf {
-    vsr_settings::default_user_settings_path()
+    match std::env::var_os("RSCODE_USER_DATA_DIR").filter(|d| !d.is_empty()) {
+        Some(dir) => PathBuf::from(dir).join("User/settings.json"),
+        None => vsr_settings::default_user_settings_path(),
+    }
 }
 
 fn folder_name(p: &Path) -> String {

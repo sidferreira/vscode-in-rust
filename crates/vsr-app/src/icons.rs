@@ -6,10 +6,11 @@
 //! bundled at `assets/codicon.ttf`, licensed CC BY 4.0 (`assets/codicon-LICENSE.txt`).
 //! Codepoints below are copied from upstream's registry.
 
-use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontId};
-use std::sync::Arc;
+use gpui_kit::{App, SharedString};
+use std::borrow::Cow;
 
-const FAMILY: &str = "codicon";
+/// Font family name inside `codicon.ttf` (use with `.font_family(icons::FAMILY)`).
+pub const FAMILY: &str = "codicon";
 
 pub const FILES: char = '\u{EAF0}';
 pub const SEARCH: char = '\u{EA6D}';
@@ -25,25 +26,16 @@ pub const ERROR: char = '\u{EA87}';
 pub const WARNING: char = '\u{EA6C}';
 pub const BELL: char = '\u{EAA2}';
 
-/// Register the codicon font as its own family and as a fallback for the
-/// regular families, so `"\u{EAF0}"` renders inside normal text too.
-pub fn install(ctx: &egui::Context) {
-    let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert(
-        FAMILY.to_owned(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/codicon.ttf"))),
-    );
-    fonts
-        .families
-        .insert(FontFamily::Name(FAMILY.into()), vec![FAMILY.to_owned()]);
-    for fam in [FontFamily::Proportional, FontFamily::Monospace] {
-        fonts.families.entry(fam).or_default().push(FAMILY.to_owned());
-    }
-    ctx.set_fonts(fonts);
+/// Register the codicon TTF with gpui's text system.
+pub fn install(cx: &App) {
+    cx.text_system()
+        .add_fonts(vec![Cow::Borrowed(include_bytes!("../assets/codicon.ttf"))])
+        .expect("bundled codicon.ttf is a valid font");
 }
 
-pub fn font(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name(FAMILY.into()))
+/// A glyph as a string, ready for `div().font_family(FAMILY).child(..)`.
+pub fn glyph(c: char) -> SharedString {
+    c.to_string().into()
 }
 
 #[cfg(test)]

@@ -1,16 +1,16 @@
 [package]
 name = "vsr-app"
-description = "The vscode-rust desktop binary (native workbench window)"
+description = "The rscode desktop binary (native workbench window)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "vscode-rust"
+name = "rscode"
 path = "src/main.rs"
 
 [dependencies]
 vsr-text.workspace = true
-# UI: egui/eframe (fallback per ADR-0007; gpui-kit blocked by the package firewall today).
-eframe = "0.37.0"
+# UI: gpui via gpui-kit (ADR-0012). 0.9.1 is quarantined by the proxy; pinned exactly.
+gpui-kit = "=0.9.0"

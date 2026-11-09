@@ -112,3 +112,27 @@ upstream's codepoints from `codiconsLibrary.ts`. No emoji/unicode stand-ins.
 Mirrors upstream's dev `scripts/code.sh`: builds `vsr-app` if needed, resolves path arguments
 against the caller's cwd, launches detached (logs to `$TMPDIR/vscode-rust/last-run.log`);
 `--wait` stays attached, `--release` uses the optimised build.
+
+## ADR-0012 — Switch the UI to gpui-kit 0.9.0 (2026-11-09)
+
+**Decision (user's choice).** Replace egui/eframe (ADR-0007's fallback) with gpui via
+`gpui-kit = "=0.9.0"` (resolves `gpui-pre 0.3.11`).
+
+**Pins / firewall caveat.** `gpui-kit 0.9.1` is quarantined by the package proxy (403), so we pin
+`=0.9.0` and expect to trail upstream by a release. `scripts/cargo-firewall-fetch` plus targeted
+`cargo update -p X --precise V` step-backs keep `Cargo.lock` resolvable: uuid 1.29.0, smallvec
+1.16.4, flate2 1.1.10, svgtypes 0.16.1, toml 1.2.0, toml_edit 0.25.18, winnow 1.0.4,
+toml_datetime 1.1.2, serde_spanned 1.1.2, cc 1.11.0, gpui-component-macros 0.9.0, mime 0.3.17,
+notify 8.2.1, arc-swap 1.9.3 (the fetch script alone stops at the toml cascade). Never bypass the
+proxy. `runtime_shaders` is enabled, so no Metal Toolchain is required.
+
+**What replaced what.** `vsr-app` depends only on `vsr-text` and `gpui-kit`.
+- eframe window/panels -> gpui `div` layout in a transparent-titlebar window (traffic lights kept).
+- `theme.rs` is UI-agnostic (`Rgba8`); `ui::to_gpui` converts. Colors/metrics unchanged.
+- `icons.rs`: Codicons TTF registered via `text_system().add_fonts`, family `codicon`
+  (not gpui-kit's icon set).
+- egui `show_rows` text view -> `editor_view.rs` on gpui `uniform_list` (own module so
+  `vsr-editor` can later supply an editing model; gpui-kit's editor widget deliberately unused).
+- egui hover text -> gpui-component `Tooltip`. The sidebar resize handle is hand-rolled
+  (gpui-component's panel group paints its own indicator pill, not Dark Modern).
+- `model.rs` untouched (UI-free).

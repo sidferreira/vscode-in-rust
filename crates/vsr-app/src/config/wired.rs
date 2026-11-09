@@ -109,6 +109,8 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "files.readonlyInclude",
             "files.readonlyExclude",
             "files.readonlyFromPermissions",
+            "files.watcherExclude",
+            "files.saveConflictResolution",
         ],
     ),
     (

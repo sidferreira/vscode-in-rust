@@ -116,10 +116,12 @@ impl Workbench {
     /// Saves the editor at `index` if it is dirty and writable. Returns whether it was saved.
     fn auto_save_editor(&mut self, index: usize) -> bool {
         let transforms = self.editor_settings.save_transforms(true);
+        let save_conflict_ask = self.editor_settings.save_conflict_ask;
         let Some(e) = self.editors.open.get_mut(index) else {
             return false;
         };
-        if !e.is_dirty() || e.is_read_only() {
+        // A file changed on disk is a save conflict, which an auto save does not resolve (ADR-0039).
+        if !e.is_dirty() || e.is_read_only() || (e.disk_changed() && save_conflict_ask) {
             return false;
         }
         match e.save_with(transforms) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch vscode-rust like the `code` CLI: build if needed, open the window, return.
+# Launch rscode like the `code` CLI: build if needed, open the window, return.
 #
 #   scripts/code.sh [--wait|-w] [--release] [folder-or-file ...]
 #
@@ -11,7 +11,8 @@
 #            like `code --wait`
 # --release  build/run the optimised binary (slower first build, faster app)
 #
-# Tip: alias it, e.g. in ~/.zshrc:  alias code-rs="$HOME/dev/personal/vscode-in-rust/vscode-rust/scripts/code.sh"
+# `scripts/rscode` is the same script. Put it on your PATH, e.g. in ~/.zshrc:
+#   alias rscode="$HOME/dev/personal/vscode-in-rust/vscode-rust/scripts/rscode"
 #
 # upstream: scripts/code.sh @ 50e1350fc78d   (same role: dev launcher)
 set -euo pipefail
@@ -47,16 +48,21 @@ cargo_flags=(--quiet -p vsr-app --manifest-path "$REPO/Cargo.toml")
 # Build (no-op if up to date). Cargo prints errors; we stop on failure.
 cargo build "${cargo_flags[@]}"
 
-target_dir="$(cargo metadata --format-version 1 --no-deps --manifest-path "$REPO/Cargo.toml" \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-bin="$target_dir/$profile/vscode-rust"
+# Ask cargo for the target dir and vsr-app's binary name (rscode).
+read -r target_dir bin_name < <(cargo metadata --format-version 1 --no-deps --manifest-path "$REPO/Cargo.toml" \
+  | python3 -c 'import json,sys
+m = json.load(sys.stdin)
+app = next(p for p in m["packages"] if p["name"] == "vsr-app")
+b = next(t["name"] for t in app["targets"] if "bin" in t["kind"])
+print(m["target_directory"], b)')
+bin="$target_dir/$profile/$bin_name"
 
 if [[ $wait -eq 1 ]]; then
   exec "$bin" "${args[@]}"
 fi
 
-log_dir="${TMPDIR:-/tmp}/vscode-rust"
+log_dir="${TMPDIR:-/tmp}/rscode"
 mkdir -p "$log_dir"
 nohup "$bin" "${args[@]}" >"$log_dir/last-run.log" 2>&1 &
 disown
-echo "vscode-rust started (pid $!), logs: $log_dir/last-run.log"
+echo "rscode started (pid $!), logs: $log_dir/last-run.log"

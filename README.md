@@ -1,6 +1,7 @@
-# vscode-rust
+# rscode
 
 A for-fun re-implementation of VS Code in Rust with a native UI, built by LLM agents.
+(Repo/folder are still called vscode-rust; internal crates keep the `vsr-` prefix.)
 Not affiliated with Microsoft; not for sale.
 
 - Upstream reference: `../vscode-original` (pinned in `UPSTREAM.md`)
@@ -11,7 +12,7 @@ Homebrew's rustup keeps `cargo` outside the default PATH; prefix commands with
 The first build takes a few minutes.
 
 ```sh
-scripts/code.sh [folder]         # build if needed and open the window (like `code .`)
+scripts/rscode [folder]          # build if needed and open the window (like `code .`)
 cargo test                       # all crates
 cargo run -p vsr-app -- [folder]  # open the window on a folder (default: cwd)
 scripts/upstream-sync status     # what changed upstream in code we ported

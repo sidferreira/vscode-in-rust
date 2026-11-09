@@ -122,3 +122,11 @@ visible column, Home toggles first-non-whitespace), selection (anchor/active), t
 a dirty flag relative to the saved state. Mirrors `src/vs/editor/common/cursor/*`; 40 cases
 ported from `cursor.test.ts` / `cursorMoveCommand.test.ts`. Not yet: multi-cursor, onEnter /
 auto-indent rules, block indent, word-separator config, grapheme clusters.
+
+## ADR-0014 — Product name: rscode (2026-11-09)
+
+User's call, for fun. User-facing name, binary (`rscode`), window title, launcher
+(`scripts/rscode` → `scripts/code.sh`), logs (`$TMPDIR/rscode/`) and user settings dir
+(`~/Library/Application Support/rscode/`). Internal crate prefix `vsr-` and the repo/folder
+name `vscode-rust` stay for now (renaming them mid-flight would conflict with in-progress
+work); revisit later if wanted.

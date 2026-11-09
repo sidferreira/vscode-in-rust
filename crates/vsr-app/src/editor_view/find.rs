@@ -38,7 +38,7 @@ use super::{EditorHost, EditorView};
 use crate::config::settings::{AutoFindInSelection, FindSettings, SeedSearchString};
 use crate::icons;
 use crate::model::OpenEditor;
-use crate::theme::{Rgba8, Theme, hex};
+use crate::theme::{Rgba8, Theme};
 use crate::ui::to_gpui;
 
 actions!(
@@ -96,7 +96,7 @@ pub(super) fn bind(cx: &mut App) {
     ]);
 }
 
-/// The colors of the widget and the highlights (`editorColors.ts`, dark_modern).
+/// The colors of the widget and the highlights (`editorColors.ts`).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct FindColors {
     pub widget_bg: Rgba8,        // editorWidget.background (dark_modern)
@@ -109,17 +109,22 @@ pub(super) struct FindColors {
 }
 
 impl FindColors {
-    pub(super) fn dark_modern() -> Self {
-        let c = |s: &str| hex(s).expect("valid built-in color");
+    /// The colours of the active theme.
+    pub(super) fn from_theme(t: &Theme) -> Self {
         Self {
-            widget_bg: c("#202020"),
-            widget_border: c("#313131"),
-            widget_shadow: c("#0000005C"),
-            disabled_fg: c("#CCCCCC80"),
-            match_bg: c("#9E6A03"),
-            match_highlight_bg: c("#EA5C0055"),
-            range_highlight_bg: c("#3A3D4166"),
+            widget_bg: t.editor_widget_bg,
+            widget_border: t.widget_border,
+            widget_shadow: t.widget_shadow,
+            disabled_fg: t.disabled_fg,
+            match_bg: t.find_match_bg,
+            match_highlight_bg: t.find_match_highlight_bg,
+            range_highlight_bg: t.find_range_highlight_bg,
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn dark_modern() -> Self {
+        Self::from_theme(&Theme::dark_modern())
     }
 }
 
@@ -240,7 +245,7 @@ impl FindUi {
         m
     }
 
-    pub(super) fn highlights(&self, e: &OpenEditor) -> Option<Highlights<'_>> {
+    pub(super) fn highlights(&self, e: &OpenEditor, theme: &Theme) -> Option<Highlights<'_>> {
         if !self.open || self.model_path.as_ref() != Some(&e.path) {
             return None;
         }
@@ -249,7 +254,7 @@ impl FindUi {
             matches: m.matches(),
             current: m.highlighted(),
             scopes: m.scopes(e.buffer()).unwrap_or_default(),
-            colors: FindColors::dark_modern(),
+            colors: FindColors::from_theme(theme),
         })
     }
 }
@@ -655,7 +660,7 @@ fn option_toggle<T: EditorHost>(
         .cursor_pointer()
         .font_family(icons::FAMILY)
         .text_size(px(16.))
-        .text_color(to_gpui(if active { t.input_option_active_fg } else { t.sidebar_fg }))
+        .text_color(to_gpui(if active { t.input_option_active_fg } else { t.side_bar_fg }))
         .child(icons::glyph(glyph))
         .tooltip(move |w, cx| Tooltip::new(tip).build(w, cx))
         .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, w, cx| on(this, w, cx)))
@@ -738,7 +743,7 @@ impl FindUi {
         let model = self.model.as_ref()?;
         let (find_input, replace_input) = (self.find_input.as_ref()?, self.replace_input.as_ref()?);
         let (find_focus, replace_focus) = (self.find_box_focus.as_ref()?, self.replace_box_focus.as_ref()?);
-        let colors = FindColors::dark_modern();
+        let colors = FindColors::from_theme(t);
         let st = model.state();
         let info = model.match_info();
         let has_text = !st.search_string.is_empty();

@@ -133,9 +133,9 @@ impl Workbench {
                 .cursor_pointer()
                 .text_size(px(13.))
                 .text_color(fg)
-                .bg(to_gpui(if active { t.tab_active_bg } else { t.chrome_bg }))
-                .child(if active { line(div().top_0(), t.accent) } else { line(div().bottom_0(), t.border) })
-                .child(div().absolute().right_0().top_0().h_full().w(px(1.)).bg(to_gpui(t.border)))
+                .bg(to_gpui(if active { t.tab_active_bg } else { t.tab_inactive_bg }))
+                .child(if active { line(div().top_0(), t.tab_active_border_top) } else { line(div().bottom_0(), t.tab_border) })
+                .child(div().absolute().right_0().top_0().h_full().w(px(1.)).bg(to_gpui(t.tab_border)))
                 .child("Welcome")
                 .child(close)
                 .on_mouse_down(

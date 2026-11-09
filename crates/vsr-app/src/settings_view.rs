@@ -29,7 +29,6 @@ use std::rc::Rc;
 
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::theme::{Theme as ComponentTheme, ThemeMode};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use serde_json::Value;
@@ -44,17 +43,12 @@ use model::{Row, TocEntry};
 
 actions!(rscode, [OpenSettings]);
 
-/// Register the Settings key bindings and align the component library's theme (used by its
-/// text input) with Dark Modern. Call once at startup, after `gpui_kit::init`.
+/// Register the Settings key bindings and make sure the theme service is running (it aligns the
+/// component library's theme, used by its text input, with the active theme). Call once at
+/// startup, after `gpui_kit::init`.
 pub fn install(cx: &mut App) {
     cx.bind_keys([KeyBinding::new("cmd-,", OpenSettings, None)]);
-    ComponentTheme::change(ThemeMode::Dark, None, cx);
-    let t = Theme::dark_modern();
-    let theme = ComponentTheme::global_mut(cx);
-    theme.foreground = to_gpui(t.input_fg);
-    theme.muted_foreground = to_gpui(t.input_placeholder_fg);
-    theme.caret = to_gpui(t.foreground);
-    theme.selection = to_gpui(Rgba8::rgb(0x26, 0x4F, 0x78));
+    crate::theme_service::ThemeService::ensure_installed(cx);
 }
 
 /// What the view asks the workbench to do.
@@ -147,7 +141,7 @@ impl SettingsView {
             weak.update(app, |this, cx| this.on_scroll(first, cx)).ok();
         });
         Self {
-            theme: Theme::dark_modern(),
+            theme: crate::theme_service::ThemeService::theme(cx),
             registry,
             user,
             path,
@@ -1113,6 +1107,7 @@ impl Focusable for SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.theme = crate::theme_service::ThemeService::theme(cx);
         let t = self.theme.clone();
         div()
             .id("settings-editor")

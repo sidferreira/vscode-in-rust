@@ -280,7 +280,7 @@ impl EditorView {
                 if let Some(s) = shape(window, &cfg, " ") {
                     view.measured_char_w.set(f32::from(s.width));
                 }
-                let find = view.find.highlights(e);
+                let find = view.find.highlights(e, &theme);
                 let pair = view.brackets.get(&e.path, e.buffer(), e.editor.version(), e.editor.selection().active, cfg.match_brackets);
                 rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator)
             }),

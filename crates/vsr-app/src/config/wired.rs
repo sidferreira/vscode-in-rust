@@ -31,6 +31,16 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         "Session",
         &["window.restoreWindows", "workbench.editor.restoreEditors", "workbench.editor.restoreViewState", "files.hotExit"],
     ),
+    (
+        "Themes",
+        &[
+            "workbench.colorTheme",
+            "workbench.preferredDarkColorTheme",
+            "workbench.preferredLightColorTheme",
+            "window.autoDetectColorScheme",
+            "workbench.colorCustomizations",
+        ],
+    ),
     ("Explorer", &["files.exclude"]),
     (
         "Editor text",
@@ -223,6 +233,8 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- `files.autoSave: onFocusChange` saves when the active editor changes and when the window loses focus. Focus moving between the editor and other views does not save (no focus tracking of the editor surface yet). `autoSaveWhenNoErrors` is not wired (no diagnostics).\n");
     out.push_str("- `files.readonly*` and the toggle `workbench.action.files.toggleActiveEditorReadonlyInSession` refuse edits in the editor, in Find/Replace and in Search's Replace. A read-only tab shows a lock. Saving a read-only file is still allowed.\n");
     out.push_str("- Word wrap: `editor.wrappingStrategy: advanced` breaks like `simple` (the monospace computer; the advanced strategy measures text in the browser). `editor.wordWrapIndicator` draws a return arrow after the last column of a row that continues. Alt+Z wraps at the viewport width or turns wrapping off for that editor only (it does not write the setting). `editor.wordSeparators` drives word moves, double-click and the whole-word check of selection highlights; the Find widget still uses `\\b`, and the word at the caret for occurrence highlights uses the default separators (upstream: the language's word definition). `editor.wordSegmenterLocales` (CJK word segmentation) is not implemented.\n");
+    out.push_str("- Themes (ADR-0037): the ten built-in themes of VS Code (Dark Modern, Light Modern, Dark+, Light+, Dark (Visual Studio), Light (Visual Studio), Dark High Contrast, Light High Contrast, Dark 2026, Light 2026) are bundled; other names in the `workbench.colorTheme` dropdown (Abyss, Monokai, ...) belong to extensions rscode has not got and fall back to the default theme of that colour mode. The default theme is Dark Modern, not Dark 2026 as upstream (the Settings editor still shows the upstream default text for the `workbench.*ColorTheme` settings).\n");
+    out.push_str("- `workbench.preferred*ColorTheme` apply with `window.autoDetectColorScheme`, which follows the window appearance (macOS light/dark). `window.autoDetectHighContrast` and `workbench.preferredHighContrast*ColorTheme` are not wired: there is no OS high contrast signal in gpui. `workbench.colorCustomizations` supports global keys and `[Theme Name]` blocks (with `*` wildcards) and the value `default`; `editor.tokenColorCustomizations` and `editor.semanticTokenColorCustomizations` are read by the theme service for the syntax highlighter but change nothing on screen yet. Icon themes stay unsupported (no file icons).\n");
     out
 }
 

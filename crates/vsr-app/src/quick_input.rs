@@ -64,6 +64,9 @@ pub enum QuickPickEvent {
     /// misses when it subscribes after construction). Owners that fill rows themselves (Go to
     /// Line) and the ones that switch provider by prefix react to it.
     Change { query: String },
+    /// Navigation (arrow keys, page keys) moved the active item (`onDidChangeActive`): the theme
+    /// picker previews the theme under the cursor.
+    ActiveChange { item: PickItem },
 }
 
 impl EventEmitter<QuickPickEvent> for QuickPick {}
@@ -116,7 +119,7 @@ impl QuickPick {
             s.focus(window, cx);
         });
         let mut this = Self {
-            theme: Theme::dark_modern(),
+            theme: crate::theme_service::ThemeService::theme(cx),
             input,
             list: PickList::default(),
             source: Box::new(source),
@@ -211,6 +214,20 @@ impl QuickPick {
         }
     }
 
+    fn emit_active(&mut self, cx: &mut Context<Self>) {
+        if let Some(item) = self.list.active_item().cloned() {
+            cx.emit(QuickPickEvent::ActiveChange { item });
+        }
+    }
+
+    /// Make the item with this `id` the active one (no event: the owner chose it).
+    pub fn set_active_item(&mut self, id: usize) {
+        if let Some(row) = self.list.rows().iter().position(|r| r.item().is_some_and(|i| i.id == id)) {
+            self.list.set_active(row);
+            self.scroll.scroll_to_item(row, ScrollStrategy::Center);
+        }
+    }
+
     fn visible_rows(&self) -> usize {
         self.list.len().clamp(1, MAX_ROWS)
     }
@@ -218,24 +235,28 @@ impl QuickPick {
     pub fn move_next(&mut self, cx: &mut Context<Self>) {
         self.list.next();
         self.scroll_to_active();
+        self.emit_active(cx);
         cx.notify();
     }
 
     pub fn move_previous(&mut self, cx: &mut Context<Self>) {
         self.list.previous();
         self.scroll_to_active();
+        self.emit_active(cx);
         cx.notify();
     }
 
     pub fn page_down(&mut self, cx: &mut Context<Self>) {
         self.list.next_page(self.visible_rows());
         self.scroll_to_active();
+        self.emit_active(cx);
         cx.notify();
     }
 
     pub fn page_up(&mut self, cx: &mut Context<Self>) {
         self.list.previous_page(self.visible_rows());
         self.scroll_to_active();
+        self.emit_active(cx);
         cx.notify();
     }
 
@@ -399,6 +420,7 @@ fn highlighted(text: &str, matches: &[Match], color: Hsla) -> StyledText {
 
 impl Render for QuickPick {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.theme = crate::theme_service::ThemeService::theme(cx);
         let t = self.theme.clone();
         let focused = self.input.read(cx).focus_handle(cx).is_focused(window);
         let rows = self.list.len();

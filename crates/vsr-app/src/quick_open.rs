@@ -186,6 +186,8 @@ pub struct QuickOpenState {
     pub(crate) last_inputs: HashMap<String, String>,
     /// Prefix of the provider whose rows and placeholder are showing.
     pub(crate) provider: String,
+    /// The picker is the colour theme picker (`theme_picker.rs`): closing it drops the preview.
+    pub(crate) theme_pick: bool,
 }
 
 impl QuickOpenState {
@@ -210,6 +212,9 @@ impl Workbench {
     /// line, `?` help), or switch the one that is open (`quickAccess.show(prefix)`).
     pub(crate) fn show_quick_access(&mut self, prefix: &str, window: &mut Window, cx: &mut Context<Self>) {
         crate::commands::ensure_installed(cx);
+        if self.quick.theme_pick {
+            self.hide_quick_open(false, window, cx);
+        }
         self.quick.data.borrow_mut().ctx = self.context_keys();
         if let Some(pick) = self.quick.pick.clone() {
             let current = pick.read(cx).query(cx);
@@ -267,6 +272,7 @@ impl Workbench {
             QuickPickEvent::Accept { item, query, .. } => this.accept_quick_access(item, query, window, cx),
             QuickPickEvent::Dismiss => this.hide_quick_open(true, window, cx),
             QuickPickEvent::Change { query } => this.quick_access_changed(query, window, cx),
+            QuickPickEvent::ActiveChange { .. } => {}
         }));
         self.quick.pick = Some(pick);
         // The rows of the initial text were produced before anyone listened.
@@ -296,6 +302,7 @@ impl Workbench {
 
     /// Close Quick Open. `restore_focus` gives focus back to where it was (Escape, click outside).
     pub(crate) fn hide_quick_open(&mut self, restore_focus: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.end_theme_pick(cx);
         if let Some(pick) = self.quick.pick.take() {
             let text = pick.read(cx).query(cx);
             let provider = self.provider_prefix(&text, cx);

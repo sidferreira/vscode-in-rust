@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+"""gen-color-defaults: generate the colour registry defaults table from upstream VS Code.
+
+Reads the `registerColor('key', { dark, light, hcDark, hcLight }, ...)` calls of an explicit list
+of upstream files and writes `crates/vsr-theme/assets/color-defaults.json`: for every colour key,
+its default per theme type, as a small expression tree (`vsr-theme` evaluates it with the same
+semantics as `colorUtils.ts`: `transparent`, `lighten`, `darken`, `oneOf`, ...).
+
+    scripts/gen-color-defaults [--clone PATH] [--check]
+
+The parser understands the TypeScript subset these files use. Anything else is an error (never
+silently dropped), so a new upstream construct shows up here instead of as a wrong colour.
+Stdlib only, Python >= 3.8. `--check` fails when the checked-in file is out of date.
+
+Expression encoding (JSON):
+  null                         no default
+  "#RRGGBB" / "#RRGGBBAA"      a colour
+  {"ref": "key"}               another colour key (resolved against the theme)
+  {"rgba": [r, g, b, a]}       `new Color(new RGBA(r, g, b, a))`
+  {"op": "transparent", "v": X, "f": n}     also darken, lighten (f), opacity (o)
+  {"op": "opaque", "v": X, "bg": Y}
+  {"op": "mix", "v": X, "with": Y, "ratio": n}
+  {"op": "oneOf", "values": [X, ...]}
+  {"op": "ifDefined", "key": "k", "then": X, "else": Y}
+  {"op": "lessProminent", "v": X, "bg": Y, "f": n, "t": n}
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+OUT = os.path.join(REPO_ROOT, "crates", "vsr-theme", "assets", "color-defaults.json")
+DEFAULT_CLONE = os.path.join(REPO_ROOT, "..", "vscode-original")
+
+# Upstream files whose `registerColor` calls are read (directories: every .ts file in them).
+SOURCES = [
+    "src/vs/platform/theme/common/colors/",
+    "src/vs/workbench/common/theme.ts",
+    "src/vs/editor/common/core/editorColorRegistry.ts",
+    "src/vs/workbench/contrib/preferences/common/settingsEditorColorRegistry.ts",
+    "src/vs/editor/contrib/wordHighlighter/browser/highlightDecorations.ts",
+    "src/vs/editor/contrib/bracketMatching/browser/bracketMatching.ts",
+    "src/vs/editor/contrib/folding/browser/foldingDecorations.ts",
+    "src/vs/editor/contrib/peekView/browser/peekView.ts",
+    "src/vs/editor/contrib/suggest/browser/suggestWidget.ts",
+    "src/vs/editor/contrib/parameterHints/browser/parameterHintsWidget.ts",
+    "src/vs/editor/contrib/gotoError/browser/gotoErrorWidget.ts",
+    "src/vs/editor/contrib/linkedEditing/browser/linkedEditing.ts",
+    "src/vs/editor/contrib/placeholderText/browser/placeholderText.contribution.ts",
+    "src/vs/workbench/contrib/scm/common/quickDiff.ts",
+]
+
+TYPES = ("dark", "light", "hcDark", "hcLight")
+COLOR_CONSTANTS = {
+    "white": "#FFFFFF", "black": "#000000", "red": "#FF0000", "blue": "#0000FF", "green": "#00FF00",
+    "cyan": "#00FFFF", "lightgrey": "#D3D3D3", "transparent": "#00000000",
+}
+
+
+class ParseError(Exception):
+    pass
+
+
+# ---- tokenizer ----------------------------------------------------------------------------------
+
+TOKEN = re.compile(
+    r"""
+    (?P<ws>\s+|//[^\n]*|/\*.*?\*/)
+  | (?P<str>'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")
+  | (?P<tpl>`(?:\\.|[^`\\])*`)
+  | (?P<num>\d+(?:\.\d+)?|\.\d+)
+  | (?P<id>[A-Za-z_$][\w$]*)
+  | (?P<arrow>=>)
+  | (?P<punct>[{}()\[\],:.=<>;?+\-*/!&|@#%^~\\])
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+
+
+def tokenize(text):
+    pos = 0
+    out = []
+    while pos < len(text):
+        m = TOKEN.match(text, pos)
+        if not m:
+            raise ParseError("cannot tokenize at %r" % text[pos:pos + 40])
+        pos = m.end()
+        kind = m.lastgroup
+        if kind == "ws":
+            continue
+        val = m.group()
+        if kind == "tpl" and "${" not in val:
+            kind = "str"
+            val = "'" + val[1:-1] + "'"
+        if kind == "str":
+            val = re.sub(r"\\(.)", r"\1", val[1:-1])
+        out.append((kind, val))
+    return out
+
+
+# ---- expression parser --------------------------------------------------------------------------
+
+class Parser:
+    def __init__(self, toks, i):
+        self.toks = toks
+        self.i = i
+
+    def peek(self):
+        return self.toks[self.i] if self.i < len(self.toks) else ("eof", "")
+
+    def next(self):
+        t = self.peek()
+        self.i += 1
+        return t
+
+    def expect(self, val):
+        t = self.next()
+        if t[1] != val or t[0] in ("str", "tpl"):
+            raise ParseError("expected %r, got %r" % (val, t))
+
+    def is_punct(self, val):
+        t = self.peek()
+        return t[0] == "punct" and t[1] == val
+
+    def args(self):
+        """After '(' : parse comma separated expressions until ')'."""
+        out = []
+        while not self.is_punct(")"):
+            out.append(self.expr())
+            if self.is_punct(","):
+                self.next()
+        self.expect(")")
+        return out
+
+    def expr(self):
+        e = self.primary()
+        while True:
+            if self.is_punct("."):
+                self.next()
+                k, name = self.next()
+                if k != "id":
+                    raise ParseError("member name expected, got %r" % ((k, name),))
+                e = ("member", e, name)
+            elif self.is_punct("("):
+                self.next()
+                e = ("call", e, self.args())
+            else:
+                return e
+
+    def primary(self):
+        kind, val = self.next()
+        if kind == "str":
+            return ("str", val)
+        if kind == "num":
+            return ("num", float(val))
+        if kind == "punct" and val == "-":
+            k, v = self.next()
+            if k != "num":
+                raise ParseError("number expected after '-'")
+            return ("num", -float(v))
+        if kind == "punct" and val == "{":
+            return self.obj()
+        if kind == "punct" and val == "(":
+            raise ParseError("arrow functions / parenthesised expressions are not supported")
+        if kind == "id":
+            if val == "null":
+                return ("null",)
+            if val == "new":
+                k, name = self.next()
+                self.expect("(")
+                return ("new", name, self.args())
+            return ("id", val)
+        raise ParseError("unexpected token %r" % ((kind, val),))
+
+    def obj(self):
+        props = {}
+        while not self.is_punct("}"):
+            k, key = self.next()
+            if k not in ("id", "str"):
+                raise ParseError("property name expected, got %r" % ((k, key),))
+            self.expect(":")
+            props[key] = self.expr()
+            if self.is_punct(","):
+                self.next()
+        self.expect("}")
+        return ("obj", props)
+
+
+# ---- conversion ---------------------------------------------------------------------------------
+
+NUM_CONSTS = {}
+
+
+def num(e):
+    if e[0] == "id" and e[1] in NUM_CONSTS:
+        e = NUM_CONSTS[e[1]]
+    if e[0] != "num":
+        raise ParseError("number expected, got %r" % (e,))
+    v = e[1]
+    return int(v) if v == int(v) else v
+
+
+class Converter:
+    def __init__(self, names, consts):
+        self.names = names  # const name -> colour key
+        self.consts = consts  # const name -> expression of a colour value that is not registered
+
+    def key_of(self, e):
+        if e[0] == "str":
+            return e[1]
+        if e[0] == "id" and e[1] in self.names:
+            return self.names[e[1]]
+        raise ParseError("colour key expected, got %r" % (e,))
+
+    def value(self, e):
+        k = e[0]
+        if k == "null":
+            return None
+        if k == "str":
+            return e[1] if e[1].startswith("#") else {"ref": e[1]}
+        if k == "id":
+            if e[1] in self.consts and e[1] not in self.names:
+                return self.value(self.consts[e[1]])
+            if e[1] not in self.names:
+                raise ParseError("unknown colour constant %r" % e[1])
+            return {"ref": self.names[e[1]]}
+        if k == "member" and e[1] == ("id", "Color") and e[2] in COLOR_CONSTANTS:
+            return COLOR_CONSTANTS[e[2]]
+        if k == "new" and e[1] == "Color" and len(e[2]) == 1 and e[2][0][0] == "new" and e[2][0][1] == "RGBA":
+            return {"rgba": [num(a) for a in e[2][0][2]]}
+        if k == "obj" and "op" in e[1] and e[1]["op"][:2] == ("member", ("id", "ColorTransformType")):
+            op, o = e[1]["op"][2], e[1]
+            if op == "Mix":
+                ratio = num(o["ratio"]) if "ratio" in o else 0.5
+                return {"op": "mix", "v": self.value(o["color"]), "with": self.value(o["with"]), "ratio": ratio}
+            if op in ("Darken", "Lighten", "Transparent"):
+                return {"op": op.lower(), "v": self.value(o["value"]), "f": num(o["factor"])}
+            raise ParseError("unsupported transform object %s" % op)
+        if k == "call":
+            callee, args = e[1], e[2]
+            if callee == ("member", ("id", "Color"), "fromHex") and len(args) == 1 and args[0][0] == "str":
+                return args[0][1]
+            if callee[0] == "id":
+                return self.transform(callee[1], args)
+            if callee[0] == "member" and callee[2] in ("transparent", "lighten", "darken") and len(args) == 1:
+                return {"op": callee[2], "v": self.value(callee[1]), "f": num(args[0])}
+        raise ParseError("unsupported colour expression %r" % (e,))
+
+    def transform(self, name, a):
+        if name in ("transparent", "lighten", "darken"):
+            return {"op": name, "v": self.value(a[0]), "f": num(a[1])}
+        if name == "withOpacity":
+            return {"op": "opacity", "v": self.value(a[0]), "o": num(a[1])}
+        if name == "opaque":
+            return {"op": "opaque", "v": self.value(a[0]), "bg": self.value(a[1])}
+        if name == "oneOf":
+            return {"op": "oneOf", "values": [self.value(x) for x in a]}
+        if name == "ifDefinedThenElse":
+            return {"op": "ifDefined", "key": self.key_of(a[0]), "then": self.value(a[1]), "else": self.value(a[2])}
+        if name == "lessProminent":
+            return {"op": "lessProminent", "v": self.value(a[0]), "bg": self.value(a[1]), "f": num(a[2]), "t": num(a[3])}
+        raise ParseError("unknown colour function %r" % name)
+
+    def defaults(self, e):
+        if e[0] == "obj" and "dark" in e[1] and "light" in e[1]:
+            return {t: (self.value(e[1][t]) if t in e[1] else None) for t in TYPES}
+        v = self.value(e)
+        return {t: v for t in TYPES}
+
+
+# ---- driver -------------------------------------------------------------------------------------
+
+def source_files(clone):
+    files = []
+    for s in SOURCES:
+        p = os.path.join(clone, s)
+        if s.endswith("/"):
+            files += sorted(os.path.join(p, f) for f in os.listdir(p) if f.endswith(".ts"))
+        else:
+            files.append(p)
+    return files
+
+
+def find_registrations(toks):
+    """Yield (const_name or None, index of the token after `registerColor(`)."""
+    for i, (kind, val) in enumerate(toks):
+        if kind == "id" and val == "registerColor" and i + 1 < len(toks) and toks[i + 1] == ("punct", "("):
+            if i >= 1 and toks[i - 1] == ("id", "function"):
+                continue  # the declaration in colorUtils.ts
+            name = None
+            if i >= 3 and toks[i - 1] == ("punct", "=") and toks[i - 2][0] == "id" and toks[i - 3][1] in ("const", "let"):
+                name = toks[i - 2][1]
+            yield name, i + 2
+
+
+def find_constants(toks):
+    """`const NAME = new Color(...)` / `Color.fromHex(...)`: colour values that are not registered."""
+    for i, (kind, val) in enumerate(toks):
+        if kind == "id" and val == "const" and i + 4 < len(toks) and toks[i + 1][0] == "id" and toks[i + 2] == ("punct", "="):
+            if toks[i + 3][0] == "num":
+                yield toks[i + 1][1], ("num", float(toks[i + 3][1]))
+            elif toks[i + 3] in (("id", "new"), ("id", "Color")) or (
+                toks[i + 3][0] == "id" and toks[i + 3][1] in ("oneOf", "transparent", "darken", "lighten", "opaque", "ifDefinedThenElse", "lessProminent", "withOpacity")
+            ):
+                p = Parser(toks, i + 3)
+                try:
+                    yield toks[i + 1][1], p.expr()
+                except ParseError:
+                    continue
+
+
+def generate(clone):
+    consts = {}
+    parsed = []  # (file, name, key, defaults-expr)
+    for path in source_files(clone):
+        with open(path, encoding="utf-8") as f:
+            toks = tokenize(f.read())
+        consts.update(find_constants(toks))
+        for name, at in find_registrations(toks):
+            p = Parser(toks, at)
+            try:
+                key = p.expr()
+                p.expect(",")
+                defaults = p.expr()
+            except ParseError as e:
+                raise SystemExit("%s: registerColor call #%d: %s" % (path, len(parsed), e))
+            if key[0] != "str":
+                raise SystemExit("%s: colour key is not a string literal: %r" % (path, key))
+            parsed.append((path, name, key[1], defaults))
+    names = {n: k for _, n, k, _ in parsed if n}
+    NUM_CONSTS.update({k: v for k, v in consts.items() if v[0] == "num"})
+    conv = Converter(names, consts)
+    table = {}
+    for path, _, key, defaults in parsed:
+        try:
+            table[key] = conv.defaults(defaults)
+        except ParseError as e:
+            raise SystemExit("%s: colour %r: %s" % (path, key, e))
+    return table
+
+
+def dump(table):
+    lines = []
+    for key in sorted(table):
+        lines.append("  %s: %s" % (json.dumps(key), json.dumps(table[key], separators=(",", ":"))))
+    return "{\n" + ",\n".join(lines) + "\n}\n"
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--clone", default=os.environ.get("UPSTREAM_CLONE", DEFAULT_CLONE))
+    ap.add_argument("--check", action="store_true", help="fail if the checked-in table is stale")
+    args = ap.parse_args()
+    table = generate(args.clone)
+    text = dump(table)
+    if args.check:
+        current = open(OUT, encoding="utf-8").read() if os.path.exists(OUT) else ""
+        if current != text:
+            print("%s is stale: run scripts/gen-color-defaults" % OUT, file=sys.stderr)
+            return 1
+        print("up to date (%d colours)" % len(table))
+        return 0
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    with open(OUT, "w", encoding="utf-8") as f:
+        f.write(text)
+    print("wrote %s (%d colours)" % (OUT, len(table)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

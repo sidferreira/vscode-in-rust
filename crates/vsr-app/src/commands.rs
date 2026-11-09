@@ -29,6 +29,7 @@ use crate::keymap::{BINDINGS, Command, Motion};
 use crate::quick_open::GoToFile;
 use crate::search_view as sv;
 use crate::settings_view::OpenSettings;
+use crate::theme_picker::SelectTheme;
 use crate::Quit;
 use crate::welcome::{self, ShowWelcome};
 
@@ -99,6 +100,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-shift-e", ShowExplorer, None),
         KeyBinding::new("ctrl-g", GoToLine, None),
+        KeyBinding::new("cmd-k cmd-t", SelectTheme, None),
         KeyBinding::new("cmd-=", ZoomIn, None),
         KeyBinding::new("cmd--", ZoomOut, None),
         KeyBinding::new("cmd-0", ZoomReset, None),
@@ -169,6 +171,7 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
     r.register(D::new("workbench.view.explorer", "Show Explorer").category("View").f1(), action(ShowExplorer, Workbench));
     r.register(D::new("workbench.view.search", "Show Search").category("View").f1(), action(sv::FocusSearch, Workbench));
     r.register(D::new("workbench.action.openSettings", "Open Settings (UI)").category("Preferences").f1(), action(OpenSettings, Workbench));
+    r.register(D::new("workbench.action.selectTheme", "Color Theme").category("Preferences").f1(), action(SelectTheme, Workbench));
     r.register(D::new("workbench.action.clearCommandHistory", "Clear Command History").f1(), action(ClearCommandHistory, Workbench));
     r.register(D::new("workbench.action.quit", "Quit"), action(Quit, Workbench));
     // Help: Welcome opens the Welcome page (upstream registers it as `workbench.action.openWalkthrough`).

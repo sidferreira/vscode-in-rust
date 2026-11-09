@@ -1049,3 +1049,56 @@ edit made by another program was never seen. The explorer had no create, rename 
 - Renaming a folder collapses it (its expansion is not carried to the new path).
 - Watched paths are compared as given; a workspace reached through a symbolic link does not match FSEvents'
   resolved paths yet.
+
+## ADR-0037 — Theme service: VS Code colour themes from their JSON (2026-11-09)
+
+Every colour of the workbench comes from the active VS Code colour theme, replacing the hard-coded Dark
+Modern of `theme.rs`. Settings wired (group "Themes"): `workbench.colorTheme`, `workbench.preferredDarkColorTheme`,
+`workbench.preferredLightColorTheme`, `window.autoDetectColorScheme`, `workbench.colorCustomizations`.
+
+- **`vsr-theme` (UI-free).** `color.rs` ports `Color`/`RGBA`/`HSLA` with upstream's exact arithmetic (truncated
+  channels, three-decimal rounding), so a derived colour is the same `#RRGGBBAA` as in VS Code. `theme.rs`
+  ports `ColorThemeData`: JSONC (the existing `vsr_settings::jsonc::strip_jsonc`), `include` chains (outer
+  wins, `"default"` removes a colour), `colors`, `tokenColors`, `semanticTokenColors`, the legacy `settings`
+  array, and the customisations (global keys, `[Theme]` blocks with `*` wildcards, token groups and
+  `textMateRules`). `selection.rs` ports `ThemeConfiguration` (which setting names the theme, system colour
+  mode, high contrast) and `catalog.rs` the ten themes of the `theme-defaults` extension, bundled unchanged
+  (MIT, Microsoft; README of the crate has the provenance).
+- **Registry defaults are generated, not typed.** `scripts/gen-color-defaults` parses the `registerColor(...)`
+  calls of the upstream colour files into `assets/color-defaults.json` (611 colours, per dark / light / hc dark /
+  hc light, as expression trees) and fails on any construct it does not know. `registry.rs` evaluates them with
+  the semantics of `executeTransform` (`transparent`, `lighten`, `darken`, `opacity`, `opaque`, `mix`, `oneOf`,
+  `ifDefinedThenElse`, `lessProminent`). A colour a theme does not set resolves through its default, which may
+  refer to the theme's other colours.
+- **Resolution order** (`getColor`): customisation, theme file, registry default. A customisation of `"default"`
+  means the registry default of the theme type, not the theme file's colour.
+- **App.** `theme.rs` stays the mapping of what rscode paints (the `Theme` fields) to colour keys (the
+  `theme_fields!` table; `sideBar.foreground` falls back to `foreground`). `chrome_bg`, `border`, `sidebar_fg` and
+  `accent` were split into per-surface fields (activity bar, side bar, title bar, status bar, tabs) because themes
+  colour them differently. A test keeps the old hard-coded table and asserts Dark Modern from the JSON reproduces
+  all 112 fields. `ThemeService` (a gpui `Global`) owns the active theme: it observes `AppConfig`, the window
+  appearance, and the theme picker's preview; views read `ThemeService::theme(cx)` in `render`, and the
+  Workbench re-renders on every change. It also re-aligns gpui-kit's component theme (inputs).
+- **`Preferences: Color Theme`** (`workbench.action.selectTheme`, Cmd+K Cmd+T, in the command registry): the Quick
+  Pick grouped light / dark / high contrast, preselecting the current theme, previewing on arrow keys (new
+  `QuickPickEvent::ActiveChange`), Escape reverts, Enter saves to the setting that names the theme (a preferred
+  setting while auto detecting).
+- **Token colours for the highlighter.** `ColorTheme::token_colors() -> &[TokenColorRule]` (scope selector
+  strings as written + `{ foreground, background, fontStyle }`, default rule first, user customisations last,
+  colours normalised) and `semantic_token_rules()`; scope matching is the highlighter's. `ThemeService::color_theme(cx)`
+  gives the active one.
+- **Decisions to review.** (1) The default theme stays Dark Modern, not upstream 1.147's Dark 2026 (the
+  look rscode had so far); unknown theme names (extension themes in the setting's dropdown) fall back to the
+  default of the colour mode; the Settings editor still prints "Dark 2026" as the default text. (2) The preview
+  applies at once, upstream waits 200 ms. (3) Existing crates were not swapped in for the colour port: the
+  arithmetic must match VS Code to the last rounding step, which a general colour library does not promise.
+
+**Consequences.**
+- `window.autoDetectHighContrast`, `workbench.preferredHighContrast*ColorTheme` and `window.systemColorTheme` stay
+  blocked (gpui has no OS high contrast signal; window chrome appearance is not driven). The service takes a
+  `HostColorScheme { dark, high_contrast }` so the signal can be added later. Icon and product icon themes stay
+  blocked ("needs file icon themes").
+- `editor.tokenColorCustomizations` and `editor.semanticTokenColorCustomizations` are read and applied to
+  `token_colors()`, but change nothing on screen until the syntax highlighter lands.
+- Not ported: tmTheme (plist) token files, theme storage, transient colours, extension-contributed colours and
+  themes, `Toggle between Light/Dark Themes`.

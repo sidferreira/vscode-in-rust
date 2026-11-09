@@ -1,246 +1,176 @@
-//! Workbench colors for the first window.
+//! Workbench colors of the active theme.
 //!
 //! upstream: extensions/theme-defaults/themes/dark_modern.json @ 50e1350fc78d
 //!
-//! Hard-coded for now; a real theme service (JSON themes, `include` chains,
-//! token colors) belongs in `vsr-platform` later. See ADR-0006.
+//! This file is the mapping of what rscode paints (the [`Theme`] fields) to VS Code colour keys:
+//! a field is the first of its keys the active theme has (customisation, theme file, registry
+//! default for the theme type), so a switch of theme or a `workbench.colorCustomizations` entry
+//! reaches every surface. The theme itself (JSON loading, include chains, defaults) is
+//! `vsr-theme`; the active theme and the settings are `theme_service.rs`. ADR-0006, ADR-0037.
 
-/// UI-agnostic color: 8-bit RGBA (straight alpha). The view layer converts it
-/// (see `ui::to_gpui`), so a framework switch never touches this file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Rgba8(pub u8, pub u8, pub u8, pub u8);
+use vsr_theme::{Color, ColorTheme};
+pub use vsr_theme::{Rgba8, hex};
 
-impl Rgba8 {
-    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self(r, g, b, 0xFF)
-    }
+/// A colour that is not set in the theme and has no default: painted as nothing (VS Code draws
+/// no border or background for such a colour either).
+const UNSET: Rgba8 = Rgba8(0, 0, 0, 0);
 
-    /// Packed `0xRRGGBBAA`.
-    pub const fn to_u32(self) -> u32 {
-        u32::from_be_bytes([self.0, self.1, self.2, self.3])
-    }
+macro_rules! theme_fields {
+    ($($field:ident: [$($key:literal),+],)+) => {
+        /// What the workbench paints with. Built from a [`ColorTheme`]; see `KEYS` for the colour
+        /// key of every field.
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct Theme {
+            $(pub $field: Rgba8,)+
+        }
+
+        impl Theme {
+            /// The colour keys each field is read from (first one the theme has wins), by field name.
+            #[cfg(test)]
+            pub const KEYS: &'static [(&'static str, &'static [&'static str])] = &[$((stringify!($field), &[$($key),+])),+];
+
+            /// Every field by name (for tests and diagnostics).
+            #[cfg(test)]
+            pub fn fields(&self) -> Vec<(&'static str, Rgba8)> {
+                vec![$((stringify!($field), self.$field)),+]
+            }
+
+            /// Reads every field from `theme` (customisations applied).
+            pub fn from_color_theme(theme: &ColorTheme) -> Self {
+                Self { $($field: first_color(theme, &[$($key),+]),)+ }
+            }
+        }
+    };
 }
 
-/// Parse `#RRGGBB` or `#RRGGBBAA` (the formats VS Code theme files use).
-pub fn hex(s: &str) -> Option<Rgba8> {
-    let h = s.strip_prefix('#')?;
-    let byte = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok();
-    match h.len() {
-        6 => Some(Rgba8::rgb(byte(0)?, byte(2)?, byte(4)?)),
-        8 => Some(Rgba8(byte(0)?, byte(2)?, byte(4)?, byte(6)?)),
-        _ => None,
-    }
+fn first_color(theme: &ColorTheme, keys: &[&str]) -> Rgba8 {
+    keys.iter().find_map(|k| theme.color(k)).map_or(UNSET, |c: Color| c.to_rgba8())
 }
 
-fn c(s: &str) -> Rgba8 {
-    hex(s).expect("valid built-in color")
-}
-
-#[derive(Debug, Clone)]
-pub struct Theme {
-    pub editor_bg: Rgba8,
-    pub editor_fg: Rgba8,
-    pub line_number_fg: Rgba8,
-    pub line_number_active_fg: Rgba8,
-    pub chrome_bg: Rgba8, // activity bar, side bar, title bar, status bar, tab strip
-    pub border: Rgba8,
-    pub sidebar_fg: Rgba8,
-    pub activity_fg: Rgba8,
-    pub activity_inactive_fg: Rgba8,
-    pub accent: Rgba8, // focusBorder / activeBorder / tab.activeBorderTop
-    pub tab_active_bg: Rgba8,
-    pub tab_active_fg: Rgba8,
-    pub tab_inactive_fg: Rgba8,
-    /// `tab.activeModifiedBorder` / `tab.inactiveModifiedBorder` (theme.ts defaults; Dark Modern
-    /// does not override them): the top border of a modified tab with `highlightModifiedTabs`.
-    pub tab_active_modified_border: Rgba8,
-    pub tab_inactive_modified_border: Rgba8,
-    pub list_hover_bg: Rgba8,
-    pub list_active_bg: Rgba8,
-    pub error_fg: Rgba8,
-    // ---- Settings editor (settingsEditor2) ----
-    pub foreground: Rgba8,                    // foreground
-    pub description_fg: Rgba8,                // descriptionForeground
-    pub focus_border: Rgba8,                  // focusBorder
-    pub settings_header_fg: Rgba8,            // settings.headerForeground
-    pub settings_modified_indicator: Rgba8,   // settings.modifiedItemIndicator
-    pub settings_focused_row_bg: Rgba8,       // settings.focusedRowBackground (list.hoverBackground @ 60%)
-    pub settings_row_hover_bg: Rgba8,         // settings.rowHoverBackground (list.hoverBackground @ 30%)
-    pub settings_dropdown_bg: Rgba8,          // settings.dropdownBackground
-    pub settings_dropdown_border: Rgba8,      // settings.dropdownBorder
-    pub settings_dropdown_fg: Rgba8,          // dropdown.foreground
-    pub settings_dropdown_list_bg: Rgba8,     // dropdown.listBackground
-    pub settings_checkbox_bg: Rgba8,          // settings.checkboxBackground (checkbox.background)
-    pub settings_checkbox_border: Rgba8,      // settings.checkboxBorder (checkbox.border)
-    pub settings_checkbox_fg: Rgba8,          // settings.checkboxForeground (checkbox.foreground)
-    pub settings_text_input_bg: Rgba8,        // settings.textInputBackground (input.background)
-    pub settings_number_input_bg: Rgba8,      // settings.numberInputBackground (input.background)
-    pub input_fg: Rgba8,                      // input.foreground
-    pub input_border: Rgba8,                  // input.border
-    pub input_placeholder_fg: Rgba8,          // input.placeholderForeground
-    pub settings_header_border: Rgba8,        // settings.headerBorder (panel.border)
-    pub text_link_fg: Rgba8,                  // textLink.foreground
-    pub text_link_active_fg: Rgba8,           // textLink.activeForeground
-    pub text_preformat_fg: Rgba8,             // textPreformat.foreground
-    pub text_preformat_bg: Rgba8,             // textPreformat.background
-    pub setting_error_fg: Rgba8,              // errorForeground
-    pub validation_error_bg: Rgba8,           // inputValidation.errorBackground
-    pub validation_error_border: Rgba8,       // inputValidation.errorBorder
-    pub menu_bg: Rgba8,                       // menu.background
-    pub menu_selection_bg: Rgba8,             // menu.selectionBackground
-    pub menu_border: Rgba8,                   // menu.border
-    pub cursor: Rgba8,                 // editorCursor.foreground
-    pub selection_bg: Rgba8,           // editor.selectionBackground
-    pub inactive_selection_bg: Rgba8,  // editor.inactiveSelectionBackground
-    pub line_highlight_border: Rgba8,  // editor.lineHighlightBorder
-    pub whitespace_fg: Rgba8,          // editorWhitespace.foreground (registry dark)
-    pub ruler_fg: Rgba8,               // editorRuler.foreground (registry dark)
-    pub indent_guide_fg: Rgba8,        // editorIndentGuide.background1 (dark_vs.json)
-    pub indent_guide_active_fg: Rgba8, // editorIndentGuide.activeBackground1 (dark_vs.json)
-    pub bracket_match_bg: Rgba8,       // editorBracketMatch.background (registry dark)
-    pub bracket_match_border: Rgba8,   // editorBracketMatch.border (registry dark)
-    pub selection_highlight_bg: Rgba8, // editor.selectionHighlightBackground (dark_vs.json)
-    pub word_highlight_bg: Rgba8,      // editor.wordHighlightBackground (registry dark)
-    // ---- Search view (searchview.css, inputOption.*, badge.*) ----
-    pub input_option_active_bg: Rgba8,        // inputOption.activeBackground (dark_modern)
-    pub input_option_active_border: Rgba8,    // inputOption.activeBorder (dark_modern)
-    pub input_option_active_fg: Rgba8,        // inputOption.activeForeground (registry dark)
-    pub input_option_hover_bg: Rgba8,         // inputOption.hoverBackground (registry dark)
-    pub list_active_selection_bg: Rgba8,      // list.activeSelectionBackground (registry dark)
-    pub list_active_selection_fg: Rgba8,      // list.activeSelectionForeground (registry dark)
-    pub find_match_highlight_bg: Rgba8,       // editor.findMatchHighlightBackground (registry dark)
-    pub diff_removed_text_bg: Rgba8,          // diffEditor.removedTextBackground (registry dark): replaced text in Search
-    pub diff_inserted_text_bg: Rgba8,         // diffEditor.insertedTextBackground (registry dark): replacement in Search
-    pub diff_inserted_line_bg: Rgba8,         // diffEditor.insertedLineBackground (registry dark): replacement border
-    pub button_bg: Rgba8,                     // button.background (dark_modern)
-    pub button_fg: Rgba8,                     // button.foreground (dark_modern)
-    pub button_hover_bg: Rgba8,               // button.hoverBackground (dark_modern)
-    pub button_secondary_fg: Rgba8,           // button.secondaryForeground (dark_modern)
-    pub button_secondary_hover_bg: Rgba8,     // button.secondaryHoverBackground (dark_modern)
-    pub button_border: Rgba8,                 // button.border (dark_modern)
-    pub search_results_info_fg: Rgba8,        // search.resultsInfoForeground (foreground @ 65%)
-    pub badge_bg: Rgba8,                      // badge.background (dark_modern)
-    pub badge_fg: Rgba8,                      // badge.foreground (dark_modern)
-    pub toolbar_hover_bg: Rgba8,              // toolbar.hoverBackground (registry dark)
-    // ---- Quick input (quickInput.css, quickpickColors.ts) ----
-    pub quick_input_bg: Rgba8,                // quickInput.background (dark_modern)
-    pub quick_input_fg: Rgba8,                // quickInput.foreground (dark_modern)
-    pub quick_input_list_focus_bg: Rgba8,     // quickInputList.focusBackground (= list.activeSelectionBackground)
-    pub quick_input_list_focus_fg: Rgba8,     // quickInputList.focusForeground (= list.activeSelectionForeground)
-    #[allow(dead_code)] // used by the Command Palette's group labels
-    pub picker_group_fg: Rgba8,               // pickerGroup.foreground (registry dark)
-    pub picker_group_border: Rgba8,           // pickerGroup.border (dark_modern)
-    pub widget_shadow: Rgba8,                 // widget.shadow (registry dark: black @ 36%)
-    pub widget_border: Rgba8,                 // widget.border (dark_modern)
-    pub list_highlight_fg: Rgba8,             // list.highlightForeground (registry dark)
-    pub list_focus_highlight_fg: Rgba8,       // list.focusHighlightForeground (= list.highlightForeground)
-    // ---- Key binding labels (keybindingLabel.css, inputColors.ts) ----
-    pub keybinding_label_bg: Rgba8,           // keybindingLabel.background (registry dark: #808080 @ 17%)
-    pub keybinding_label_fg: Rgba8,           // keybindingLabel.foreground (dark_modern)
-    pub keybinding_label_border: Rgba8,       // keybindingLabel.border (registry dark: #333333 @ 60%)
-    pub keybinding_label_bottom_border: Rgba8, // keybindingLabel.bottomBorder (registry dark: #444444 @ 60%)
+theme_fields! {
+    editor_bg: ["editor.background"],
+    editor_fg: ["editor.foreground"],
+    line_number_fg: ["editorLineNumber.foreground"],
+    line_number_active_fg: ["editorLineNumber.activeForeground"],
+    activity_bar_bg: ["activityBar.background"],
+    side_bar_bg: ["sideBar.background"],
+    title_bar_bg: ["titleBar.activeBackground"],
+    status_bar_bg: ["statusBar.background"],
+    tab_strip_bg: ["editorGroupHeader.tabsBackground"],
+    tab_inactive_bg: ["tab.inactiveBackground"],
+    activity_bar_border: ["activityBar.border"],
+    side_bar_border: ["sideBar.border"],
+    title_bar_border: ["titleBar.border"],
+    status_bar_border: ["statusBar.border"],
+    tabs_border: ["editorGroupHeader.tabsBorder"],
+    tab_border: ["tab.border"],
+    side_bar_fg: ["sideBar.foreground", "foreground"],  // sideBar.foreground, else foreground (inherited)
+    title_bar_fg: ["titleBar.activeForeground"],
+    status_bar_fg: ["statusBar.foreground"],
+    activity_fg: ["activityBar.foreground"],
+    activity_inactive_fg: ["activityBar.inactiveForeground"],
+    activity_active_border: ["activityBar.activeBorder"],
+    tab_active_border_top: ["tab.activeBorderTop"],
+    sash_hover_border: ["sash.hoverBorder"],
+    tab_active_bg: ["tab.activeBackground"],
+    tab_active_fg: ["tab.activeForeground"],
+    tab_inactive_fg: ["tab.inactiveForeground"],
+    tab_active_modified_border: ["tab.activeModifiedBorder"],  // top border of a modified tab with highlightModifiedTabs
+    tab_inactive_modified_border: ["tab.inactiveModifiedBorder"],
+    list_hover_bg: ["list.hoverBackground"],
+    list_active_bg: ["list.inactiveSelectionBackground"],
+    error_fg: ["editorError.foreground"],
+    foreground: ["foreground"],  // Settings editor (settingsEditor2)
+    description_fg: ["descriptionForeground"],
+    focus_border: ["focusBorder"],
+    settings_header_fg: ["settings.headerForeground"],
+    settings_modified_indicator: ["settings.modifiedItemIndicator"],
+    settings_focused_row_bg: ["settings.focusedRowBackground"],
+    settings_row_hover_bg: ["settings.rowHoverBackground"],
+    settings_dropdown_bg: ["settings.dropdownBackground"],
+    settings_dropdown_border: ["settings.dropdownBorder"],
+    settings_dropdown_fg: ["settings.dropdownForeground"],
+    settings_dropdown_list_bg: ["dropdown.listBackground"],
+    settings_checkbox_bg: ["settings.checkboxBackground"],
+    settings_checkbox_border: ["settings.checkboxBorder"],
+    settings_checkbox_fg: ["settings.checkboxForeground"],
+    settings_text_input_bg: ["settings.textInputBackground"],
+    settings_number_input_bg: ["settings.numberInputBackground"],
+    input_fg: ["input.foreground"],
+    input_border: ["input.border"],
+    input_placeholder_fg: ["input.placeholderForeground"],
+    settings_header_border: ["settings.headerBorder"],
+    text_link_fg: ["textLink.foreground"],
+    text_link_active_fg: ["textLink.activeForeground"],
+    text_preformat_fg: ["textPreformat.foreground"],
+    text_preformat_bg: ["textPreformat.background"],
+    setting_error_fg: ["errorForeground"],
+    validation_error_bg: ["inputValidation.errorBackground"],
+    validation_error_border: ["inputValidation.errorBorder"],
+    menu_bg: ["menu.background"],
+    menu_selection_bg: ["menu.selectionBackground"],
+    menu_border: ["menu.border"],
+    panel_border: ["panel.border"],
+    cursor: ["editorCursor.foreground"],
+    selection_bg: ["editor.selectionBackground"],
+    inactive_selection_bg: ["editor.inactiveSelectionBackground"],
+    line_highlight_border: ["editor.lineHighlightBorder"],
+    whitespace_fg: ["editorWhitespace.foreground"],
+    ruler_fg: ["editorRuler.foreground"],
+    indent_guide_fg: ["editorIndentGuide.background1"],
+    indent_guide_active_fg: ["editorIndentGuide.activeBackground1"],
+    bracket_match_bg: ["editorBracketMatch.background"],
+    bracket_match_border: ["editorBracketMatch.border"],
+    selection_highlight_bg: ["editor.selectionHighlightBackground"],
+    word_highlight_bg: ["editor.wordHighlightBackground"],
+    input_option_active_bg: ["inputOption.activeBackground"],  // Search view (searchview.css, inputOption.*, badge.*)
+    input_option_active_border: ["inputOption.activeBorder"],
+    input_option_active_fg: ["inputOption.activeForeground"],
+    input_option_hover_bg: ["inputOption.hoverBackground"],
+    list_active_selection_bg: ["list.activeSelectionBackground"],
+    list_active_selection_fg: ["list.activeSelectionForeground"],
+    find_match_highlight_bg: ["editor.findMatchHighlightBackground"],
+    diff_removed_text_bg: ["diffEditor.removedTextBackground"],  // replaced text in Search
+    diff_inserted_text_bg: ["diffEditor.insertedTextBackground"],  // replacement in Search
+    diff_inserted_line_bg: ["diffEditor.insertedLineBackground"],  // replacement border
+    button_bg: ["button.background"],
+    button_fg: ["button.foreground"],
+    button_hover_bg: ["button.hoverBackground"],
+    button_secondary_bg: ["button.secondaryBackground"],
+    button_secondary_fg: ["button.secondaryForeground"],
+    button_secondary_hover_bg: ["button.secondaryHoverBackground"],
+    button_border: ["button.border"],
+    search_results_info_fg: ["search.resultsInfoForeground"],
+    badge_bg: ["badge.background"],
+    badge_fg: ["badge.foreground"],
+    toolbar_hover_bg: ["toolbar.hoverBackground"],
+    quick_input_bg: ["quickInput.background"],  // Quick input (quickInput.css, quickpickColors.ts)
+    quick_input_fg: ["quickInput.foreground"],
+    quick_input_list_focus_bg: ["quickInputList.focusBackground"],
+    quick_input_list_focus_fg: ["quickInputList.focusForeground"],
+    picker_group_fg: ["pickerGroup.foreground"],  // used by the Command Palette's group labels
+    picker_group_border: ["pickerGroup.border"],
+    widget_shadow: ["widget.shadow"],
+    widget_border: ["widget.border"],
+    list_highlight_fg: ["list.highlightForeground"],
+    list_focus_highlight_fg: ["list.focusHighlightForeground"],
+    keybinding_label_bg: ["keybindingLabel.background"],  // Key binding labels (keybindingLabel.css, inputColors.ts)
+    keybinding_label_fg: ["keybindingLabel.foreground"],
+    keybinding_label_border: ["keybindingLabel.border"],
+    keybinding_label_bottom_border: ["keybindingLabel.bottomBorder"],
+    editor_widget_bg: ["editorWidget.background"],  // Find widget (editorColors.ts)
+    disabled_fg: ["disabledForeground"],
+    find_match_bg: ["editor.findMatchBackground"],
+    find_range_highlight_bg: ["editor.findRangeHighlightBackground"],
 }
 
 impl Theme {
+    /// The default theme without customisations: what a fresh install shows. Code that has an
+    /// app context uses `ThemeService::theme(cx)` instead.
     pub fn dark_modern() -> Self {
-        Self {
-            editor_bg: c("#1F1F1F"),
-            editor_fg: c("#CCCCCC"),
-            line_number_fg: c("#6E7681"),
-            line_number_active_fg: c("#CCCCCC"),
-            chrome_bg: c("#181818"),
-            border: c("#2B2B2B"),
-            sidebar_fg: c("#CCCCCC"),
-            activity_fg: c("#D7D7D7"),
-            activity_inactive_fg: c("#868686"),
-            accent: c("#0078D4"),
-            tab_active_bg: c("#1F1F1F"),
-            tab_active_fg: c("#FFFFFF"),
-            tab_inactive_fg: c("#9D9D9D"),
-            tab_active_modified_border: c("#3399CC"),
-            tab_inactive_modified_border: c("#3399CC80"),
-            list_hover_bg: c("#2A2D2E"),
-            list_active_bg: c("#37373D"),
-            error_fg: c("#F14C4C"),
-            foreground: c("#CCCCCC"),
-            description_fg: c("#9D9D9D"),
-            focus_border: c("#0078D4"),
-            settings_header_fg: c("#FFFFFF"),
-            settings_modified_indicator: c("#BB800966"),
-            settings_focused_row_bg: c("#2A2D2E99"),
-            settings_row_hover_bg: c("#2A2D2E4D"),
-            settings_dropdown_bg: c("#313131"),
-            settings_dropdown_border: c("#3C3C3C"),
-            settings_dropdown_fg: c("#CCCCCC"),
-            settings_dropdown_list_bg: c("#1F1F1F"),
-            settings_checkbox_bg: c("#313131"),
-            settings_checkbox_border: c("#3C3C3C"),
-            settings_checkbox_fg: c("#CCCCCC"),
-            settings_text_input_bg: c("#313131"),
-            settings_number_input_bg: c("#313131"),
-            input_fg: c("#CCCCCC"),
-            input_border: c("#3C3C3C"),
-            input_placeholder_fg: c("#989898"),
-            settings_header_border: c("#2B2B2B"),
-            text_link_fg: c("#4DAAFC"),
-            text_link_active_fg: c("#4DAAFC"),
-            text_preformat_fg: c("#D0D0D0"),
-            text_preformat_bg: c("#3C3C3C"),
-            setting_error_fg: c("#F85149"),
-            validation_error_bg: c("#5A1D1D"),
-            validation_error_border: c("#BE1100"),
-            menu_bg: c("#1F1F1F"),
-            menu_selection_bg: c("#0078D4"),
-            menu_border: c("#454545"),
-            // Registry defaults for dark themes (editorColorRegistry.ts / editorColors.ts); dark_vs
-            // overrides the inactive selection.
-            cursor: c("#AEAFAD"),
-            selection_bg: c("#264F78"),
-            inactive_selection_bg: c("#3A3D41"),
-            line_highlight_border: c("#282828"),
-            whitespace_fg: c("#E3E4E229"),
-            ruler_fg: c("#5A5A5A"),
-            indent_guide_fg: c("#404040"),
-            indent_guide_active_fg: c("#707070"),
-            bracket_match_bg: c("#0064001A"),
-            bracket_match_border: c("#888888"),
-            selection_highlight_bg: c("#ADD6FF26"),
-            word_highlight_bg: c("#575757B8"),
-            input_option_active_bg: c("#2489DB82"),
-            input_option_active_border: c("#2488DB"),
-            input_option_active_fg: c("#FFFFFF"),
-            input_option_hover_bg: c("#5A5D5E80"),
-            list_active_selection_bg: c("#04395E"),
-            list_active_selection_fg: c("#FFFFFF"),
-            find_match_highlight_bg: c("#EA5C0055"),
-            diff_removed_text_bg: c("#FF000033"),
-            diff_inserted_text_bg: c("#9CCC2C33"),
-            diff_inserted_line_bg: c("#9BB95533"),
-            button_bg: c("#0078D4"),
-            button_fg: c("#FFFFFF"),
-            button_hover_bg: c("#026EC1"),
-            button_secondary_fg: c("#CCCCCC"),
-            button_secondary_hover_bg: c("#2B2B2B"),
-            button_border: c("#FFFFFF1A"),
-            search_results_info_fg: c("#CCCCCCA6"),
-            badge_bg: c("#616161"),
-            badge_fg: c("#F8F8F8"),
-            toolbar_hover_bg: c("#5A5D5E50"),
-            quick_input_bg: c("#222222"),
-            quick_input_fg: c("#CCCCCC"),
-            quick_input_list_focus_bg: c("#04395E"),
-            quick_input_list_focus_fg: c("#FFFFFF"),
-            picker_group_fg: c("#3794FF"),
-            picker_group_border: c("#3C3C3C"),
-            widget_shadow: c("#0000005C"),
-            widget_border: c("#313131"),
-            list_highlight_fg: c("#2AAAFF"),
-            list_focus_highlight_fg: c("#2AAAFF"),
-            keybinding_label_bg: c("#8080802B"),
-            keybinding_label_fg: c("#CCCCCC"),
-            keybinding_label_border: c("#33333399"),
-            keybinding_label_bottom_border: c("#44444499"),
-        }
+        let catalog = vsr_theme::ThemeCatalog::builtin();
+        let theme = catalog.find(vsr_theme::DEFAULT_DARK, None).and_then(|t| catalog.load(t).ok()).expect("the bundled default theme loads");
+        Self::from_color_theme(&theme)
     }
 }
 
@@ -260,21 +190,20 @@ pub mod metrics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vsr_theme::ThemeCatalog;
 
     #[test]
     fn parses_rgb_and_rgba_hex() {
         assert_eq!(hex("#1F1F1F"), Some(Rgba8::rgb(0x1F, 0x1F, 0x1F)));
         assert_eq!(hex("#0078D4"), Some(Rgba8::rgb(0, 0x78, 0xD4)));
-        assert_eq!(
-            hex("#FFFFFF80"),
-            Some(Rgba8(255, 255, 255, 0x80))
-        );
+        assert_eq!(hex("#FFFFFF80"), Some(Rgba8(255, 255, 255, 0x80)));
+        assert_eq!(hex("#FA0"), Some(Rgba8::rgb(0xFF, 0xAA, 0x00)));
     }
 
     #[test]
     fn rejects_malformed_hex() {
         assert_eq!(hex("1F1F1F"), None);
-        assert_eq!(hex("#1F1F"), None);
+        assert_eq!(hex("#1F1F1"), None);
         assert_eq!(hex("#GG0000"), None);
     }
 
@@ -283,8 +212,167 @@ mod tests {
         assert_eq!(Rgba8(0x12, 0x34, 0x56, 0x78).to_u32(), 0x1234_5678);
     }
 
+    /// The colours the app painted before the theme service existed (the hard-coded Dark Modern of
+    /// `theme.rs`), by field. The JSON theme must reproduce every one of them.
+    const LEGACY_DARK_MODERN: &[(&str, &str)] = &[
+        ("editor_bg", "#1F1F1F"),
+        ("editor_fg", "#CCCCCC"),
+        ("line_number_fg", "#6E7681"),
+        ("line_number_active_fg", "#CCCCCC"),
+        ("activity_bar_bg", "#181818"),
+        ("side_bar_bg", "#181818"),
+        ("title_bar_bg", "#181818"),
+        ("status_bar_bg", "#181818"),
+        ("tab_strip_bg", "#181818"),
+        ("tab_inactive_bg", "#181818"),
+        ("activity_bar_border", "#2B2B2B"),
+        ("side_bar_border", "#2B2B2B"),
+        ("title_bar_border", "#2B2B2B"),
+        ("status_bar_border", "#2B2B2B"),
+        ("tabs_border", "#2B2B2B"),
+        ("tab_border", "#2B2B2B"),
+        ("side_bar_fg", "#CCCCCC"),
+        ("title_bar_fg", "#CCCCCC"),
+        ("status_bar_fg", "#CCCCCC"),
+        ("activity_fg", "#D7D7D7"),
+        ("activity_inactive_fg", "#868686"),
+        ("activity_active_border", "#0078D4"),
+        ("tab_active_border_top", "#0078D4"),
+        ("sash_hover_border", "#0078D4"),
+        ("tab_active_bg", "#1F1F1F"),
+        ("tab_active_fg", "#FFFFFF"),
+        ("tab_inactive_fg", "#9D9D9D"),
+        ("tab_active_modified_border", "#3399CC"),
+        ("tab_inactive_modified_border", "#3399CC80"),
+        ("list_hover_bg", "#2A2D2E"),
+        ("list_active_bg", "#37373D"),
+        ("error_fg", "#F14C4C"),
+        ("foreground", "#CCCCCC"),
+        ("description_fg", "#9D9D9D"),
+        ("focus_border", "#0078D4"),
+        ("settings_header_fg", "#FFFFFF"),
+        ("settings_modified_indicator", "#BB800966"),
+        ("settings_focused_row_bg", "#2A2D2E99"),
+        ("settings_row_hover_bg", "#2A2D2E4D"),
+        ("settings_dropdown_bg", "#313131"),
+        ("settings_dropdown_border", "#3C3C3C"),
+        ("settings_dropdown_fg", "#CCCCCC"),
+        ("settings_dropdown_list_bg", "#1F1F1F"),
+        ("settings_checkbox_bg", "#313131"),
+        ("settings_checkbox_border", "#3C3C3C"),
+        ("settings_checkbox_fg", "#CCCCCC"),
+        ("settings_text_input_bg", "#313131"),
+        ("settings_number_input_bg", "#313131"),
+        ("input_fg", "#CCCCCC"),
+        ("input_border", "#3C3C3C"),
+        ("input_placeholder_fg", "#989898"),
+        ("settings_header_border", "#2B2B2B"),
+        ("text_link_fg", "#4DAAFC"),
+        ("text_link_active_fg", "#4DAAFC"),
+        ("text_preformat_fg", "#D0D0D0"),
+        ("text_preformat_bg", "#3C3C3C"),
+        ("setting_error_fg", "#F85149"),
+        ("validation_error_bg", "#5A1D1D"),
+        ("validation_error_border", "#BE1100"),
+        ("menu_bg", "#1F1F1F"),
+        ("menu_selection_bg", "#0078D4"),
+        ("menu_border", "#454545"),
+        ("panel_border", "#2B2B2B"), // added after the golden snapshot (dark_modern.json)
+        ("cursor", "#AEAFAD"),
+        ("selection_bg", "#264F78"),
+        ("inactive_selection_bg", "#3A3D41"),
+        ("line_highlight_border", "#282828"),
+        ("whitespace_fg", "#E3E4E229"),
+        ("ruler_fg", "#5A5A5A"),
+        ("indent_guide_fg", "#404040"),
+        ("indent_guide_active_fg", "#707070"),
+        ("bracket_match_bg", "#0064001A"),
+        ("bracket_match_border", "#888888"),
+        ("selection_highlight_bg", "#ADD6FF26"),
+        ("word_highlight_bg", "#575757B8"),
+        ("input_option_active_bg", "#2489DB82"),
+        ("input_option_active_border", "#2488DB"),
+        ("input_option_active_fg", "#FFFFFF"),
+        ("input_option_hover_bg", "#5A5D5E80"),
+        ("list_active_selection_bg", "#04395E"),
+        ("list_active_selection_fg", "#FFFFFF"),
+        ("find_match_highlight_bg", "#EA5C0055"),
+        ("diff_removed_text_bg", "#FF000033"),
+        ("diff_inserted_text_bg", "#9CCC2C33"),
+        ("diff_inserted_line_bg", "#9BB95533"),
+        ("button_bg", "#0078D4"),
+        ("button_fg", "#FFFFFF"),
+        ("button_hover_bg", "#026EC1"),
+        ("button_secondary_bg", "#00000000"), // added after the golden snapshot (dark_modern.json)
+        ("button_secondary_fg", "#CCCCCC"),
+        ("button_secondary_hover_bg", "#2B2B2B"),
+        ("button_border", "#FFFFFF1A"),
+        ("search_results_info_fg", "#CCCCCCA6"),
+        ("badge_bg", "#616161"),
+        ("badge_fg", "#F8F8F8"),
+        ("toolbar_hover_bg", "#5A5D5E50"),
+        ("quick_input_bg", "#222222"),
+        ("quick_input_fg", "#CCCCCC"),
+        ("quick_input_list_focus_bg", "#04395E"),
+        ("quick_input_list_focus_fg", "#FFFFFF"),
+        ("picker_group_fg", "#3794FF"),
+        ("picker_group_border", "#3C3C3C"),
+        ("widget_shadow", "#0000005C"),
+        ("widget_border", "#313131"),
+        ("list_highlight_fg", "#2AAAFF"),
+        ("list_focus_highlight_fg", "#2AAAFF"),
+        ("keybinding_label_bg", "#8080802B"),
+        ("keybinding_label_fg", "#CCCCCC"),
+        ("keybinding_label_border", "#33333399"),
+        ("keybinding_label_bottom_border", "#44444499"),
+        ("editor_widget_bg", "#202020"),
+        ("disabled_fg", "#CCCCCC80"),
+        ("find_match_bg", "#9E6A03"),
+        ("find_range_highlight_bg", "#3A3D4166"),
+    ];
+
     #[test]
-    fn dark_modern_builds() {
-        assert_eq!(Theme::dark_modern().editor_bg, Rgba8::rgb(0x1F, 0x1F, 0x1F));
+    fn dark_modern_from_the_json_equals_the_old_hard_coded_theme() {
+        let theme = Theme::dark_modern();
+        let actual = theme.fields();
+        assert_eq!(actual.len(), LEGACY_DARK_MODERN.len());
+        for ((name, got), (legacy_name, legacy)) in actual.iter().zip(LEGACY_DARK_MODERN) {
+            assert_eq!(name, legacy_name);
+            assert_eq!(*got, hex(legacy).unwrap(), "{name}: {got:?} != {legacy}");
+        }
+    }
+
+    #[test]
+    fn every_key_is_a_registered_colour_or_set_by_a_bundled_theme() {
+        let catalog = ThemeCatalog::builtin();
+        let themes: Vec<_> = catalog.themes().iter().map(|t| catalog.load(t).unwrap()).collect();
+        for (field, keys) in Theme::KEYS {
+            for key in *keys {
+                assert!(
+                    vsr_theme::registry().contains(key) || themes.iter().any(|t| t.defines(key)),
+                    "{field}: {key} is neither in the colour registry nor set by a bundled theme"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_bundled_theme_builds_a_theme_with_visible_text_colours() {
+        let catalog = ThemeCatalog::builtin();
+        for t in catalog.themes() {
+            let theme = Theme::from_color_theme(&catalog.load(t).unwrap());
+            for (name, c) in [("editor_fg", theme.editor_fg), ("foreground", theme.foreground), ("side_bar_fg", theme.side_bar_fg), ("tab_active_fg", theme.tab_active_fg)] {
+                assert!(c.3 > 0, "{}: {name} is transparent", t.settings_id);
+            }
+            assert_eq!(theme.editor_bg.3, 0xFF, "{}: the editor background is opaque", t.settings_id);
+        }
+    }
+
+    #[test]
+    fn light_modern_differs_from_dark_modern() {
+        let catalog = ThemeCatalog::builtin();
+        let light = Theme::from_color_theme(&catalog.load(catalog.find("Light Modern", None).unwrap()).unwrap());
+        assert_ne!(light.editor_bg, Theme::dark_modern().editor_bg);
+        assert_eq!(light.editor_bg, Rgba8::rgb(0xFF, 0xFF, 0xFF));
     }
 }

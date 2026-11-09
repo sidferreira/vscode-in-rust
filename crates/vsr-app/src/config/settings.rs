@@ -321,6 +321,8 @@ pub struct EditorSettings {
     pub line_highlight_only_when_focus: bool,
     /// `editor.fontLigatures` as font features (see `parse_font_ligatures`).
     pub font_features: Vec<(String, u32)>,
+    /// `editor.scrollBeyondLastLine`: the last line can scroll up to the top of the viewport.
+    pub scroll_beyond_last_line: bool,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
     pub find: FindSettings,
@@ -353,6 +355,7 @@ impl Default for EditorSettings {
             rounded_selection: true,
             line_highlight_only_when_focus: false,
             font_features: parse_font_ligatures(None),
+            scroll_beyond_last_line: true,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             find: FindSettings::default(),
@@ -388,6 +391,7 @@ impl EditorSettings {
             rounded_selection: c.get_bool("editor.roundedSelection").unwrap_or(true),
             line_highlight_only_when_focus: c.get_bool("editor.renderLineHighlightOnlyWhenFocus").unwrap_or(false),
             font_features: parse_font_ligatures(c.get_value("editor.fontLigatures")),
+            scroll_beyond_last_line: c.get_bool("editor.scrollBeyondLastLine").unwrap_or(true),
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             find: FindSettings::from_configuration(c),
@@ -510,7 +514,7 @@ mod tests {
         assert_eq!(e.match_brackets, MatchBrackets::Always);
         assert!(e.selection_highlight && e.selection_highlight_max_length == 200);
         assert_eq!(e.occurrences_highlight, OccurrencesHighlight::SingleFile);
-        assert!(e.rounded_selection && !e.line_highlight_only_when_focus);
+        assert!(e.rounded_selection && !e.line_highlight_only_when_focus && e.scroll_beyond_last_line);
         assert_eq!(e.font_features, [("liga".to_string(), 0), ("calt".to_string(), 0)]);
         let l = LayoutSettings::from_configuration(&config(""));
         assert_eq!(l, LayoutSettings {

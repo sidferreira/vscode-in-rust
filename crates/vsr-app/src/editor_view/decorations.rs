@@ -179,6 +179,12 @@ pub fn line_level(lines: &impl Lines, line: usize, tab: usize) -> usize {
     }
 }
 
+/// The number of rows the list paints: the lines, plus (with `scrollBeyondLastLine`) one page less
+/// one row of empty space below the last line, so that the last line can scroll to the top.
+pub fn scroll_rows(lines: usize, rows_per_page: usize, beyond_last_line: bool) -> usize {
+    lines + if beyond_last_line { rows_per_page.saturating_sub(1) } else { 0 }
+}
+
 /// Whether `c` is part of a word (for whole-word matches).
 pub fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
@@ -469,6 +475,13 @@ mod tests {
         assert_eq!(occurrences_for(Some("   "), Some("x"), None), None, "blank selection");
         assert_eq!(occurrences_for(None, Some("foo"), None).map(|o| o.is_selection), Some(false));
         assert_eq!(occurrences_for(None, None, None), None);
+    }
+
+    #[test]
+    fn scroll_beyond_adds_a_page_minus_one_row() {
+        assert_eq!(scroll_rows(100, 40, true), 139);
+        assert_eq!(scroll_rows(100, 40, false), 100);
+        assert_eq!(scroll_rows(3, 0, true), 3, "before the viewport is measured: no extra rows");
     }
 
     #[test]

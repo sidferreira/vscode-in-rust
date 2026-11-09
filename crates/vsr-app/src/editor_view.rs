@@ -188,9 +188,11 @@ impl EditorView {
         let theme = theme.clone();
         let id: SharedString = editor.path.display().to_string().into();
         let list_focus = focus.clone();
+        // `editor.scrollBeyondLastLine`: empty rows after the last line (the page is measured at paint).
+        let rows_total = decorations::scroll_rows(lines, self.rows_per_page(), cfg.scroll_beyond_last_line);
         let list = uniform_list(
             id,
-            lines,
+            rows_total,
             cx.processor(move |this: &mut T, range: Range<usize>, window: &mut Window, cx| {
                 let (editors, view) = this.editor_host();
                 let Some(e) = editors.active_editor() else { return Vec::new() };
@@ -746,6 +748,10 @@ fn rows(
     range
         .map(|ix| {
             let line = ix + 1;
+            if line > buf.line_count() {
+                // The room after the last line (`scrollBeyondLastLine`) is empty.
+                return div().h(px(lh)).into_any_element();
+            }
             let text = buf.line_content(line);
             let is_active = line == caret_line;
             let expanded = expand_tabs(text, tab);

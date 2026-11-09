@@ -49,6 +49,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.fontLigatures",
         ],
     ),
+    ("Editor scrolling", &["editor.scrollBeyondLastLine"]),
     (
         "Find",
         &[

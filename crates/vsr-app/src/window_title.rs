@@ -3,6 +3,7 @@
 //! only supplies the values.
 //!
 //! upstream: src/vs/base/common/labels.ts @ 50e1350fc78d (`template`)
+//! upstream: src/vs/base/test/common/labels.test.ts @ 50e1350fc78d
 //! upstream: src/vs/workbench/browser/parts/titlebar/windowTitle.ts @ 50e1350fc78d (`getWindowTitle`)
 //!
 //! Not ported: `${remoteName}`, `${profileName}` (always empty: one profile, no remotes),

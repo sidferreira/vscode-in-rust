@@ -83,49 +83,49 @@ fn check(c: Case, e: Expected, content: (f64, f64, f64)) {
     assert_eq!((got.content_left, got.content_width, got.viewport_column), content);
 }
 
-// upstream: Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 9 - render minimap
+// ports the dynamically titled case (a `for` over `minimapCases`, so no `upstream:` ref): Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 9 - render minimap
 #[test]
 fn render_minimap() {
     check(case(MinimapSide::Right, MinimapSize::Proportional, 1.0, 9.0), (903.0, 97.0, false, false, 1.0, 2.0, 97.0, 800.0, 97.0), (10.0, 893.0, 89.0));
 }
 
-// upstream: Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 9 - render minimap with pixelRatio = 2
+// ports the dynamically titled case (a `for` over `minimapCases`, so no `upstream:` ref): Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 9 - render minimap with pixelRatio = 2
 #[test]
 fn render_minimap_with_pixel_ratio_2() {
     check(case(MinimapSide::Right, MinimapSize::Proportional, 2.0, 9.0), (903.0, 97.0, false, false, 2.0, 4.0, 194.0, 1600.0, 97.0), (10.0, 893.0, 89.0));
 }
 
-// upstream: Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 9 - render minimap with pixelRatio = 4
+// ports the dynamically titled case (a `for` over `minimapCases`, so no `upstream:` ref): Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 9 - render minimap with pixelRatio = 4
 #[test]
 fn render_minimap_with_pixel_ratio_4() {
     check(case(MinimapSide::Right, MinimapSize::Proportional, 4.0, 9.0), (945.0, 55.0, false, false, 2.0, 4.0, 220.0, 3200.0, 55.0), (10.0, 935.0, 93.0));
 }
 
-// upstream: Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 10 - render minimap to left
+// ports the dynamically titled case (a `for` over `minimapCases`, so no `upstream:` ref): Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 10 - render minimap to left
 #[test]
 fn render_minimap_to_left() {
     check(case(MinimapSide::Left, MinimapSize::Proportional, 4.0, 9.0), (0.0, 55.0, false, false, 2.0, 4.0, 220.0, 3200.0, 55.0), (65.0, 935.0, 93.0));
 }
 
-// upstream: Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 11 - minimap mode cover without sampling
+// ports the dynamically titled case (a `for` over `minimapCases`, so no `upstream:` ref): Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 11 - minimap mode cover without sampling
 #[test]
 fn minimap_mode_cover_without_sampling() {
     check(case(MinimapSide::Right, MinimapSize::Fill, 2.0, 120.0), (903.0, 97.0, true, false, 3.0, 13.0, 291.0, 1560.0, 97.0), (10.0, 893.0, 89.0));
 }
 
-// upstream: Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 12 - minimap mode cover with sampling
+// ports the dynamically titled case (a `for` over `minimapCases`, so no `upstream:` ref): Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 12 - minimap mode cover with sampling
 #[test]
 fn minimap_mode_cover_with_sampling() {
     check(case(MinimapSide::Right, MinimapSize::Fill, 2.0, 2500.0), (945.0, 55.0, true, true, 1.0, 1.0, 110.0, 1600.0, 55.0), (10.0, 935.0, 93.0));
 }
 
-// upstream: Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 13 - minimap mode contain without sampling
+// ports the dynamically titled case (a `for` over `minimapCases`, so no `upstream:` ref): Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 13 - minimap mode contain without sampling
 #[test]
 fn minimap_mode_contain_without_sampling() {
     check(case(MinimapSide::Right, MinimapSize::Fit, 2.0, 120.0), (903.0, 97.0, false, false, 2.0, 4.0, 194.0, 1600.0, 97.0), (10.0, 893.0, 89.0));
 }
 
-// upstream: Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 14 - minimap mode contain with sampling
+// ports the dynamically titled case (a `for` over `minimapCases`, so no `upstream:` ref): Editor ViewLayout - EditorLayoutProvider > EditorLayoutProvider 14 - minimap mode contain with sampling
 #[test]
 fn minimap_mode_contain_with_sampling() {
     check(case(MinimapSide::Right, MinimapSize::Fit, 2.0, 2500.0), (945.0, 55.0, true, true, 1.0, 1.0, 110.0, 1600.0, 55.0), (10.0, 935.0, 93.0));

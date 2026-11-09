@@ -322,8 +322,8 @@ fn files_exclude_applies_to_the_explorer(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn settings_editor_marks_unwired_settings_only(cx: &mut TestAppContext) {
     let (wb, cx, _f) = workbench(cx, "coverage", None, &[]);
-    search_setting(&wb, cx, "editor.minimap.enabled");
-    assert!(cx.debug_bounds("unsupported:search:editor.minimap.enabled").is_some(), "unwired setting is marked");
+    search_setting(&wb, cx, "editor.minimap.showMarkSectionHeaders");
+    assert!(cx.debug_bounds("unsupported:search:editor.minimap.showMarkSectionHeaders").is_some(), "unwired setting is marked");
     cx.simulate_keystrokes("cmd-a");
     cx.simulate_input("@id:editor.fontSize");
     cx.run_until_parked();

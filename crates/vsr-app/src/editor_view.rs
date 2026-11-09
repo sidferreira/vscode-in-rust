@@ -174,7 +174,7 @@ impl EditorView {
         let gutter = gutter_width(lines, &cfg);
         self.gutter = gutter;
         let minimap = self.minimap.build(
-            minimap::BuildInput { editor, theme: theme, cfg: settings, scroll: &scroll, gutter, text_bounds: &self.bounds },
+            minimap::BuildInput { editor, theme, cfg: settings, scroll: &scroll, gutter, text_bounds: &self.bounds },
             cx,
         );
         if self.blink_task.is_none() {

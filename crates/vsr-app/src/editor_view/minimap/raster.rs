@@ -46,6 +46,7 @@ impl Canvas {
     }
 
     /// The pixel at (x, y) as `[r, g, b]`.
+    #[cfg(test)]
     pub fn rgb(&self, x: usize, y: usize) -> [u8; 3] {
         let i = (y * self.width + x) * 4;
         [self.data[i + 2], self.data[i + 1], self.data[i]]
@@ -140,6 +141,7 @@ impl CharRenderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn block_render_char(
         &self,
         target: &mut Canvas,

@@ -154,7 +154,7 @@ mod tests {
             assert!(seen.insert(key), "{key} is listed twice");
         }
         assert_eq!(seen.len(), count());
-        assert!(is_wired("editor.fontSize") && !is_wired("editor.minimap.enabled"));
+        assert!(is_wired("editor.fontSize") && !is_wired("editor.minimap.showMarkSectionHeaders"));
     }
 
     #[test]

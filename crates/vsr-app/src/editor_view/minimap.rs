@@ -30,7 +30,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use gpui_kit::{
     AnyElement, App, Bounds, Context, Corners, DispatchPhase, InteractiveElement, IntoElement, MouseButton,
@@ -94,6 +94,7 @@ pub struct Frame {
     /// Editor height (the viewport).
     pub outer_height: f32,
     pub scroll_top: f32,
+    pub pixel_ratio: f64,
     pub line_count: usize,
     pub line_height: f32,
     /// `editor.minimap.autohide` / `showSlider` resolved to what is on screen now.
@@ -186,7 +187,8 @@ pub struct MinimapView {
     /// the (narrower) text area.
     last_width: f32,
     seen_scroll_top: f32,
-    scrolled_at: Option<Instant>,
+    /// The editor scrolled within `SCROLL_VISIBLE` (cleared by a timer).
+    scrolled: bool,
     was_visible: bool,
     hide_task: Option<Task<()>>,
 }
@@ -206,7 +208,7 @@ impl Default for MinimapView {
             frame: None,
             last_width: 0.0,
             seen_scroll_top: 0.0,
-            scrolled_at: None,
+            scrolled: false,
             was_visible: true,
             hide_task: None,
         }
@@ -235,6 +237,7 @@ pub struct BuildInput<'a> {
 
 impl MinimapView {
     /// The last frame built (`None` when the minimap is off).
+    #[cfg(test)]
     pub fn frame(&self) -> Option<&Frame> {
         self.frame.as_ref()
     }
@@ -317,13 +320,17 @@ impl MinimapView {
         // Visibility (autohide, showSlider).
         if (scroll_top - self.seen_scroll_top).abs() > 0.5 {
             self.seen_scroll_top = scroll_top;
-            self.scrolled_at = Some(Instant::now());
+            self.scrolled = true;
             self.hide_task = Some(cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(SCROLL_VISIBLE).await;
-                this.update(cx, |_, cx| cx.notify()).ok();
+                this.update(cx, |this, cx| {
+                    this.editor_host().1.minimap.scrolled = false;
+                    cx.notify();
+                })
+                .ok();
             }));
         }
-        let scrolled_recently = self.scrolled_at.is_some_and(|t| t.elapsed() < SCROLL_VISIBLE);
+        let scrolled_recently = self.scrolled;
         let hover = self.shared.hover.get();
         let dragging = self.shared.drag.get().is_some();
         let minimap_visible = match m.autohide {
@@ -345,6 +352,7 @@ impl MinimapView {
             outer_width: outer_w,
             outer_height: outer_h,
             scroll_top,
+            pixel_ratio: pr,
             line_count,
             line_height: lh,
             minimap_visible,

@@ -146,6 +146,31 @@ synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Editable gpui editor surface (ADR-0018): blinking line cursor, selection and current-line highlight, active line number, key table for macOS defaults, platform text input (typing, IME marking). Not ported: smooth/phase/expand cursor styles, multi-cursor, overview ruler, selection rounded corners, glyph margin, word wrap. text_layout.rs (pixel/column mapping, adapts common/core/cursorColumns.ts) and editor_view/e2e.rs are ours and carry no header."
 
 [[port]]
+id = "editor-minimap"
+status = "partial"
+upstream = [
+  "src/vs/editor/browser/viewParts/minimap/minimap.ts",
+  "src/vs/editor/browser/viewParts/minimap/minimap.css",
+  "src/vs/editor/browser/viewParts/minimap/minimapCharRenderer.ts",
+  "src/vs/editor/browser/viewParts/minimap/minimapCharRendererFactory.ts",
+  "src/vs/editor/browser/viewParts/minimap/minimapCharSheet.ts",
+  "src/vs/editor/browser/viewParts/minimap/minimapPreBaked.ts",
+  "src/vs/platform/theme/common/colors/minimapColors.ts",
+  "src/vs/editor/test/browser/config/editorLayoutProvider.test.ts",
+  "src/vs/editor/test/browser/view/minimapLayout.test.ts",
+]
+rust = [
+  "crates/vsr-app/src/config/minimap.rs",
+  "crates/vsr-app/src/editor_view/minimap.rs",
+  "crates/vsr-app/src/editor_view/minimap/layout.rs",
+  "crates/vsr-app/src/editor_view/minimap/prebaked.rs",
+  "crates/vsr-app/src/editor_view/minimap/raster.rs",
+  "crates/vsr-app/src/editor_view/minimap/upstream_tests.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Editor minimap (ADR-0031): layout math ported exactly (EditorLayoutInfoComputer._computeMinimapLayout, MinimapLayout.create, sampling), char renderer with upstream's pre-baked scale 1/2 sheets (scale 3 resamples the 2x sheet), slider, click / drag / wheel, autohide, showSlider, side, size proportional/fill/fit, scale, maxColumn, renderCharacters. Not ported: section headers (5 settings; need comment tokens and region markers), token colours (single foreground), selection/find/error decorations, horizontal-scroll shadow, fade transitions, smooth reveal, dirty-row optimisation (minimapDirtyRows.ts: the whole image is rebuilt, but only when something it shows changed), minimapCharRenderer.test.ts (needs canvas font sampling), the view-zone/custom-height cases of minimapLayout.test.ts and the non-minimap cases of editorLayoutProvider.test.ts. e2e.rs is ours."
+
+[[port]]
 id = "editor-find-model"
 status = "partial"
 upstream = [

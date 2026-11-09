@@ -268,17 +268,8 @@ impl MinimapLayout {
         (self.scroll_top + delta / self.computed_slider_ratio).round()
     }
 
-    /// The scrollTop for a touch/pointer at `page_y` within the minimap.
-    pub fn desired_scroll_top_from_touch_location(&self, page_y: f64) -> f64 {
-        ((page_y - self.slider_height / 2.0) / self.computed_slider_ratio).round()
-    }
-
-    /// The inner minimap y coordinate of a line.
-    pub fn y_for_line(&self, line: f64, minimap_line_height: f64) -> f64 {
-        (line - self.start_line + self.top_padding_line_count) * minimap_line_height
-    }
-
     /// The slider ratio (minimap px per document px), 0 when the document fits.
+    #[cfg(test)]
     pub fn slider_ratio(&self) -> f64 {
         self.computed_slider_ratio
     }

@@ -3,6 +3,7 @@
 //! (`runtime`: restore, debounced saving, the quit path).
 
 pub mod backup;
+pub(crate) mod close; // a dirty tab asks before it closes (ADR-0040)
 #[cfg(test)]
 mod e2e_tests;
 pub mod runtime;

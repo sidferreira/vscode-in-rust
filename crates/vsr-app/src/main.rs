@@ -149,8 +149,8 @@ impl EditorHost for Workbench {
         (&mut self.editors, &mut self.editor_view)
     }
 
-    fn editor_closed(&mut self, path: &Path, dirty: bool) {
-        self.session_editor_closed(path, dirty);
+    fn close_requested(&mut self, path: &Path, cx: &mut Context<Self>) {
+        self.request_close(vec![path.to_path_buf()], cx);
     }
 }
 
@@ -1115,6 +1115,7 @@ impl Workbench {
             };
             let close = div()
                 .id(("tab-close", i))
+                .debug_selector(|| format!("tab-close:{i}"))
                 .group(format!("tab-close-{i}"))
                 .relative()
                 .flex_none()
@@ -1145,7 +1146,7 @@ impl Workbench {
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.close_tab(i);
+                        this.request_close_tab(i, cx);
                         cx.notify();
                     }),
                 );
@@ -1202,7 +1203,7 @@ impl Workbench {
                 .on_mouse_down(
                     MouseButton::Middle,
                     cx.listener(move |this, _, _, cx| {
-                        this.close_tab(i);
+                        this.request_close_tab(i, cx);
                         cx.notify();
                     }),
                 );
@@ -1424,6 +1425,7 @@ impl Render for Workbench {
             .child(self.title_bar(&title, layout.command_center, cx))
             .child(middle)
             .children(self.quit_prompt_bar(cx))
+            .children(self.close_prompt_bar(cx))
             .when(layout.status_bar_visible, |d| d.child(self.status_bar()))
             .children(self.quick.view())
     }

@@ -60,6 +60,10 @@ pub enum QuickPickEvent {
     Accept { item: PickItem, query: String, to_side: bool },
     /// The picker wants to close (Escape, click outside, focus lost).
     Dismiss,
+    /// The input text changed (also emitted for the rows of the initial text, which the owner
+    /// misses when it subscribes after construction). Owners that fill rows themselves (Go to
+    /// Line) and the ones that switch provider by prefix react to it.
+    Change { query: String },
 }
 
 impl EventEmitter<QuickPickEvent> for QuickPick {}
@@ -78,11 +82,14 @@ pub struct QuickPick {
 }
 
 impl QuickPick {
-    /// A picker showing the rows of `source` for `initial` (selected, so typing replaces it).
+    /// A picker showing the rows of `source` for `initial`. `select_from` is the byte offset
+    /// from which the initial text is selected (so typing replaces it): `Some(0)` for all of it,
+    /// the length of a Quick Access prefix to keep the prefix, `None` for no selection.
     /// `close_on_focus_lost` is `workbench.quickOpen.closeOnFocusLost`.
     pub fn new(
         placeholder: &str,
         initial: &str,
+        select_from: Option<usize>,
         close_on_focus_lost: bool,
         source: impl PickSource,
         window: &mut Window,
@@ -102,7 +109,9 @@ impl QuickPick {
         input.update(cx, |s, cx| {
             if !initial.is_empty() {
                 s.set_value(initial, window, cx);
-                s.select_all(window, cx);
+                if let Some(from) = select_from.filter(|&f| f < initial.len()) {
+                    s.set_selected_range(from..initial.len(), cx);
+                }
             }
             s.focus(window, cx);
         });
@@ -149,6 +158,7 @@ impl QuickPick {
         self.generation += 1;
         let generation = self.generation;
         let query = self.query(cx);
+        cx.emit(QuickPickEvent::Change { query: query.clone() });
         match self.source.rows(&query, cx) {
             PickResult::Ready(rows) => {
                 self.pending = None;
@@ -170,11 +180,28 @@ impl QuickPick {
 
     // ---- actions -----------------------------------------------------------------------------
 
-    /// Focus the input and select its text.
-    pub fn focus_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Replace the placeholder (each Quick Access provider has its own).
+    pub fn set_placeholder(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let text = text.to_string();
+        self.input.update(cx, |s, cx| s.set_placeholder(text, window, cx));
+    }
+
+    /// Replace the text (switching provider by its prefix) and refresh the rows.
+    pub fn set_value(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |s, cx| {
+            s.set_value(text, window, cx);
+            s.focus(window, cx);
+        });
+        self.refresh(cx);
+    }
+
+    /// Focus the input, optionally selecting its text.
+    pub fn focus_input(&mut self, select_all: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.input.update(cx, |s, cx| {
             s.focus(window, cx);
-            s.select_all(window, cx);
+            if select_all {
+                s.select_all(window, cx);
+            }
         });
     }
 
@@ -302,10 +329,64 @@ impl QuickPick {
                             .child(highlighted(d, &item.description_highlights, to_gpui(hl))),
                     );
                 }
+                if !item.keybinding.is_empty() {
+                    row = row.child(keybinding_label(&item.keybinding, t, focused));
+                }
                 row.into_any_element()
             }
         }
     }
+}
+
+/// `KeybindingLabel`: every key of every chord in its own small box, chords 6px apart. On the
+/// focused row the boxes lose their background and take the widget shadow as border
+/// (`quickInput.css`).
+fn keybinding_label(chords: &[Vec<String>], t: &Theme, focused: bool) -> impl IntoElement {
+    let (fg, bg, border, bottom) = (
+        to_gpui(t.keybinding_label_fg),
+        to_gpui(t.keybinding_label_bg),
+        to_gpui(if focused { t.widget_shadow } else { t.keybinding_label_border }),
+        to_gpui(t.keybinding_label_bottom_border),
+    );
+    let key = move |label: &str| {
+        div()
+            .debug_selector(|| "keybinding-key".to_string())
+            .flex()
+            .items_center()
+            .justify_center()
+            .min_w(px(12.))
+            .px(px(5.))
+            .py(px(3.))
+            .mx(px(1.))
+            .border_1()
+            .border_color(border)
+            .rounded(px(3.))
+            .text_size(px(11.))
+            .when(!focused, |d| d.bg(bg).text_color(fg))
+            .shadow(vec![BoxShadow {
+                color: if focused { border } else { bottom },
+                offset: point(px(0.), px(-1.)),
+                blur_radius: px(0.),
+                spread_radius: px(0.),
+                inset: true,
+            }])
+            .child(label.to_string())
+    };
+    let mut label = div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .ml_auto()
+        .pl(px(6.))
+        .mr(px(2.))
+        .debug_selector(|| "keybinding-label".to_string());
+    for (i, chord) in chords.iter().enumerate() {
+        if i > 0 {
+            label = label.child(div().w(px(6.)));
+        }
+        label = label.child(div().flex().items_center().children(chord.iter().map(|k| key(k))));
+    }
+    label
 }
 
 /// `text` with the matched characters bold and in the highlight color.

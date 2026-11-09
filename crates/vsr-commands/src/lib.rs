@@ -3,10 +3,12 @@
 //! * [`registry`]: `CommandsRegistry` + the command palette metadata of `Action2`
 //!   (`title`, `category`, `f1`, `precondition`), generic over the handler type so the app can
 //!   store gpui actions and, later, the extension host can store RPC stubs;
+//! * [`keybinding`]: how a key binding is labelled in the UI (`⇧⌘P`);
 //! * [`when`]: the small context-key expression language used by preconditions;
 //! * [`history`]: `CommandsHistory`, the "recently used" list of the Command Palette.
 
 pub mod history;
+pub mod keybinding;
 pub mod registry;
 pub mod when;
 

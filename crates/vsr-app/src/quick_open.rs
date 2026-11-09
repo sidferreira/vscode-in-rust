@@ -18,6 +18,7 @@
 mod e2e_tests;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -25,6 +26,7 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::*;
 use serde_json::Value;
+use vsr_commands::ContextKeys;
 use vsr_quickinput::open::{FileEntry, QuickOpenOptions, Range, extract_range_from_filter, quick_open_picks};
 use vsr_settings::Configuration;
 
@@ -159,24 +161,28 @@ pub fn list_files(root: &Path, settings: &IndexSettings) -> Vec<FileEntry> {
 /// What the picker's source reads; shared with the workbench, which updates it as the file list
 /// and the editor history change.
 #[derive(Default)]
-struct Data {
+pub(crate) struct Data {
     files: Arc<Vec<FileEntry>>,
     history: Arc<Vec<FileEntry>>,
     options: QuickOpenOptions,
+    /// The context keys when the picker opened (preconditions of the Command Palette).
+    pub(crate) ctx: ContextKeys,
 }
 
 #[derive(Default)]
 pub struct QuickOpenState {
-    pick: Option<Entity<QuickPick>>,
-    _sub: Option<Subscription>,
+    pub(crate) pick: Option<Entity<QuickPick>>,
+    pub(crate) _sub: Option<Subscription>,
     /// Where focus was when Quick Open opened (restored on Escape).
-    return_focus: Option<FocusHandle>,
-    data: Rc<RefCell<Data>>,
+    pub(crate) return_focus: Option<FocusHandle>,
+    pub(crate) data: Rc<RefCell<Data>>,
     /// The file list was built with these settings, at this time.
     indexed: Option<(IndexSettings, Instant)>,
     index_task: Option<Task<()>>,
-    /// The text of the last session (`workbench.quickOpen.preserveInput`).
-    last_input: Option<String>,
+    /// The text of the last session per Quick Access provider prefix (`preserveInput` settings).
+    pub(crate) last_inputs: HashMap<String, String>,
+    /// Prefix of the provider whose rows and placeholder are showing.
+    pub(crate) provider: String,
 }
 
 impl QuickOpenState {
@@ -192,13 +198,29 @@ impl QuickOpenState {
 }
 
 impl Workbench {
-    /// Cmd+P: open Quick Open (or focus it when it is already open).
+    /// Cmd+P: open Quick Open (or switch to it when another Quick Access provider is showing).
     pub(crate) fn show_quick_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_quick_access("", window, cx);
+    }
+
+    /// Open the Quick Pick with the provider of `prefix` (`""` files, `>` commands, `:` go to
+    /// line, `?` help), or switch the one that is open (`quickAccess.show(prefix)`).
+    pub(crate) fn show_quick_access(&mut self, prefix: &str, window: &mut Window, cx: &mut Context<Self>) {
+        crate::commands::ensure_installed(cx);
+        self.quick.data.borrow_mut().ctx = self.context_keys();
         if let Some(pick) = self.quick.pick.clone() {
-            pick.update(cx, |p, cx| p.focus_input(window, cx));
+            let current = pick.read(cx).query(cx);
+            if self.provider_prefix(&current, cx) != self.provider_prefix(prefix, cx) {
+                pick.update(cx, |p, cx| p.set_value(prefix, window, cx));
+            } else {
+                // Selecting the whole text would also select a prefix such as `>`.
+                pick.update(cx, |p, cx| p.focus_input(prefix.is_empty(), window, cx));
+            }
             return;
         }
         let settings = QuickOpenSettings::from_configuration(AppConfig::get(cx).configuration());
+        let palette = crate::quick_access::PaletteSettings::from_configuration(AppConfig::get(cx).configuration());
+        cx.update_global::<crate::commands::Commands, _>(|c, _| c.history.set_limit(palette.history));
         let root = self.root.to_string_lossy().into_owned();
         {
             let mut d = self.quick.data.borrow_mut();
@@ -208,23 +230,44 @@ impl Workbench {
         self.refresh_file_index(&settings, cx);
 
         self.quick.return_focus = window.focused(cx);
-        let initial = if settings.preserve_input { self.quick.last_input.clone().unwrap_or_default() } else { String::new() };
+        let provider = self.provider_prefix(prefix, cx);
+        let preserve = match provider.as_str() {
+            "" => settings.preserve_input,
+            ">" => palette.preserve_input,
+            _ => false,
+        };
+        let preserved = preserve.then(|| self.quick.last_inputs.get(&provider).cloned()).flatten().filter(|t| t.starts_with(prefix));
+        let initial = preserved.clone().unwrap_or_else(|| prefix.to_string());
+        // A restored text is selected after its prefix, so typing replaces it.
+        let select_from = preserved.is_some().then_some(prefix.len());
         let data = Rc::clone(&self.quick.data);
         let source = move |query: &str, cx: &mut App| -> PickResult {
             let d = data.borrow();
-            if d.files.len() <= BACKGROUND_THRESHOLD {
-                return PickResult::Ready(quick_open_picks(query, &d.history, &d.files, d.options).rows);
+            match crate::quick_access::provider_of(query, &d.ctx, cx).as_str() {
+                ">" => PickResult::Ready(crate::quick_access::commands_rows(&d.ctx, query, cx)),
+                "?" => PickResult::Ready(crate::quick_access::help_rows(&d.ctx, cx)),
+                ":" => PickResult::Ready(Vec::new()), // filled by the workbench (it owns the editors)
+                _ => {
+                    if d.files.len() <= BACKGROUND_THRESHOLD {
+                        return PickResult::Ready(quick_open_picks(query, &d.history, &d.files, d.options).rows);
+                    }
+                    let (query, history, files, options) = (query.to_string(), Arc::clone(&d.history), Arc::clone(&d.files), d.options);
+                    PickResult::Pending(cx.background_executor().spawn(async move { quick_open_picks(&query, &history, &files, options).rows }))
+                }
             }
-            let (query, history, files, options) = (query.to_string(), Arc::clone(&d.history), Arc::clone(&d.files), d.options);
-            PickResult::Pending(cx.background_executor().spawn(async move { quick_open_picks(&query, &history, &files, options).rows }))
         };
         let close_on_focus_lost = settings.close_on_focus_lost;
-        let pick = cx.new(|cx| QuickPick::new("Search files by name (append : to go to line)", &initial, close_on_focus_lost, source, window, cx));
+        let placeholder = self.placeholder_of(&provider, cx);
+        self.quick.provider = provider;
+        let pick = cx.new(|cx| QuickPick::new(&placeholder, &initial, select_from, close_on_focus_lost, source, window, cx));
         self.quick._sub = Some(cx.subscribe_in(&pick, window, |this, _, ev: &QuickPickEvent, window, cx| match ev {
-            QuickPickEvent::Accept { item, query, .. } => this.accept_quick_open(item.path.clone(), query, window, cx),
+            QuickPickEvent::Accept { item, query, .. } => this.accept_quick_access(item, query, window, cx),
             QuickPickEvent::Dismiss => this.hide_quick_open(true, window, cx),
+            QuickPickEvent::Change { query } => this.quick_access_changed(query, window, cx),
         }));
         self.quick.pick = Some(pick);
+        // The rows of the initial text were produced before anyone listened.
+        self.quick_access_changed(&initial, window, cx);
         cx.notify();
     }
 
@@ -251,7 +294,9 @@ impl Workbench {
     /// Close Quick Open. `restore_focus` gives focus back to where it was (Escape, click outside).
     pub(crate) fn hide_quick_open(&mut self, restore_focus: bool, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(pick) = self.quick.pick.take() {
-            self.quick.last_input = Some(pick.read(cx).query(cx));
+            let text = pick.read(cx).query(cx);
+            let provider = self.provider_prefix(&text, cx);
+            self.quick.last_inputs.insert(provider, text);
         }
         self.quick._sub = None;
         let focus = self.quick.return_focus.take();
@@ -260,7 +305,17 @@ impl Workbench {
         cx.notify();
     }
 
-    /// An item was accepted: open it (at the `:line:column` of the typed text) and focus the editor.
+    /// An item was accepted in the provider of the typed text.
+    fn accept_quick_access(&mut self, item: &vsr_quickinput::pick::PickItem, query: &str, window: &mut Window, cx: &mut Context<Self>) {
+        match self.provider_prefix(query, cx).as_str() {
+            ">" => self.accept_command(item.value.clone(), window, cx),
+            ":" => self.accept_go_to_line(query, window, cx),
+            "?" => self.accept_help(item.value.clone(), window, cx),
+            _ => self.accept_quick_open(item.path.clone(), query, window, cx),
+        }
+    }
+
+    /// A file was accepted: open it (at the `:line:column` of the typed text) and focus the editor.
     fn accept_quick_open(&mut self, path: Option<String>, query: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = path.map(PathBuf::from) else { return };
         let range = extract_range_from_filter(query, &["@"]).map(|f| f.range);

@@ -7235,6 +7235,7 @@ dependencies = [
  "ignore",
  "serde",
  "serde_json",
+ "vsr-commands",
  "vsr-editor",
  "vsr-find",
  "vsr-quickinput",

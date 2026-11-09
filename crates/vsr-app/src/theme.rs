@@ -157,8 +157,6 @@ pub mod metrics {
     pub const SIDEBAR_WIDTH: f32 = 260.0;
     pub const TAB_HEIGHT: f32 = 35.0;
     pub const STATUS_BAR_HEIGHT: f32 = 22.0;
-    pub const EDITOR_FONT_SIZE: f32 = 12.0; // macOS default editor.fontSize
-    pub const EDITOR_LINE_HEIGHT: f32 = 18.0;
 }
 
 #[cfg(test)]

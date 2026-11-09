@@ -35,6 +35,7 @@ use gpui_kit::*;
 use serde_json::Value;
 use vsr_settings::{SettingKind, SettingSchema, SettingsRegistry, UserSettings};
 
+use crate::config::{AppConfig, wired};
 use crate::icons;
 use crate::theme::{Rgba8, Theme};
 use crate::ui::to_gpui;
@@ -80,7 +81,8 @@ pub struct SettingsView {
     theme: Theme,
     registry: Rc<SettingsRegistry>,
     user: UserSettings,
-    path: PathBuf,
+    /// The settings.json behind the configuration (`None` when it is in memory).
+    path: Option<PathBuf>,
     scope: Scope,
     search: Entity<InputState>,
     query: String,
@@ -104,13 +106,17 @@ pub struct SettingsView {
 const TOC_DEFAULT_WIDTH: f32 = 200.0;
 
 impl SettingsView {
-    /// `path` is the settings.json to read and write.
-    pub fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let registry = Rc::new(SettingsRegistry::load_default());
-        let (user, save_error) = match UserSettings::load(&path) {
-            Ok(u) => (u, None),
-            Err(e) => (UserSettings::default(), Some(format!("{}: {e}", path.display()))),
-        };
+    /// The view edits the app's `AppConfig` (writes apply immediately and are saved to its
+    /// settings.json). When no configuration is installed yet, `path` is loaded as the settings.json.
+    pub fn new(path: impl Into<Option<PathBuf>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        if !cx.has_global::<AppConfig>() {
+            AppConfig::install(cx, path.into());
+        }
+        let app = AppConfig::get(cx);
+        let registry: Rc<SettingsRegistry> = app.registry();
+        let user = app.user().clone();
+        let save_error = app.error().map(str::to_string);
+        let path = app.path().map(PathBuf::from);
         let rows = model::build_rows(registry.toc());
         let header_ix = model::header_indices(&rows);
         let list = ListState::new(rows.len(), ListAlignment::Top, px(600.));
@@ -121,6 +127,13 @@ impl SettingsView {
                 let q = state.read(cx).value().to_string();
                 this.set_query(q, cx);
             }
+        }));
+        // External edits of settings.json (and writes from elsewhere) refresh the view.
+        subs.push(cx.observe_global::<AppConfig>(|this, cx| {
+            let app = AppConfig::get(cx);
+            this.user = app.user().clone();
+            this.save_error = app.error().map(str::to_string);
+            cx.notify();
         }));
         let weak = cx.entity().downgrade();
         list.set_scroll_handler(move |ev, _w, app| {
@@ -249,18 +262,11 @@ impl SettingsView {
     /// Write a value (or reset when it equals the default, like upstream) and save.
     fn write(&mut self, key: &str, value: Value, cx: &mut Context<Self>) {
         let is_default = self.registry.get(key).is_some_and(|s| s.default == value);
-        if is_default {
-            self.user.reset(key);
-        } else {
-            self.user.set(key, value);
-        }
-        self.persist();
-        cx.notify();
+        self.apply(key, (!is_default).then_some(value), cx);
     }
 
     fn reset(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
-        self.user.reset(key);
-        self.persist();
+        self.apply(key, None, cx);
         self.errors.retain(|id, _| !id.ends_with(&format!(":{key}")));
         let default = self.registry.get(key).map(|s| value_text(&s.default)).unwrap_or_default();
         for f in self.fields.values().filter(|f| f.key == key) {
@@ -270,15 +276,19 @@ impl SettingsView {
         cx.notify();
     }
 
-    fn persist(&mut self) {
-        self.save_error = self.user.save(&self.path).err().map(|e| format!("{}: {e}", self.path.display()));
+    /// Writes through the app configuration: saved to disk and applied to the running app.
+    fn apply(&mut self, key: &str, value: Option<Value>, cx: &mut Context<Self>) {
+        self.save_error = AppConfig::set_value(cx, key, value).err();
+        self.user = AppConfig::get(cx).user().clone();
+        cx.notify();
     }
 
     fn open_settings_json(&mut self, cx: &mut Context<Self>) {
-        if !self.path.exists() {
-            let _ = self.user.save(&self.path);
+        let Some(path) = self.path.clone() else { return };
+        if !path.exists() {
+            let _ = self.user.save(&path);
         }
-        cx.emit(SettingsEvent::OpenSettingsJson(self.path.clone()));
+        cx.emit(SettingsEvent::OpenSettingsJson(path));
     }
 
     // ---- rich text ------------------------------------------------------------
@@ -479,6 +489,17 @@ impl SettingsView {
         title = title.child(div().text_color(to_gpui(t.settings_header_fg)).mr(px(7.)).child(s.name_label.clone()));
 
         let description = self.rich_text(format!("desc:{row_id}"), &s.description, dim, cx);
+        // Settings the app does not read yet say so (config/wired.rs is the list).
+        let unsupported = (!wired::is_wired(&s.key)).then(|| {
+            div()
+                .id(format!("unsupported:{row_id}"))
+                .mt(px(3.))
+                .text_size(px(12.))
+                .italic()
+                .text_color(to_gpui(t.description_fg))
+                .debug_selector(|| format!("unsupported:{row_id}"))
+                .child("Not yet supported in rscode")
+        });
 
         let mut body = div().flex().flex_col().child(title);
         if let Some(dep) = &s.deprecated {
@@ -516,10 +537,10 @@ impl SettingsView {
                     .when(on, |d| d.child(icons::glyph(icons::CHECK)))
                     .debug_selector(|| format!("checkbox:{row_id}"))
                     .on_click(toggle);
-                body = body.child(div().flex().items_start().mt(px(-1.)).child(checkbox).child(div().flex_1().child(description)));
+                body = body.child(div().flex().items_start().mt(px(-1.)).child(checkbox).child(div().flex_1().child(description).children(unsupported)));
             }
             kind => {
-                body = body.child(div().mt(px(-1.)).child(description));
+                body = body.child(div().mt(px(-1.)).child(description).children(unsupported));
                 match kind {
                     SettingKind::Number { .. } => {
                         let state = self.field(row_id, s, window, cx);

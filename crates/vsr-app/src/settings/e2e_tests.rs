@@ -36,11 +36,8 @@ fn workbench<'a>(cx: &'a mut TestAppContext, name: &str) -> (Entity<Workbench>, 
     let settings = dir.join("settings.json");
     let root = dir.clone();
     let path = settings.clone();
-    let (wb, vcx) = cx.add_window_view(move |_, _| {
-        let mut wb = Workbench::new(root);
-        wb.settings_path = path;
-        wb
-    });
+    cx.update(|cx| crate::config::AppConfig::install(cx, Some(path)));
+    let (wb, vcx) = cx.add_window_view(move |_, cx| Workbench::new(root, cx));
     (wb, vcx, settings)
 }
 

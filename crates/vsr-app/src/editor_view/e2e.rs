@@ -29,7 +29,7 @@ fn open_workbench<'a>(
 ) -> (Entity<Workbench>, &'a mut VisualTestContext) {
     cx.update(super::init);
     let root = dir.to_path_buf();
-    let (wb, cx) = cx.add_window_view(move |_, _| Workbench::new(root));
+    let (wb, cx) = cx.add_window_view(move |_, cx| Workbench::new(root, cx));
     let path = dir.join(file);
     wb.update(cx, |wb, cx| {
         wb.open(&path);

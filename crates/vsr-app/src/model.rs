@@ -3,6 +3,7 @@
 //! Kept free of egui so it can move into `vsr-workbench` and be reused by a
 //! different front end (e.g. a webview-hosted workbench). ADR-0001/0006.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -10,8 +11,10 @@ use std::path::{Path, PathBuf};
 use vsr_editor::{Editor, EditorOptions};
 use vsr_text::{DefaultEol, Eol, TextBuffer};
 
-/// Editor options for opened files (macOS VS Code defaults: `editor.tabSize` 4,
-/// `editor.insertSpaces` true). Becomes settings-driven with `vsr-settings`.
+use crate::config::glob::ExcludeMatcher;
+
+/// Editor options before any setting is read (the macOS VS Code defaults: `editor.tabSize` 4,
+/// `editor.insertSpaces` true). The workbench sets `Editors::options` from the configuration.
 pub const EDITOR_OPTIONS: EditorOptions = EditorOptions { tab_size: 4, insert_spaces: true };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,21 +24,27 @@ pub struct DirEntry {
     pub is_dir: bool,
 }
 
-/// List a directory like the VS Code explorer's default sort: folders first,
-/// then files, each case-insensitively by name. Hidden VCS folders are skipped
-/// (mirrors the default `files.exclude`).
-pub fn list_dir(dir: &Path) -> io::Result<Vec<DirEntry>> {
-    const EXCLUDED: &[&str] = &[".git", ".svn", ".hg", ".DS_Store", "Thumbs.db"];
-    let mut entries: Vec<DirEntry> = fs::read_dir(dir)?
+/// List a directory like the VS Code explorer's default sort: folders first, then files, each
+/// case-insensitively by name. Entries matching `files.exclude` (`exclude`, matched against the
+/// path relative to `root`) are hidden.
+pub fn list_dir(dir: &Path, root: &Path, exclude: &ExcludeMatcher) -> io::Result<Vec<DirEntry>> {
+    let all: Vec<(String, PathBuf, bool)> = fs::read_dir(dir)?
         .filter_map(Result::ok)
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            if EXCLUDED.contains(&name.as_str()) {
-                return None;
-            }
             let is_dir = e.file_type().ok()?.is_dir();
-            Some(DirEntry { path: e.path(), name, is_dir })
+            Some((name, e.path(), is_dir))
         })
+        .collect();
+    let siblings: HashSet<&str> = all.iter().map(|(n, _, _)| n.as_str()).collect();
+    let has_sibling = |name: &str| siblings.contains(name);
+    let mut entries: Vec<DirEntry> = all
+        .iter()
+        .filter(|(_, path, _)| {
+            let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy().into_owned();
+            exclude.is_empty() || !exclude.is_excluded(&rel, &has_sibling)
+        })
+        .map(|(name, path, is_dir)| DirEntry { path: path.clone(), name: name.clone(), is_dir: *is_dir })
         .collect();
     entries.sort_by(|a, b| {
         b.is_dir
@@ -52,7 +61,7 @@ pub struct OpenEditor {
 }
 
 impl OpenEditor {
-    pub fn from_text(path: &Path, text: &str) -> Self {
+    pub fn from_text(path: &Path, text: &str, options: EditorOptions) -> Self {
         let title = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -60,7 +69,7 @@ impl OpenEditor {
         Self {
             path: path.to_path_buf(),
             title,
-            editor: Editor::new(TextBuffer::new(text, DefaultEol::Lf, true), EDITOR_OPTIONS),
+            editor: Editor::new(TextBuffer::new(text, DefaultEol::Lf, true), options),
         }
     }
 
@@ -79,18 +88,46 @@ impl OpenEditor {
         self.editor.is_dirty()
     }
 
-    /// Write the buffer to disk (`value()` already uses the file's EOL) and mark it clean.
+    /// Save without the `files.*` save transforms.
+    #[cfg(test)]
     pub fn save(&mut self) -> io::Result<()> {
+        self.save_with(SaveTransforms::default())
+    }
+
+    /// Apply the save transforms (as undoable edits: trim trailing whitespace, then insert the
+    /// final newline, like upstream's save participants), write the buffer to disk (`value()`
+    /// already uses the file's EOL) and mark it clean.
+    pub fn save_with(&mut self, transforms: SaveTransforms) -> io::Result<()> {
+        if transforms.trim_trailing_whitespace {
+            self.editor.trim_trailing_whitespace(&[]);
+        }
+        if transforms.insert_final_newline {
+            self.editor.insert_final_newline();
+        }
         fs::write(&self.path, self.editor.buffer().value())?;
         self.editor.mark_saved();
         Ok(())
     }
 }
 
-#[derive(Default)]
+/// `files.trimTrailingWhitespace` and `files.insertFinalNewline`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SaveTransforms {
+    pub trim_trailing_whitespace: bool,
+    pub insert_final_newline: bool,
+}
+
 pub struct Editors {
     pub open: Vec<OpenEditor>,
     pub active: Option<usize>,
+    /// Options for editors opened from now on (`editor.tabSize`, `editor.insertSpaces`).
+    pub options: EditorOptions,
+}
+
+impl Default for Editors {
+    fn default() -> Self {
+        Self { open: Vec::new(), active: None, options: EDITOR_OPTIONS }
+    }
 }
 
 impl Editors {
@@ -103,7 +140,7 @@ impl Editors {
         }
         let bytes = fs::read(path)?;
         let text = String::from_utf8_lossy(&bytes);
-        let editor = OpenEditor::from_text(path, &text);
+        let editor = OpenEditor::from_text(path, &text, self.options);
         let at = self.active.map_or(self.open.len(), |i| i + 1);
         self.open.insert(at, editor);
         self.active = Some(at);
@@ -151,8 +188,36 @@ mod tests {
     #[test]
     fn list_dir_sorts_folders_first_case_insensitive_and_excludes_vcs() {
         let dir = tmp_workspace("list");
-        let names: Vec<_> = list_dir(&dir).unwrap().into_iter().map(|e| e.name).collect();
+        let default_exclude = vsr_settings::SettingsRegistry::load_default()
+            .get("files.exclude")
+            .map(|s| ExcludeMatcher::from_value(&s.default))
+            .unwrap();
+        let names: Vec<_> = list_dir(&dir, &dir, &default_exclude).unwrap().into_iter().map(|e| e.name).collect();
         assert_eq!(names, ["Docs", "src", "A.md", "b.txt", "c.rs"]);
+    }
+
+    #[test]
+    fn list_dir_honours_a_custom_exclude_map() {
+        let dir = tmp_workspace("exclude");
+        let ex = ExcludeMatcher::from_value(&serde_json::json!({"**/*.txt": true, "Docs": true}));
+        let names: Vec<_> = list_dir(&dir, &dir, &ex).unwrap().into_iter().map(|e| e.name).collect();
+        // .git is shown now (no default entry), b.txt and Docs are hidden.
+        assert_eq!(names, [".git", "src", "A.md", "c.rs"]);
+    }
+
+    #[test]
+    fn save_transforms_edit_through_the_editor_and_undo() {
+        let dir = tmp_workspace("transforms");
+        fs::write(dir.join("t.txt"), "a  \nb").unwrap();
+        let mut ed = Editors::default();
+        ed.open_file(&dir.join("t.txt")).unwrap();
+        let e = &mut ed.open[0];
+        e.save_with(SaveTransforms { trim_trailing_whitespace: true, insert_final_newline: true }).unwrap();
+        assert_eq!(fs::read_to_string(dir.join("t.txt")).unwrap(), "a\nb\n");
+        assert!(!e.is_dirty());
+        e.editor.undo();
+        e.editor.undo();
+        assert_eq!(e.buffer().value(), "a  \nb", "both transforms undo");
     }
 
     #[test]

@@ -123,6 +123,74 @@ source = ["vscode.github", "vscode.github-authentication", "vscode.github-enterp
           "vscode.microsoft-sovereign-cloud", "TypeScriptTeam.jsts-chat-features"]
 
 # ---------------------------------------------------------------------------------------------
+# workbench.editor (Editor management, ADR-0033). Settings below are deliberately not done yet.
+# Each reason starts with "not yet:" so it reads as a deferral, not a product decision. Revisit
+# when the feature exists; the wired ones are in config/wired.rs and need no rule.
+# ---------------------------------------------------------------------------------------------
+
+[[rule]]
+status = "n/a"
+reason = "AI chat, agents and copilot (product)"
+comment = "The Agents window's Markdown editor default. rscode has no Agents window."
+match = ["workbench.editor.markdownDefaultEditorInAgentsWindow"]
+
+[[rule]]
+status = "n/a"
+reason = "not yet: editor splits and editor groups (one group in rscode)"
+comment = "Multi-group behaviour: a single editor group exists, so these have no observable effect yet. closeEmptyGroups and autoLockGroups apply to groups; revealIfOpen only matters across groups; openSideBySideDirection needs splits; doubleClickTabToToggleEditorGroupSizes resizes groups."
+match = ["workbench.editor.closeEmptyGroups", "workbench.editor.autoLockGroups", "workbench.editor.revealIfOpen",
+         "workbench.editor.openSideBySideDirection", "workbench.editor.doubleClickTabToToggleEditorGroupSizes",
+         "workbench.editor.sharedViewState", "workbench.editor.limit.perEditorGroup"]
+
+[[rule]]
+status = "n/a"
+reason = "not yet: navigation history (Go Back / Go Forward)"
+comment = "Needs a navigation history of editor positions. Mouse buttons 4 and 5, three-finger swipe and the scope of history navigation all depend on it."
+match = ["workbench.editor.mouseBackForwardToNavigate", "workbench.editor.swipeToNavigate", "workbench.editor.navigationScope"]
+
+[[rule]]
+status = "n/a"
+reason = "not yet: session restore of open editors"
+comment = "Open editors are not saved between runs (restoreEditors). Restoring their view state needs the same store."
+match = ["workbench.editor.restoreEditors", "workbench.editor.restoreViewState"]
+
+[[rule]]
+status = "n/a"
+reason = "not yet: untitled, binary, custom and large-file editors"
+comment = "rscode has no untitled files, binary editor, custom editor associations or large-file confirmation dialog yet."
+match = ["workbench.editor.untitled.labelFormat", "workbench.editor.defaultBinaryEditor", "workbench.editorAssociations",
+         "workbench.editorLargeFileConfirmation", "workbench.editor.hiddenEditorTypes", "workbench.editor.useModal"]
+
+[[rule]]
+status = "n/a"
+reason = "not yet: language detection for untitled and unknown files"
+comment = "No language detection service. Needs the untitled editors above."
+match = ["workbench.editor.languageDetection", "workbench.editor.historyBasedLanguageDetection",
+         "workbench.editor.preferHistoryBasedLanguageDetection", "workbench.editor.languageDetectionHints"]
+
+[[rule]]
+status = "n/a"
+reason = "not yet: tab strip presentation (scrollbars, wrapping, pinned tabs, actions)"
+comment = "The tab strip is one scrollless row with close buttons only. Pinned tabs can be made (double click) but not sized or placed differently yet; the title scrollbar and editor title actions do not exist."
+match = ["workbench.editor.titleScrollbarSizing", "workbench.editor.titleScrollbarVisibility", "workbench.editor.wrapTabs",
+         "workbench.editor.pinnedTabSizing", "workbench.editor.pinnedTabsOnSeparateRow", "workbench.editor.preventPinnedEditorClose",
+         "workbench.editor.editorActionsLocation", "workbench.editor.alwaysShowEditorActions",
+         "workbench.editor.centeredLayoutAutoResize", "workbench.editor.centeredLayoutFixedWidth"]
+
+[[rule]]
+status = "n/a"
+reason = "not yet: file decorations and custom tab labels"
+comment = "Decorations need the SCM and problems services (git status and diagnostics colours and badges). customLabels.patterns needs a label service."
+match = ["workbench.editor.decorations.badges", "workbench.editor.decorations.colors", "workbench.editor.customLabels.enabled",
+         "workbench.editor.customLabels.patterns"]
+
+[[rule]]
+status = "n/a"
+reason = "not yet: single window (no multi-window)"
+comment = "Dragging an editor out of the window opens a new window; rscode is one window."
+match = ["workbench.editor.dragToOpenWindow"]
+
+# ---------------------------------------------------------------------------------------------
 # rscode component map for `next` briefs (first match wins; match is against the group id).
 # ---------------------------------------------------------------------------------------------
 

@@ -51,4 +51,10 @@ palette itself:
 | `:42` / Ctrl+G go to line, columns with tabs, offsets | ready | `go_to_line_with_colon_42_...`, `colon_in_quick_open_...`, `go_to_line_columns_are_visible_columns_...` |
 | key binding labels equal the keymap | ready | `the_keybinding_shown_is_the_one_in_the_keymap` |
 | editor commands (Select All, Find, Save) run from the palette | ready | `editor_commands_run_on_the_active_editor_and_need_one`, `save_from_the_palette_writes_the_file` |
+| a single click previews a file (replaced by the next click); an edit pins it | ready | `single_click_previews_and_the_next_click_replaces_the_preview` (`config/e2e.rs`) |
+| `enablePreview: false` opens every file pinned | ready | `turning_previews_off_opens_every_file_pinned` |
+| `openPositioning: first` puts a new tab at the start | ready | `open_positioning_first_puts_new_tabs_at_the_start` |
+| `limit.enabled` with `value: 2` closes the least recently used tab | ready | `limit_closes_the_least_recently_used_editor_when_exceeded` |
+| `closeOnFileDelete` closes a clean tab whose file is gone and keeps a dirty one; off keeps it | ready | `close_on_file_delete_closes_clean_tabs_and_keeps_dirty_ones`, `close_on_file_delete_off_keeps_the_tab` |
+| focus after closing the active tab follows the MRU list (or the right neighbour) | ready | model test `multiple_editors_closing_picks_next_from_mru_list`, `closing_the_active_tab_focuses_the_mru_editor_or_the_right_neighbour` |
 

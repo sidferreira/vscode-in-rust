@@ -46,3 +46,16 @@ much smaller `target/`).
 normalization. Storage is a simple `Vec<Line>` for now; a faithful piece-tree port can replace
 the internals later, validated by porting upstream's `pieceTreeTextBuffer.test.ts`.
 Developed TDD: tests in `crates/vsr-text/tests/` written before the implementation.
+
+## ADR-0006 — Crate layout (2026-11-09)
+
+From `docs/research/architecture-map.md`: `vsr-base`, `vsr-text`, `vsr-editor`,
+`vsr-editor-view` (native editor rendering, swappable), `vsr-platform` (service traits + DI
+container), `vsr-workbench` (UI shell), `vsr-rpc` (ext-host wire protocol, isolated from UI),
+`vsr-exthost` (future), `vsr-app` (binary). Rule: editor core never depends on platform/UI.
+Crates are created when they get their first real code, not as empty shells.
+
+**Theme for the first window:** Dark Modern colors (`dark_modern.json`), which upstream also
+uses as `COLOR_THEME_DARK_INITIAL_COLORS`. Note v1.147 defaults to "Dark 2026" with the
+`modernUI` layout (activity bar 36px, tabs 32px); we start with the classic metrics
+(48 / 35 / 22) and revisit.

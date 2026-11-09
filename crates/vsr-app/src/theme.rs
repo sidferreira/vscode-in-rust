@@ -247,6 +247,8 @@ impl Theme {
 /// Classic workbench metrics (ADR-0006).
 pub mod metrics {
     pub const TITLE_BAR_HEIGHT: f32 = 35.0;
+    /// Width of the command center search box in the title bar (`window.commandCenter`).
+    pub const COMMAND_CENTER_WIDTH: f32 = 420.0;
     pub const ACTIVITY_BAR_WIDTH: f32 = 48.0;
     pub const SIDEBAR_WIDTH: f32 = 260.0;
     pub const TAB_HEIGHT: f32 = 35.0;

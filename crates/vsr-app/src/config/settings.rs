@@ -437,6 +437,8 @@ pub struct LayoutSettings {
     pub status_bar_visible: bool,
     pub show_tabs: ShowTabs,
     pub tree_indent: f32,
+    /// `window.commandCenter`: the search box in the title bar.
+    pub command_center: bool,
 }
 
 impl LayoutSettings {
@@ -447,6 +449,7 @@ impl LayoutSettings {
             status_bar_visible: c.get_bool("workbench.statusBar.visible").unwrap_or(true),
             show_tabs: c.get_enum("workbench.editor.showTabs").unwrap_or(ShowTabs::Multiple),
             tree_indent: c.get_f64("workbench.tree.indent").unwrap_or(8.0) as f32,
+            command_center: c.get_bool("window.commandCenter").unwrap_or(true),
         }
     }
 }
@@ -648,6 +651,7 @@ mod tests {
             status_bar_visible: true,
             show_tabs: ShowTabs::Multiple,
             tree_indent: 8.0,
+            command_center: true,
         });
     }
 

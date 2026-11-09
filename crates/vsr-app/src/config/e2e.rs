@@ -568,6 +568,28 @@ fn window_title_and_separator_apply_live_to_the_window(cx: &mut TestAppContext) 
     assert_eq!(window_title_of(&wb, cx), format!("Settings - {folder}"));
 }
 
+// ---- window.commandCenter -------------------------------------------------------------------
+
+#[gpui_kit::test]
+fn command_center_is_a_search_box_that_opens_quick_open(cx: &mut TestAppContext) {
+    let (_wb, cx, _f) = workbench(cx, "command-center", None, &[("a.txt", "a")]);
+    let center = bounds(cx, "command-center");
+    assert!(cx.debug_bounds("quick-input-widget").is_none());
+    cx.simulate_click(center.center(), Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("quick-input-widget").is_some(), "a click opens Quick Open");
+}
+
+#[gpui_kit::test]
+fn command_center_off_leaves_the_title_text_only(cx: &mut TestAppContext) {
+    let (_wb, cx, _f) = workbench(cx, "command-center-off", Some(r#"{ "window.commandCenter": false }"#), &[("a.txt", "a")]);
+    assert!(cx.debug_bounds("command-center").is_none());
+    set(cx, "window.commandCenter", json!(true));
+    assert!(cx.debug_bounds("command-center").is_some(), "applies live");
+    set(cx, "window.commandCenter", json!(false));
+    assert!(cx.debug_bounds("command-center").is_none());
+}
+
 #[gpui_kit::test]
 fn window_title_variables_follow_the_active_editor(cx: &mut TestAppContext) {
     let (wb, cx, f) = workbench(cx, "title-vars", None, &[]);

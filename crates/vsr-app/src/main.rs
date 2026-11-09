@@ -514,9 +514,9 @@ impl Workbench {
         vars
     }
 
-    fn title_bar(&self, title: &str) -> impl IntoElement {
+    fn title_bar(&self, title: &str, command_center: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let t = &self.theme;
-        div()
+        let bar = div()
             .flex_none()
             .h(px(m::TITLE_BAR_HEIGHT))
             .w_full()
@@ -528,8 +528,40 @@ impl Workbench {
             .border_color(to_gpui(t.border))
             .text_size(px(13.))
             .text_color(to_gpui(t.sidebar_fg))
-            .window_control_area(WindowControlArea::Drag)
-            .child(title.to_string())
+            .window_control_area(WindowControlArea::Drag);
+        if !command_center {
+            return bar.child(title.to_string());
+        }
+        // `window.commandCenter` (upstream commandCenterControl): a search box that shows the
+        // title; a click opens Quick Open.
+        bar.child(
+            div()
+                .id("command-center")
+                .debug_selector(|| "command-center".to_string())
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(22.))
+                .w(px(m::COMMAND_CENTER_WIDTH))
+                .px(px(8.))
+                .rounded(px(5.))
+                .border_1()
+                .border_color(to_gpui(t.input_border))
+                .bg(to_gpui(t.editor_bg))
+                .cursor_pointer()
+                .child(
+                    div()
+                        .font_family(icons::FAMILY)
+                        .text_size(px(13.))
+                        .text_color(to_gpui(t.description_fg))
+                        .child(icons::glyph(icons::SEARCH)),
+                )
+                .child(div().min_w_0().overflow_hidden().whitespace_nowrap().child(title.to_string()))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| this.show_quick_open(window, cx)),
+                ),
+        )
     }
 
     fn status_bar(&self) -> impl IntoElement {
@@ -1147,7 +1179,7 @@ impl Render for Workbench {
                     }
                 }),
             )
-            .child(self.title_bar(&title))
+            .child(self.title_bar(&title, layout.command_center, cx))
             .child(middle)
             .when(layout.status_bar_visible, |d| d.child(self.status_bar()))
             .children(self.quick.view())

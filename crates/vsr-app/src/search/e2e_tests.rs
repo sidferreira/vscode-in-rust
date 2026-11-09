@@ -16,6 +16,10 @@ use crate::config::AppConfig;
 use crate::{ActivityView, Workbench};
 
 impl SearchView {
+    fn focus_replace(&self, window: &mut gpui_kit::Window, cx: &mut gpui_kit::Context<Self>) {
+        self.replace.update(cx, |s, cx| s.focus(window, cx));
+    }
+
     fn focus_include(&self, window: &mut gpui_kit::Window, cx: &mut gpui_kit::Context<Self>) {
         self.include.update(cx, |s, cx| s.focus(window, cx));
     }
@@ -298,4 +302,190 @@ fn max_results_setting_limits_the_results_and_reruns_the_query(cx: &mut TestAppC
     set_setting(cx, "search.maxResults", json!(2));
     settle(cx);
     assert!(matches!(v.read_with(cx, |v, _| v.status().clone()), Status::Done { limit_hit: true, .. }));
+}
+
+// ---- replace (ADR-0029) ----------------------------------------------------------------------
+
+/// Search for `query`, open the replace row and type `replacement` into it.
+fn search_and_type_replacement(
+    wb: &Entity<Workbench>,
+    cx: &mut VisualTestContext,
+    query: &str,
+    replacement: &str,
+) -> Entity<SearchView> {
+    cx.simulate_keystrokes("cmd-shift-f");
+    let v = view(wb, cx);
+    cx.simulate_input(query);
+    settle(cx);
+    open_replace(&v, cx, replacement);
+    v
+}
+
+/// Open the replace row, focus its input and type `replacement`.
+fn open_replace(v: &Entity<SearchView>, cx: &mut VisualTestContext, replacement: &str) {
+    v.update(cx, |v, cx| v.toggle_replace(cx));
+    cx.run_until_parked();
+    cx.update(|window, app| v.update(app, |v, cx| v.focus_replace(window, cx)));
+    cx.simulate_input(replacement);
+    cx.run_until_parked();
+}
+
+fn click_selector(cx: &mut VisualTestContext, selector: &'static str) {
+    let b = cx.debug_bounds(selector).unwrap_or_else(|| panic!("{selector} is laid out"));
+    cx.simulate_mouse_move(b.center(), None, Default::default());
+    cx.simulate_click(b.center(), Default::default());
+    cx.run_until_parked();
+}
+
+fn read(path: &std::path::Path) -> String {
+    fs::read_to_string(path).unwrap()
+}
+
+#[gpui_kit::test]
+fn replace_all_rewrites_files_on_disk_and_open_editors_undoably(cx: &mut TestAppContext) {
+    let (wb, cx, dir) = start(cx, "replace-all");
+    let a = dir.join("a.txt");
+    wb.update(cx, |wb, cx| {
+        wb.open(&a);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let v = search_and_type_replacement(&wb, cx, "alpha", "omega");
+    assert!(v.read_with(cx, |v, _| v.replace_active()));
+    assert_eq!(v.read_with(cx, |v, cx| v.replace_text(cx)), "omega");
+
+    // Alt+Cmd+Enter asks first; nothing is touched yet.
+    cx.simulate_keystrokes("alt-cmd-enter");
+    cx.run_until_parked();
+    assert_eq!(
+        v.read_with(cx, |v, _| v.confirm.clone()).as_deref(),
+        Some("Replace 4 occurrences across 2 files with 'omega'?")
+    );
+    assert_eq!(read(&a), "alpha beta\nAlpha\n");
+    click_selector(cx, "replace-confirm-ok");
+
+    // Disk: the file that is not open, written directly; the open one, saved from its editor.
+    assert_eq!(read(&dir.join("src/b.rs")), "omega omega\n");
+    assert_eq!(read(&a), "omega beta\nomega\n");
+    wb.read_with(cx, |wb, _| {
+        let e = wb.editors.active_editor().unwrap();
+        assert_eq!(e.buffer().value(), "omega beta\nomega\n");
+        assert!(!e.is_dirty(), "upstream saves the files it replaced in (ReplaceService.replace)");
+    });
+    // The view: replaced files leave the results and the message says what happened.
+    assert_eq!(v.read_with(cx, |v, _| v.results().file_count()), 0);
+    assert_eq!(
+        v.read_with(cx, |v, _| v.after_replace.clone()).as_deref(),
+        Some("Replaced 4 occurrences across 2 files with 'omega'.")
+    );
+
+    // Cmd+Z in the editor undoes the replacement (one undo step) and leaves it dirty.
+    wb.update(cx, |wb, cx| {
+        let e = wb.editors.active_editor().unwrap();
+        wb.editor_view.reveal(e);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    cx.simulate_keystrokes("cmd-z");
+    wb.read_with(cx, |wb, _| {
+        let e = wb.editors.active_editor().unwrap();
+        assert_eq!(e.buffer().value(), "alpha beta\nAlpha\n");
+        assert!(e.is_dirty());
+    });
+    assert_eq!(read(&a), "omega beta\nomega\n", "undo does not write the file");
+}
+
+#[gpui_kit::test]
+fn escape_cancels_the_question_and_replace_is_off_while_results_are_stale(cx: &mut TestAppContext) {
+    let (wb, cx, dir) = start(cx, "replace-cancel");
+    let v = search_and_type_replacement(&wb, cx, "alpha", "omega");
+    cx.simulate_keystrokes("alt-cmd-enter");
+    assert!(v.read_with(cx, |v, _| v.confirm.is_some()));
+    cx.simulate_keystrokes("escape");
+    assert!(v.read_with(cx, |v, _| v.confirm.is_none()));
+    assert_eq!(read(&dir.join("src/b.rs")), "alpha alpha\n");
+
+    // Typing in the query makes the shown results stale: Replace All is off until a search ends.
+    cx.update(|window, app| v.update(app, |v, cx| v.focus_query(window, cx)));
+    cx.simulate_input("x");
+    assert!(!v.read_with(cx, |v, _| v.replace_active()));
+    cx.simulate_keystrokes("alt-cmd-enter");
+    assert!(v.read_with(cx, |v, _| v.confirm.is_none()), "disabled");
+    settle(cx);
+    assert!(!v.read_with(cx, |v, _| v.replace_active()), "no results for `alphax`");
+}
+
+#[gpui_kit::test]
+fn per_match_replace_removes_the_match_and_moves_the_others(cx: &mut TestAppContext) {
+    let (wb, cx, dir) = start(cx, "replace-one");
+    let v = search_and_type_replacement(&wb, cx, "alpha", "OMEGA-LONG");
+    // rows: [a.txt, m, m, b.rs, m, m]. Replace the first match of b.rs by clicking its action.
+    assert_eq!(v.read_with(cx, |v, _| v.rows.len()), 6);
+    click_selector(cx, "sr-replace:4");
+    assert_eq!(read(&dir.join("src/b.rs")), "OMEGA-LONG alpha\n");
+    assert_eq!(files(&v, cx), [("a.txt".into(), 2), ("b.rs".into(), 1)]);
+    // The remaining match of b.rs moved with the text: replacing it hits the right characters.
+    let range = v.read_with(cx, |v, _| v.results().files[1].matches[0].range);
+    assert_eq!((range.start_column, range.end_column), (12, 17));
+    v.update(cx, |v, cx| v.replace_row(Row::Match(1, 0), cx));
+    assert_eq!(read(&dir.join("src/b.rs")), "OMEGA-LONG OMEGA-LONG\n");
+    assert_eq!(files(&v, cx), [("a.txt".into(), 2)]);
+    assert_eq!(read(&dir.join("a.txt")), "alpha beta\nAlpha\n", "other files are untouched");
+
+    // A file's Replace All (no question): rows are now [a.txt, m, m].
+    v.update(cx, |v, cx| v.replace_row(Row::File(0), cx));
+    assert_eq!(read(&dir.join("a.txt")), "OMEGA-LONG beta\nOMEGA-LONG\n");
+    assert_eq!(v.read_with(cx, |v, _| v.results().file_count()), 0);
+}
+
+#[gpui_kit::test]
+fn regex_replace_uses_capture_groups(cx: &mut TestAppContext) {
+    let (wb, cx, dir) = start(cx, "replace-regex");
+    fs::write(dir.join("mail.txt"), "bob@x.org amy@y.org\n").unwrap();
+    cx.simulate_keystrokes("cmd-shift-f");
+    let v = view(&wb, cx);
+    cx.simulate_keystrokes("alt-cmd-r");
+    cx.simulate_input(r"(\w+)@");
+    settle(cx);
+    open_replace(&v, cx, "$1#");
+    // the inline preview
+    let shown: Vec<_> = v.read_with(cx, |v, cx| {
+        v.results().files[0].matches.iter().map(|m| v.replacement_for(m, cx)).collect()
+    });
+    assert_eq!(shown, [Some("bob#".to_string()), Some("amy#".to_string())]);
+    cx.simulate_keystrokes("alt-cmd-enter");
+    click_selector(cx, "replace-confirm-ok");
+    assert_eq!(read(&dir.join("mail.txt")), "bob#x.org amy#y.org\n");
+    assert_eq!(
+        v.read_with(cx, |v, _| v.after_replace.clone()).as_deref(),
+        Some("Replaced 2 occurrences across 1 file with '$1#'.")
+    );
+}
+
+#[gpui_kit::test]
+fn preserve_case_follows_each_matched_text(cx: &mut TestAppContext) {
+    let (wb, cx, dir) = start(cx, "replace-case");
+    fs::write(dir.join("case.txt"), "alpha Alpha ALPHA\n").unwrap();
+    let v = search_and_type_replacement(&wb, cx, "alpha", "beta");
+    cx.simulate_keystrokes("alt-cmd-p");
+    assert!(v.read_with(cx, |v, _| v.preserve_case));
+    let shown: Vec<_> = v.read_with(cx, |v, cx| {
+        let f = v.results().files.iter().find(|f| f.name == "case.txt").unwrap();
+        f.matches.iter().map(|m| v.replacement_for(m, cx).unwrap()).collect()
+    });
+    assert_eq!(shown, ["beta", "Beta", "BETA"]);
+    cx.simulate_keystrokes("alt-cmd-enter");
+    click_selector(cx, "replace-confirm-ok");
+    assert_eq!(read(&dir.join("case.txt")), "beta Beta BETA\n");
+}
+
+#[gpui_kit::test]
+fn replace_keeps_crlf_and_handles_multibyte_text(cx: &mut TestAppContext) {
+    let (wb, cx, dir) = start(cx, "replace-crlf");
+    fs::write(dir.join("w.txt"), "h\u{e9}llo alpha\r\n\u{1F600} alpha \u{65E5}\r\nend\r\n").unwrap();
+    let _v = search_and_type_replacement(&wb, cx, "alpha", "\u{3C9}");
+    cx.simulate_keystrokes("alt-cmd-enter");
+    click_selector(cx, "replace-confirm-ok");
+    let bytes = fs::read(dir.join("w.txt")).unwrap();
+    assert_eq!(String::from_utf8(bytes).unwrap(), "h\u{e9}llo \u{3C9}\r\n\u{1F600} \u{3C9} \u{65E5}\r\nend\r\n");
 }

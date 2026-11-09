@@ -272,10 +272,28 @@ upstream = [
   "src/vs/workbench/contrib/search/browser/searchActionsTopBar.ts",
   "src/vs/workbench/contrib/search/browser/searchActionsNav.ts",
   "src/vs/workbench/contrib/search/browser/searchTreeModel/match.ts",
+  "src/vs/workbench/contrib/search/browser/searchActionsRemoveReplace.ts",
 ]
 rust = ["crates/vsr-app/src/search_view.rs", "crates/vsr-app/src/search/model.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "Search view on gpui (ADR-0023): query box with toggles, files to include/exclude, streaming virtualised list view, collapse/clear/refresh actions. Not ported: replace, search editor, tree layout, open-editors/changed-files scope, history, keyboard navigation of results, context menus, file icon theme. search/e2e_tests.rs is ours."
+notes = "Search view on gpui (ADR-0023): query box with toggles, files to include/exclude, streaming virtualised list view, collapse/clear/refresh actions. Replace (ADR-0029): replace input, Preserve Case, Replace All with an inline confirm bar, inline replacement preview, per-match / per-file Replace. Not ported: search editor, tree layout, open-editors/changed-files scope, history, keyboard navigation of results (so no Shift+Cmd+1 on a focused row), context menus, Replace in Files (Shift+Cmd+H), multi-line replace input, file icon theme. search/e2e_tests.rs is ours."
+
+[[port]]
+id = "search-replace"
+status = "partial"
+upstream = [
+  "src/vs/workbench/services/search/common/replace.ts",
+  "src/vs/workbench/services/search/test/common/replace.test.ts",
+  "src/vs/workbench/contrib/search/browser/replaceService.ts",
+  "src/vs/workbench/contrib/search/test/browser/searchModel.test.ts",
+]
+rust = [
+  "crates/vsr-find/src/search_replace.rs",
+  "crates/vsr-find/tests/upstream_search_replace.rs",
+  "crates/vsr-app/src/search/replace.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Replace in the Search view (ADR-0029): the replace string of one match (ReplacePattern of services/search/common/replace.ts: string-level parse, Preserve Case on the whole template, case ops, JS $-expansion), and applying it (replaceService: open editors through vsr-editor then saved, other files on disk). 8 of 8 replace.test.ts tests ported (the look-ahead patterns written without look-ahead) and the replace-string part of SearchModel's getReplaceString test. Not ported: replace preview editor (openReplacePreview), notebook cells, the rest of searchModel.test.ts."
 
 [[port]]
 id = "quickinput-fuzzy-scorer"

@@ -97,6 +97,15 @@ pub struct Theme {
     pub list_active_selection_bg: Rgba8,      // list.activeSelectionBackground (registry dark)
     pub list_active_selection_fg: Rgba8,      // list.activeSelectionForeground (registry dark)
     pub find_match_highlight_bg: Rgba8,       // editor.findMatchHighlightBackground (registry dark)
+    pub diff_removed_text_bg: Rgba8,          // diffEditor.removedTextBackground (registry dark): replaced text in Search
+    pub diff_inserted_text_bg: Rgba8,         // diffEditor.insertedTextBackground (registry dark): replacement in Search
+    pub diff_inserted_line_bg: Rgba8,         // diffEditor.insertedLineBackground (registry dark): replacement border
+    pub button_bg: Rgba8,                     // button.background (dark_modern)
+    pub button_fg: Rgba8,                     // button.foreground (dark_modern)
+    pub button_hover_bg: Rgba8,               // button.hoverBackground (dark_modern)
+    pub button_secondary_fg: Rgba8,           // button.secondaryForeground (dark_modern)
+    pub button_secondary_hover_bg: Rgba8,     // button.secondaryHoverBackground (dark_modern)
+    pub button_border: Rgba8,                 // button.border (dark_modern)
     pub search_results_info_fg: Rgba8,        // search.resultsInfoForeground (foreground @ 65%)
     pub badge_bg: Rgba8,                      // badge.background (dark_modern)
     pub badge_fg: Rgba8,                      // badge.foreground (dark_modern)
@@ -177,6 +186,15 @@ impl Theme {
             list_active_selection_bg: c("#04395E"),
             list_active_selection_fg: c("#FFFFFF"),
             find_match_highlight_bg: c("#EA5C0055"),
+            diff_removed_text_bg: c("#FF000033"),
+            diff_inserted_text_bg: c("#9CCC2C33"),
+            diff_inserted_line_bg: c("#9BB95533"),
+            button_bg: c("#0078D4"),
+            button_fg: c("#FFFFFF"),
+            button_hover_bg: c("#026EC1"),
+            button_secondary_fg: c("#CCCCCC"),
+            button_secondary_hover_bg: c("#2B2B2B"),
+            button_border: c("#FFFFFF1A"),
             search_results_info_fg: c("#CCCCCCA6"),
             badge_bg: c("#616161"),
             badge_fg: c("#F8F8F8"),

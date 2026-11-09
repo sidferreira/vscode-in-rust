@@ -76,6 +76,19 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
     ),
     ("Saving", &["files.insertFinalNewline", "files.trimTrailingWhitespace"]),
     (
+        "Files",
+        &[
+            "files.trimFinalNewlines",
+            "files.eol",
+            "files.autoSave",
+            "files.autoSaveDelay",
+            "files.autoSaveWorkspaceFilesOnly",
+            "files.readonlyInclude",
+            "files.readonlyExclude",
+            "files.readonlyFromPermissions",
+        ],
+    ),
+    (
         "Search",
         &[
             "search.exclude",
@@ -173,6 +186,9 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- `workbench.editor.labelFormat: long` shows the directory's absolute path; `default` adds the directory (relative to the folder) only to tabs that share a name.\n");
     out.push_str("- `workbench.editor.highlightModifiedTabs` always uses the focused-group colours (`tab.activeModifiedBorder`, `tab.inactiveModifiedBorder`).\n");
     out.push_str("- `workbench.editor.closeOnFileDelete` checks that files exist once a second (no file watcher yet). Editors with unsaved changes stay open.\n");
+    out.push_str("- `files.eol` applies to a text that has no line break yet (an opened one-line file). A file with line breaks keeps its own. There are no new or untitled files in rscode yet, so the setting does not reach them.\n");
+    out.push_str("- `files.autoSave: onFocusChange` saves when the active editor changes and when the window loses focus. Focus moving between the editor and other views does not save (no focus tracking of the editor surface yet). `autoSaveWhenNoErrors` is not wired (no diagnostics).\n");
+    out.push_str("- `files.readonly*` and the toggle `workbench.action.files.toggleActiveEditorReadonlyInSession` refuse edits in the editor, in Find/Replace and in Search's Replace. A read-only tab shows a lock. Saving a read-only file is still allowed.\n");
     out
 }
 

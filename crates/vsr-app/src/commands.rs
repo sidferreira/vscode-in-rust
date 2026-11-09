@@ -33,7 +33,7 @@ use crate::Quit;
 
 actions!(
     rscode,
-    [ShowCommands, ToggleSidebar, ShowExplorer, GoToLine, ClearCommandHistory]
+    [ShowCommands, ToggleSidebar, ShowExplorer, GoToLine, ClearCommandHistory, ToggleReadonlyInSession]
 );
 
 /// Where a command's action must be dispatched from.
@@ -169,6 +169,13 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
     r.register(
         D::new("workbench.action.files.save", "Save").category("File").f1().precondition(ACTIVE_EDITOR),
         action(Run(Command::Save), Editor),
+    );
+    r.register(
+        D::new("workbench.action.files.toggleActiveEditorReadonlyInSession", "Toggle Active Editor Read-only in Session")
+            .category("File")
+            .f1()
+            .precondition(ACTIVE_EDITOR),
+        action(ToggleReadonlyInSession, Editor),
     );
     r.register(
         D::new("workbench.action.closeActiveEditor", "Close Editor").category("View").f1().precondition(ACTIVE_EDITOR),

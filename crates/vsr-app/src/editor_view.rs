@@ -45,7 +45,7 @@ use crate::config::settings::{
     CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers, OccurrencesHighlight,
 };
 use crate::keymap::{self, BINDINGS, Command};
-use crate::model::{Editors, OpenEditor, SaveTransforms};
+use crate::model::{Editors, OpenEditor};
 use crate::text_layout::{column_for_x, expand_tabs, expanded_byte_for_column, visual_column};
 use crate::theme::Theme;
 use crate::ui::to_gpui;
@@ -314,14 +314,13 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
         }
         _ => {
             let Some(e) = editors.open.get_mut(i) else { return };
+            if e.is_read_only() && keymap::is_edit(cmd) {
+                return; // `files.readonly*` (ADR-0034): the text cannot change
+            }
             let page = view.rows_per_page();
             match cmd {
                 Command::Save => {
-                    let transforms = SaveTransforms {
-                        trim_trailing_whitespace: view.cfg.trim_trailing_whitespace,
-                        insert_final_newline: view.cfg.insert_final_newline,
-                    };
-                    if let Err(err) = e.save_with(transforms) {
+                    if let Err(err) = e.save_with(view.cfg.save_transforms(false)) {
                         eprintln!("rscode: save {}: {err}", e.path.display());
                     }
                 }
@@ -487,6 +486,9 @@ impl<T: EditorHost> EditorInput<T> {
         cx: &mut App,
     ) {
         let changed = self.with(cx, |e, view| {
+            if e.is_read_only() {
+                return;
+            }
             let buf = e.buffer();
             let range = range
                 .or_else(|| view.marked.clone())

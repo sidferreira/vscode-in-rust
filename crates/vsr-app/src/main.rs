@@ -5,6 +5,7 @@
 //!
 //! upstream: src/vs/workbench/browser/layout.ts @ 50e1350fc78d
 
+mod autosave; // files.autoSave triggers (ADR-0034)
 mod commands; // command registry + Command Palette (ADR-0030)
 mod config;
 mod editor_view;
@@ -27,6 +28,7 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+use config::files::ReadonlyRules;
 use config::glob::ExcludeMatcher;
 use config::settings::{
     ActivityBarLocation, EditorGroupSettings, EditorSettings, LayoutSettings, OpenSource, ShowTabs, SideBarLocation,
@@ -150,6 +152,8 @@ struct Workbench {
     quick: quick_open::QuickOpenState,
     /// Root focus handle so workbench-level actions (Cmd+,) dispatch even before anything is focused.
     focus: Option<FocusHandle>,
+    /// `files.autoSave` timers and triggers (ADR-0034).
+    auto_save: autosave::AutoSaveState,
     branch: Option<String>,
     error: Option<String>,
 }
@@ -166,6 +170,8 @@ impl Workbench {
         let editors = Editors {
             options: editor_settings.editor_options(),
             settings: EditorGroupSettings::from_configuration(configuration),
+            default_eol: editor_settings.eol,
+            read_only: ReadonlyRules::from_configuration(configuration, &root),
             ..Editors::default()
         };
         let mut wb = Self {
@@ -188,6 +194,7 @@ impl Workbench {
             search: None,
             quick: Default::default(),
             focus: None,
+            auto_save: Default::default(),
             branch: git_branch(&root),
             error: None,
         };
@@ -242,6 +249,8 @@ impl Workbench {
             .then(|| ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null)));
         let new_settings = EditorSettings::from_configuration(configuration);
         self.editors.apply_settings(EditorGroupSettings::from_configuration(configuration));
+        self.editors.default_eol = new_settings.eol;
+        self.editors.apply_read_only(ReadonlyRules::from_configuration(configuration, &self.root));
 
         let old_options = self.editor_settings.editor_options();
         if new_settings.font_families != self.editor_settings.font_families {
@@ -285,6 +294,16 @@ impl Workbench {
         if let Err(e) = self.editors.open_with(path, options) {
             self.error = Some(format!("{}: {e}", path.display()));
         }
+    }
+
+    /// `workbench.action.files.toggleActiveEditorReadonlyInSession`: flips the active editor's
+    /// read-only state for this session, whatever the settings say.
+    fn toggle_read_only_in_session(&mut self, cx: &mut Context<Self>) {
+        if let Some(i) = self.editors.active {
+            let now = self.editors.open[i].is_read_only();
+            self.editors.set_session_read_only(i, Some(!now));
+        }
+        cx.notify();
     }
 
     // ---- Search view (ADR-0023) ------------------------------------------------------------
@@ -935,6 +954,10 @@ impl Workbench {
                         .w(px(1.))
                         .bg(to_gpui(t.border)),
                 )
+                .when(self.editors.open[i].is_read_only(), |d| {
+                    // `files.readonly*` (ADR-0034): a lock in front of the name, as upstream.
+                    d.child(div().font_family(icons::FAMILY).text_size(px(12.)).child(icons::glyph(icons::LOCK)))
+                })
                 .child(labels[i].title.clone())
                 .children(labels[i].description.clone().map(|d| div().text_color(to_gpui(t.description_fg)).child(d)))
                 .child(close)
@@ -1001,6 +1024,7 @@ impl Render for Workbench {
         // A preview that was edited (it is dirty now) is pinned. Editing re-renders the tab strip,
         // so this runs on the frame that shows the dirty state.
         self.editors.pin_dirty_preview();
+        self.auto_save_tick(window, cx);
         let focus = match &self.focus {
             Some(f) => f.clone(),
             None => {
@@ -1084,6 +1108,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(cx.listener(|this, _: &commands::ShowExplorer, _, cx| this.show_explorer(cx)))
             .on_action(cx.listener(|this, _: &commands::ClearCommandHistory, _, cx| this.clear_command_history(cx)))
+            .on_action(cx.listener(|this, _: &commands::ToggleReadonlyInSession, _, cx| this.toggle_read_only_in_session(cx)))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {

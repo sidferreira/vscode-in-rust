@@ -818,3 +818,44 @@ group, so the tab model is upstream's `EditorGroupModel` for that group.
 - **Tests.** Seven upstream `editorGroupModel.test.ts` cases are ported in `model.rs` (`editor-group-model`
   in `upstream/ports.toml`); the rest are model tests, and `config/e2e.rs` drives the workbench headless
   (preview replaced and pinned by an edit, `enablePreview` off, `openPositioning`, the limit, deleted files).
+
+## ADR-0034 — Files settings: save participants, auto save, read-only (2026-11-09)
+
+The `files.*` group (`docs/settings-migration.md`). Wired through the ADR-0022 path: the typed view is
+`EditorSettings` (`config/settings.rs`, with `save_transforms(auto_save)`), the pure rules are in
+`config/files.rs`, and the timers and triggers are in `autosave.rs` (a child of the workbench).
+
+- **Save participants, upstream order** (`saveParticipants.ts`): trim trailing whitespace, insert the
+  final newline, trim the final newlines. The same list runs on an auto save (upstream runs these
+  participants for every save reason; only format-on-save and code actions skip auto saves). On an auto
+  save, the lines the caret is on keep their whitespace and the final newlines after the caret line stay
+  (`save_ops.rs`, `cursors`).
+- **`files.eol`.** Upstream uses it as the `DefaultEndOfLine` of a text with no line break, so it applies
+  to a one-line file as it opens, and to new files. A file with line breaks keeps its own. rscode has no
+  new or untitled files yet, so only the open path is covered. `auto` is LF on macOS.
+- **Auto save** (`files.autoSave`, `autoSaveDelay`, `autoSaveWorkspaceFilesOnly`). The editor notifies the
+  workbench on every edit and the workbench re-renders, so the render compares each dirty editor's content
+  version with the version its timer started for. A change restarts the timer; dropping the old `Task`
+  cancels it. This avoids a second event path. `onFocusChange` saves the editor being left when the
+  active editor changes, and every dirty editor when the window loses focus; `onWindowChange` saves every
+  dirty editor on the window change. Focus moving between the editor and other views does not save (the
+  editor surface has no blur signal yet). Read-only and (with the workspace setting) out-of-folder files
+  are skipped.
+- **Read-only** (`files.readonlyInclude`, `readonlyExclude`, `readonlyFromPermissions`). Upstream's
+  `isReadonly` order: session override, then the include glob (the exclude glob wins), then the permission
+  check. Globs match the path relative to the opened folder (`config/glob.rs`). `readonlyFromPermissions`
+  reads the owner write bit (upstream's "write locked" check); the disk-level `readonly` flag is not
+  separately mirrored. Read-only editors refuse typing, Enter, paste, cut, undo and redo, Find/Replace in
+  the editor, and Search's Replace (open or not); saving is still allowed. A read-only tab has a lock.
+  `workbench.action.files.toggleActiveEditorReadonlyInSession` sets a session override (in the command
+  registry, ADR-0030).
+- **Blocked** (`upstream/settings.toml`, status `blocked`, reason starts "needs"): encodings
+  (`encoding`, `candidateGuessEncodings`, `autoGuessEncoding`), language ids (`associations`,
+  `defaultLanguage`), diagnostics (`autoSaveWhenNoErrors`), tokens (`trimTrailingWhitespaceInRegexAndStrings`),
+  file watcher (`watcherExclude`, `watcherInclude`, `saveConflictResolution`), session restore (`hotExit`,
+  `restoreUndoStack`), explorer delete (`enableTrash`), file dialogs (`dialog.defaultPath`,
+  `simpleDialog.enable`), file participants (`participants.timeout`), refactorings (`refactoring.autoSave`).
+- **Tests.** Pure rules: `config/files.rs`, `model.rs` (`save_transforms` undo), `vsr-editor` save ops.
+  Headless E2E: `config/e2e_files.rs` (15 scenarios, `tests/e2e-scenarios/files.md`). The window trigger
+  needs the test window to be active first (`window.activate_window()`), since a trigger is an
+  active-to-inactive change.

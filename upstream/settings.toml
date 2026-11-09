@@ -232,6 +232,77 @@ comment = "Minimap section headers read `#region` / MARK comments; needs folding
 match = ["editor.minimap.showRegionSectionHeaders", "editor.minimap.showMarkSectionHeaders", "editor.minimap.markSectionHeaderRegex",
          "editor.minimap.sectionHeaderFontSize", "editor.minimap.sectionHeaderLetterSpacing"]
 
+# ---------------------------------------------------------------------------------------------
+# files.* (ADR-0034). The files settings that are wired live in config/wired.rs. The ones below are
+# status `blocked`: each needs a feature rscode does not have yet. Delete the rule when the feature
+# lands. The reasons say what is missing.
+
+[[rule]]
+status = "blocked"
+reason = "needs a language registry (language ids for files and new files)"
+comment = "files.associations maps globs to language ids and defaultLanguage names the language of a new file. rscode has no language registry, so there is no language id to assign."
+match = ["files.associations", "files.defaultLanguage"]
+
+[[rule]]
+status = "blocked"
+reason = "needs text encodings other than UTF-8 (detection, decoding on open, encoding on save)"
+comment = "rscode reads and writes UTF-8 (invalid bytes are replaced on read). Encoding and the guess settings need decoding on open and encoding on save; encoding_rs is already in the dependency tree."
+match = ["files.encoding", "files.candidateGuessEncodings", "files.autoGuessEncoding"]
+
+[[rule]]
+status = "blocked"
+reason = "needs diagnostics (problems reported by language features)"
+comment = "autoSaveWhenNoErrors skips the auto save of a file with errors in it. rscode has no diagnostics yet (the status bar shows 0 errors)."
+match = ["files.autoSaveWhenNoErrors"]
+
+[[rule]]
+status = "blocked"
+reason = "needs language tokens (string and regex ranges)"
+comment = "Upstream keeps trailing whitespace inside multi-line strings and regular expressions when this is on. rscode trims every line, as with trimTrailingWhitespace alone, until there is a tokenizer."
+match = ["files.trimTrailingWhitespaceInRegexAndStrings"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a file watcher (changes on disk to files and folders)"
+comment = "watcherExclude and watcherInclude configure what the watcher sees. rscode polls only settings.json and the existence of open files (ADR-0022, ADR-0033)."
+match = ["files.watcherExclude", "files.watcherInclude"]
+
+[[rule]]
+status = "blocked"
+reason = "needs file watching (detect a file changed on disk before saving)"
+comment = "saveConflictResolution decides what a save does when the file changed on disk after it was opened. rscode does not compare the file with the buffer before writing."
+match = ["files.saveConflictResolution"]
+
+[[rule]]
+status = "blocked"
+reason = "needs session restore (open editors and their state across runs)"
+comment = "hotExit keeps unsaved text across runs (backups) and restoreUndoStack keeps the undo history. Both need the same session store as workbench.editor.restoreEditors."
+match = ["files.hotExit", "files.restoreUndoStack"]
+
+[[rule]]
+status = "blocked"
+reason = "needs explorer file operations (delete, to the Trash)"
+comment = "enableTrash moves deleted files to the Trash. The explorer has no delete yet."
+match = ["files.enableTrash"]
+
+[[rule]]
+status = "blocked"
+reason = "needs file dialogs (open folder, save as)"
+comment = "dialog.defaultPath sets where file dialogs open, and simpleDialog.enable picks the in-app dialog over the native one. rscode has no file dialog yet."
+match = ["files.dialog.defaultPath", "files.simpleDialog.enable"]
+
+[[rule]]
+status = "blocked"
+reason = "needs file participants (create, rename, delete) from the extension host"
+comment = "The timeout for extension file participants. No create, rename or delete runs participants yet (ADR-0020)."
+match = ["files.participants.timeout"]
+
+[[rule]]
+status = "blocked"
+reason = "needs refactoring edits from language features (rename, code actions)"
+comment = "Saves the files that a refactoring changed. rscode has no refactorings (no language features)."
+match = ["files.refactoring.autoSave"]
+
 [[component]]
 match = ["editor", "editor.*", "diffEditor*", "multiDiffEditor*"]
 path = "crates/vsr-app/src/editor_view.rs (and crates/vsr-editor / vsr-text for behaviour)"

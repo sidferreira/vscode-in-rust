@@ -11,6 +11,10 @@ use vsr_editor::EditorOptions;
 use vsr_search::SearchSettings;
 use vsr_search::settings::{CollapseResults, ExcludeMap};
 use vsr_settings::Configuration;
+use vsr_text::DefaultEol;
+
+use super::files::AutoSaveMode;
+use crate::model::SaveTransforms;
 
 use super::minimap::MinimapSettings;
 use crate::theme::{Rgba8, hex};
@@ -326,6 +330,14 @@ pub struct EditorSettings {
     pub scroll_beyond_last_line: bool,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
+    /// `files.trimFinalNewlines`.
+    pub trim_final_newlines: bool,
+    /// `files.eol`: the line break of a file that has none yet (ADR-0034). `auto` is LF on macOS.
+    pub eol: DefaultEol,
+    /// `files.autoSave`, `files.autoSaveDelay` (ms) and `files.autoSaveWorkspaceFilesOnly`.
+    pub auto_save: AutoSaveMode,
+    pub auto_save_delay_ms: u64,
+    pub auto_save_workspace_only: bool,
     pub find: FindSettings,
     pub minimap: MinimapSettings,
 }
@@ -360,6 +372,11 @@ impl Default for EditorSettings {
             scroll_beyond_last_line: true,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
+            trim_final_newlines: false,
+            eol: DefaultEol::Lf,
+            auto_save: AutoSaveMode::Off,
+            auto_save_delay_ms: 1000,
+            auto_save_workspace_only: false,
             find: FindSettings::default(),
             minimap: MinimapSettings::default(),
         }
@@ -367,6 +384,16 @@ impl Default for EditorSettings {
 }
 
 impl EditorSettings {
+    /// The save participants these settings ask for (ADR-0034). `auto_save` is the save reason.
+    pub fn save_transforms(&self, auto_save: bool) -> SaveTransforms {
+        SaveTransforms {
+            trim_trailing_whitespace: self.trim_trailing_whitespace,
+            insert_final_newline: self.insert_final_newline,
+            trim_final_newlines: self.trim_final_newlines,
+            auto_save,
+        }
+    }
+
     pub fn from_configuration(c: &Configuration) -> Self {
         let font_size = c.get_f64("editor.fontSize").unwrap_or(12.0);
         let families = parse_font_families(c.get_str("editor.fontFamily").unwrap_or_default());
@@ -397,6 +424,14 @@ impl EditorSettings {
             scroll_beyond_last_line: c.get_bool("editor.scrollBeyondLastLine").unwrap_or(true),
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
+            trim_final_newlines: c.get_bool("files.trimFinalNewlines").unwrap_or(false),
+            eol: match c.get_str("files.eol") {
+                Some("\r\n") => DefaultEol::CrLf,
+                _ => DefaultEol::Lf,
+            },
+            auto_save: AutoSaveMode::parse(c.get_str("files.autoSave").unwrap_or("off")),
+            auto_save_delay_ms: c.get_f64("files.autoSaveDelay").unwrap_or(1000.0).max(0.0) as u64,
+            auto_save_workspace_only: c.get_bool("files.autoSaveWorkspaceFilesOnly").unwrap_or(false),
             find: FindSettings::from_configuration(c),
             minimap: MinimapSettings::from_configuration(c),
         }

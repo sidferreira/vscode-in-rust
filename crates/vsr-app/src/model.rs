@@ -14,9 +14,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use vsr_editor::{Editor, EditorOptions};
-use vsr_text::{DefaultEol, Eol, TextBuffer};
+use vsr_text::{DefaultEol, Eol, Position, TextBuffer};
 
 use crate::config::glob::ExcludeMatcher;
+use crate::config::files::ReadonlyRules;
 use crate::config::settings::{EditorGroupSettings, LabelFormat, OpenPositioning};
 
 /// Editor options before any setting is read (the macOS VS Code defaults: `editor.tabSize` 4,
@@ -64,10 +65,17 @@ pub struct OpenEditor {
     pub path: PathBuf,
     pub title: String,
     pub editor: Editor,
+    /// Read-only by `files.readonlyInclude` / `readonlyExclude` / `readonlyFromPermissions`.
+    config_read_only: bool,
+    /// Set for this session by the toggle commands; wins over the settings (upstream
+    /// `sessionReadonlyOverrides`).
+    session_read_only: Option<bool>,
 }
 
 impl OpenEditor {
-    pub fn from_text(path: &Path, text: &str, options: EditorOptions) -> Self {
+    /// An editor for `text`. `default_eol` is the line break of a text with no line break yet
+    /// (`files.eol`); a text that has line breaks keeps its own.
+    pub fn from_text(path: &Path, text: &str, options: EditorOptions, default_eol: DefaultEol, config_read_only: bool) -> Self {
         let title = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -75,8 +83,15 @@ impl OpenEditor {
         Self {
             path: path.to_path_buf(),
             title,
-            editor: Editor::new(TextBuffer::new(text, DefaultEol::Lf, true), options),
+            editor: Editor::new(TextBuffer::new(text, default_eol, true), options),
+            config_read_only,
+            session_read_only: None,
         }
+    }
+
+    /// Whether edits are refused: the session override, else the settings.
+    pub fn is_read_only(&self) -> bool {
+        self.session_read_only.unwrap_or(self.config_read_only)
     }
 
     pub fn buffer(&self) -> &TextBuffer {
@@ -100,15 +115,20 @@ impl OpenEditor {
         self.save_with(SaveTransforms::default())
     }
 
-    /// Apply the save transforms (as undoable edits: trim trailing whitespace, then insert the
-    /// final newline, like upstream's save participants), write the buffer to disk (`value()`
-    /// already uses the file's EOL) and mark it clean.
+    /// Apply the save transforms (as undoable edits, in upstream's participant order: trim
+    /// trailing whitespace, insert the final newline, trim the final newlines), write the buffer
+    /// to disk (`value()` already uses the file's EOL) and mark it clean. An auto save leaves the
+    /// lines the caret is on alone, as upstream does.
     pub fn save_with(&mut self, transforms: SaveTransforms) -> io::Result<()> {
+        let cursors: Vec<Position> = if transforms.auto_save { vec![self.editor.selection().active] } else { Vec::new() };
         if transforms.trim_trailing_whitespace {
-            self.editor.trim_trailing_whitespace(&[]);
+            self.editor.trim_trailing_whitespace(&cursors);
         }
         if transforms.insert_final_newline {
             self.editor.insert_final_newline();
+        }
+        if transforms.trim_final_newlines {
+            self.editor.trim_final_newlines(&cursors);
         }
         fs::write(&self.path, self.editor.buffer().value())?;
         self.editor.mark_saved();
@@ -116,11 +136,14 @@ impl OpenEditor {
     }
 }
 
-/// `files.trimTrailingWhitespace` and `files.insertFinalNewline`.
+/// The `files.*` save participants (`files.trimTrailingWhitespace`, `files.insertFinalNewline`,
+/// `files.trimFinalNewlines`), and whether the save is an auto save (ADR-0034).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SaveTransforms {
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
+    pub trim_final_newlines: bool,
+    pub auto_save: bool,
 }
 
 /// How an editor open places its editor (upstream `IEditorOpenOptions`, the parts rscode uses).
@@ -160,6 +183,10 @@ pub struct Editors {
     pub preview: Option<PathBuf>,
     /// The `workbench.editor.*` settings that place, pin, close and label editors.
     pub settings: EditorGroupSettings,
+    /// `files.eol`: the line break of a new text with none.
+    pub default_eol: DefaultEol,
+    /// `files.readonly*`: which files open read-only.
+    pub read_only: ReadonlyRules,
 }
 
 impl Default for Editors {
@@ -172,6 +199,8 @@ impl Default for Editors {
             mru: Vec::new(),
             preview: None,
             settings: EditorGroupSettings::default(),
+            default_eol: DefaultEol::Lf,
+            read_only: ReadonlyRules::default(),
         }
     }
 }
@@ -202,7 +231,7 @@ impl Editors {
         }
         let bytes = fs::read(path)?;
         let text = String::from_utf8_lossy(&bytes);
-        let editor = OpenEditor::from_text(path, &text, self.options);
+        let editor = OpenEditor::from_text(path, &text, self.options, self.default_eol, self.read_only.is_read_only(path));
 
         let target = self.target_index();
         let preview_index = self.preview.as_deref().and_then(|p| self.index_of(p));
@@ -334,6 +363,22 @@ impl Editors {
         let next = (a as isize + delta).clamp(0, last.max(0)) as usize;
         if next != a {
             self.activate(next);
+        }
+    }
+
+    /// Applies `files.readonly*` to the open editors (a session override is kept).
+    pub fn apply_read_only(&mut self, rules: ReadonlyRules) {
+        for e in &mut self.open {
+            e.config_read_only = rules.is_read_only(&e.path);
+        }
+        self.read_only = rules;
+    }
+
+    /// Sets (`Some`) or clears (`None`) the session override of the editor at `index`
+    /// (`workbench.action.files.toggleActiveEditorReadonlyInSession` and its siblings).
+    pub fn set_session_read_only(&mut self, index: usize, value: Option<bool>) {
+        if let Some(e) = self.open.get_mut(index) {
+            e.session_read_only = value;
         }
     }
 
@@ -487,7 +532,7 @@ mod tests {
         let mut ed = Editors::default();
         ed.open_file(&dir.join("t.txt")).unwrap();
         let e = &mut ed.open[0];
-        e.save_with(SaveTransforms { trim_trailing_whitespace: true, insert_final_newline: true }).unwrap();
+        e.save_with(SaveTransforms { trim_trailing_whitespace: true, insert_final_newline: true, ..Default::default() }).unwrap();
         assert_eq!(fs::read_to_string(dir.join("t.txt")).unwrap(), "a\nb\n");
         assert!(!e.is_dirty());
         e.editor.undo();

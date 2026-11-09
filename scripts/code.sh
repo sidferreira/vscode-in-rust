@@ -55,7 +55,33 @@ m = json.load(sys.stdin)
 app = next(p for p in m["packages"] if p["name"] == "vsr-app")
 b = next(t["name"] for t in app["targets"] if "bin" in t["kind"])
 print(m["target_directory"], b)')
-bin="$target_dir/$profile/$bin_name"
+raw_bin="$target_dir/$profile/$bin_name"
+
+# Wrap the binary in a minimal .app bundle so macOS shows the rscode name and
+# icon in the Dock and app switcher (a bare executable gets the generic icon).
+app="$target_dir/$profile/rscode.app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp -f "$raw_bin" "$app/Contents/MacOS/$bin_name"
+icon_key=""
+if [[ -f "$REPO/resources/darwin/rscode.icns" ]]; then
+  cp -f "$REPO/resources/darwin/rscode.icns" "$app/Contents/Resources/rscode.icns"
+  icon_key="<key>CFBundleIconFile</key><string>rscode</string>"
+fi
+cat >"$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>rscode</string>
+  <key>CFBundleDisplayName</key><string>rscode</string>
+  <key>CFBundleIdentifier</key><string>dev.rscode.app</string>
+  <key>CFBundleExecutable</key><string>$bin_name</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  $icon_key
+</dict></plist>
+PLIST
+bin="$app/Contents/MacOS/$bin_name"
 
 if [[ $wait -eq 1 ]]; then
   exec "$bin" "${args[@]}"

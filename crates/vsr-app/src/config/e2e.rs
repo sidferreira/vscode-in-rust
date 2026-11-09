@@ -577,9 +577,18 @@ fn startup_editor_readme_opens_the_readme_and_the_default_opens_nothing(cx: &mut
 }
 
 #[gpui_kit::test]
-fn startup_editor_default_is_the_welcome_page_which_rscode_does_not_have_yet(cx: &mut TestAppContext) {
+fn startup_editor_default_is_the_welcome_page(cx: &mut TestAppContext) {
     let (wb, cx, _f) = workbench(cx, "startup-default", None, &[("README.md", "# hi")]);
-    assert!(tab_titles(&wb, cx).is_empty(), "no README is opened: there is no Welcome page to open instead");
+    assert!(tab_titles(&wb, cx).is_empty(), "no README is opened");
+    assert!(wb.read_with(cx, |wb, _| wb.welcome_showing()), "the Welcome page is");
+    assert!(cx.debug_bounds("welcome-page").is_some());
+}
+
+#[gpui_kit::test]
+fn startup_editor_none_opens_nothing(cx: &mut TestAppContext) {
+    let (wb, cx, _f) = workbench(cx, "startup-none", Some(r#"{ "workbench.startupEditor": "none" }"#), &[("README.md", "# hi")]);
+    assert!(tab_titles(&wb, cx).is_empty());
+    assert!(!wb.read_with(cx, |wb, _| wb.welcome_open));
 }
 
 // ---- window.zoomLevel and the zoom commands -------------------------------------------------

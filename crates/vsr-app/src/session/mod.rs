@@ -3,6 +3,8 @@
 //! (`runtime`: restore, debounced saving, the quit path).
 
 pub mod backup;
+#[cfg(test)]
+mod e2e_tests;
 pub mod runtime;
 pub mod settings;
 pub mod state;

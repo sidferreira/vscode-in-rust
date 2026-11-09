@@ -27,7 +27,7 @@ regression options), `UPSTREAM.md` (sync workflow), `DECISIONS.md`.
   `tests/e2e-scenarios/<area>.md` lists every scenario with a status: `ready` (the current app
   supports it), `pending` (needs a near-term feature such as editing, quick open or the settings
   editor), or `blocked-on-feature <x>` (far away, such as extensions, terminal, debug, chat).
-  Only one scenario is `ready` today (workbench Launch).
+  Current counts per area are on the progress page (`docs/progress.html`, regenerated with `scripts/progress-report`).
 - **Headless E2E works** (tier 2). `crates/vsr-app` has `gpui = { package = "gpui-pre", version = "=0.3.11", features = ["test-support"] }`
   as a dev-dependency, so `#[gpui::test] fn t(cx: &mut TestAppContext)` runs a real `Workbench` in a
   headless window with real key dispatch, key contexts, bindings, the platform input handler and layout.

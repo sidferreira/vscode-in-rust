@@ -26,7 +26,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use gpui_kit::Global;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 /// 64-bit FNV-1a. Stable across Rust versions and platforms, which an on-disk key needs
@@ -91,15 +90,6 @@ pub enum Loaded<T> {
     Corrupt { kept: Option<PathBuf>, error: String },
 }
 
-impl<T> Loaded<T> {
-    pub fn value(self) -> Option<T> {
-        match self {
-            Loaded::Value(v) => Some(v),
-            _ => None,
-        }
-    }
-}
-
 /// Reads and parses `path`; a file that is not valid JSON of the expected shape is quarantined.
 pub fn load_json<T: DeserializeOwned>(path: &Path) -> Loaded<T> {
     let bytes = match fs::read(path) {
@@ -111,11 +101,6 @@ pub fn load_json<T: DeserializeOwned>(path: &Path) -> Loaded<T> {
         Ok(v) => Loaded::Value(v),
         Err(e) => Loaded::Corrupt { kept: quarantine(path).ok(), error: e.to_string() },
     }
-}
-
-pub fn save_json<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
-    let bytes = serde_json::to_vec_pretty(value).map_err(io::Error::other)?;
-    write_atomic(path, &bytes)
 }
 
 /// The user data directory and the paths below it.
@@ -146,10 +131,6 @@ impl SessionStore {
                 Self::new(settings.parent().and_then(Path::parent).unwrap_or_else(|| Path::new(".")))
             }
         }
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
     }
 
     pub fn global_state_path(&self) -> PathBuf {

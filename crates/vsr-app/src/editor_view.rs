@@ -26,6 +26,7 @@
 mod decorations;
 pub(crate) mod find;
 mod minimap;
+mod view_state; // restoreViewState: scroll, selection, word wrap (ADR-0040)
 mod wrap;
 
 use std::cell::Cell;

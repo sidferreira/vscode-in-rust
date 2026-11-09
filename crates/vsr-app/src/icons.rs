@@ -44,6 +44,7 @@ pub const STOP_CIRCLE: char = '\u{EBA5}';
 pub const PRESERVE_CASE: char = '\u{EB2E}';
 pub const REPLACE_ALL: char = '\u{EB3C}';
 pub const REPLACE: char = '\u{EB3D}';
+pub const GO_TO_FILE: char = '\u{EA94}';
 
 /// Register the codicon TTF with gpui's text system.
 pub fn install(cx: &App) {

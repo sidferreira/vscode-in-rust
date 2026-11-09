@@ -273,6 +273,35 @@ impl SearchView {
         self.text(&self.query, cx)
     }
 
+    /// The query and options, for the session state (ADR-0040).
+    pub fn session_state(&self, cx: &App) -> crate::session::state::SearchState {
+        crate::session::state::SearchState {
+            query: self.text(&self.query, cx),
+            include: self.text(&self.include, cx),
+            exclude: self.text(&self.exclude, cx),
+            match_case: self.match_case,
+            whole_word: self.whole_word,
+            use_regex: self.use_regex,
+            use_excludes: self.use_excludes,
+            details_open: self.details_open,
+        }
+    }
+
+    /// Puts a saved query and its options back (the query then searches as typed text does).
+    pub fn apply_session_state(&mut self, state: &crate::session::state::SearchState, window: &mut Window, cx: &mut Context<Self>) {
+        self.match_case = state.match_case;
+        self.whole_word = state.whole_word;
+        self.use_regex = state.use_regex;
+        self.use_excludes = state.use_excludes;
+        self.details_open = state.details_open;
+        for (input, text) in [(&self.include, &state.include), (&self.exclude, &state.exclude), (&self.query, &state.query)] {
+            if !text.is_empty() {
+                input.update(cx, |s, cx| s.set_value(text, window, cx));
+            }
+        }
+        cx.notify();
+    }
+
     /// Focus the query box (Shift+Cmd+F).
     pub fn focus_query(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.query.update(cx, |s, cx| s.focus(window, cx));

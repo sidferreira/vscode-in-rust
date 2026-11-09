@@ -4,11 +4,12 @@ Priority order set by the user (2026-11-09). Work top to bottom; details and rat
 `DECISIONS.md`, research in `docs/research/`.
 
 1. **Search** (in progress)
-   - Search view / find in files (ripgrep libraries: `grep-*`, `ignore`)
-   - Quick Open files (Cmd+P) done, on a reusable Quick Pick (ADR-0028); the Command Palette (Shift+Cmd+P) reuses it
-   - Next: in-editor Find widget (Cmd+F)
+   - [x] Search view / find in files on the ripgrep libraries, search.* settings wired (ADR-0023)
+   - [x] In-editor Find widget: Cmd+F / Alt+Cmd+F, replace, find in selection (ADR-0027)
+   - [x] Quick Open files (Cmd+P), on a reusable Quick Pick (ADR-0028); the Command Palette (Shift+Cmd+P) reuses it
+   - Next: Replace in the Search view, Command Palette (Shift+Cmd+P)
 2. **Settings migration**
-   - Configuration service + live reload (in progress, makes settings take effect)
+   - [x] Configuration service + live reload: settings take effect (ADR-0022)
    - Map all ~2062 settings (`scripts/settings-port`), then migrate feature group by group,
      each with a headless test proving the effect
 3. **Extensions** (ADR-0020)

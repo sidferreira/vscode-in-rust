@@ -17,6 +17,7 @@ serde = { version = "1", features = ["derive"] }
 vsr-search.workspace = true
 vsr-quickinput.workspace = true
 ignore = "0.4"
+vsr-find.workspace = true
 futures = "0.3"
 serde_json = "1"
 # UI: gpui via gpui-kit (ADR-0012). 0.9.1 is quarantined by the proxy; pinned exactly.

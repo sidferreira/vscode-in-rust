@@ -7236,6 +7236,7 @@ dependencies = [
  "serde",
  "serde_json",
  "vsr-editor",
+ "vsr-find",
  "vsr-quickinput",
  "vsr-search",
  "vsr-settings",
@@ -7246,6 +7247,16 @@ dependencies = [
 name = "vsr-editor"
 version = "0.1.0"
 dependencies = [
+ "vsr-text",
+]
+
+[[package]]
+name = "vsr-find"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "vsr-editor",
+ "vsr-search",
  "vsr-text",
 ]
 

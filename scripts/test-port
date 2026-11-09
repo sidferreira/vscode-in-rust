@@ -35,7 +35,9 @@ RUST_ROOTS = ("crates", "tests")
 
 LAYERS = ("common", "node", "browser", "electron-main", "electron-browser",
           "electron-utility", "electron-sandbox", "electron-renderer", "worker")
-TEST_CALL = {"suite": "suite", "describe": "suite", "test": "test", "it": "test"}
+# `findTest(name, cb)` wraps `test()` in editor/contrib/find/test/browser/findModel.test.ts (it runs the
+# body once per text buffer implementation); treat it as a test so those titles can be matched.
+TEST_CALL = {"suite": "suite", "describe": "suite", "test": "test", "it": "test", "findTest": "test"}
 LOOP_CALLS = ("for", "while", "forEach", "each")
 KW_BEFORE_EXPR = ("return", "typeof", "case", "do", "else", "in", "of", "void", "yield",
                   "await", "throw", "instanceof", "new", "delete")

@@ -20,6 +20,8 @@
 //! Known gaps: multi-cursor, word wrap, syntax colors, horizontal reveal of the caret,
 //! drag auto-scroll, IME candidate-window placement precision.
 
+mod find;
+
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -57,6 +59,7 @@ pub struct Run(pub Command);
 /// Register the editor key bindings (call once at startup).
 pub fn init(cx: &mut App) {
     cx.bind_keys(BINDINGS.iter().map(|&(keys, cmd)| KeyBinding::new(keys, Run(cmd), Some(KEY_CONTEXT))));
+    find::bind(cx); // Find widget keys (ADR-0027)
 }
 
 /// What the view needs from its owner: the documents and the view state.
@@ -84,6 +87,8 @@ pub struct EditorView {
     focused_for: Option<PathBuf>,
     /// The editor settings of the last `element` call (fonts, cursor, line numbers, ...).
     cfg: EditorSettings,
+    /// The Find widget (Cmd+F): state, model and text boxes.
+    find: find::FindUi,
 }
 
 impl EditorView {
@@ -148,6 +153,8 @@ impl EditorView {
         cx: &mut Context<T>,
     ) -> impl IntoElement {
         self.cfg = settings.clone();
+        self.find.sync(editor, settings.find);
+        let find_widget = self.find.element(theme, cx);
         let cfg = settings.clone();
         let focus = self.focus_handle(cx);
         let lines = editor.buffer().line_count();
@@ -187,7 +194,8 @@ impl EditorView {
                     list_focus.focus(window, cx);
                 }
                 let focused = list_focus.is_focused(window);
-                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused)
+                let find = view.find.highlights(e);
+                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref())
             }),
         )
         .track_scroll(&scroll)
@@ -214,7 +222,7 @@ impl EditorView {
         .left_0()
         .size_full();
 
-        div()
+        let surface = div()
             .id("editor-surface")
             .key_context(KeyContext::parse(KEY_CONTEXT).unwrap_or_default())
             .track_focus(&focus)
@@ -239,7 +247,18 @@ impl EditorView {
                 }),
             )
             .child(list)
-            .child(input_surface)
+            .child(input_surface);
+        // The editor and the Find widget side by side, so the find keys work from both.
+        find::register_actions(
+            div()
+                .id("editor-find-host")
+                .key_context(KeyContext::parse(find::KEY_CONTEXT).unwrap_or_default())
+                .relative()
+                .size_full(),
+            cx,
+        )
+        .child(surface)
+        .children(find_widget)
     }
 }
 
@@ -676,6 +695,7 @@ fn rows(
     window: &Window,
     caret_on: bool,
     focused: bool,
+    find: Option<&find::Highlights<'_>>,
 ) -> Vec<AnyElement> {
     let buf = e.buffer();
     let sel = e.editor.selection();
@@ -697,7 +717,10 @@ fn rows(
             let expanded = expand_tabs(text, tab);
             let selected = selection_on_line(e, line);
             let has_caret = is_active && caret_on;
-            let shaped = (selected.is_some() || has_caret).then(|| shape(window, cfg, &expanded)).flatten();
+            let found = find.map_or_else(Vec::new, |f| f.matches_on_line(line, buf.line_max_column(line)));
+            let shaped = (selected.is_some() || has_caret || !found.is_empty())
+                .then(|| shape(window, cfg, &expanded))
+                .flatten();
             let x_at = |col: usize| -> f32 {
                 shaped.as_ref().map_or(0.0, |s| {
                     f32::from(s.x_for_index(expanded_byte_for_column(text, tab, col)))
@@ -720,6 +743,18 @@ fn rows(
                     );
                 }
             }
+            // Find matches over the selection: the current one in its own color.
+            if let Some(f) = find {
+                for (from, to, current) in found {
+                    let (x0, x1) = (x_at(from), x_at(to));
+                    if x1 > x0 {
+                        let color = if current { f.colors.match_bg } else { f.colors.match_highlight_bg };
+                        text_box = text_box.child(
+                            div().absolute().top_0().left(px(x0)).w(px(x1 - x0)).h(px(lh)).bg(to_gpui(color)),
+                        );
+                    }
+                }
+            }
             text_box = text_box.text_color(to_gpui(t.editor_fg)).child(expanded);
             if has_caret {
                 let col = sel.active.column;
@@ -739,6 +774,12 @@ fn rows(
                 .font_family(SharedString::from(cfg.font_family.clone()))
                 .font_weight(gpui_kit::FontWeight(cfg.font_weight))
                 .text_size(px(cfg.font_size));
+            if let Some(f) = find.filter(|f| f.line_in_scope(line)) {
+                // "Find in Selection": the lines of the scope get the range highlight.
+                row = row.child(
+                    div().absolute().top_0().bottom_0().left(px(gutter)).right_0().bg(to_gpui(f.colors.range_highlight_bg)),
+                );
+            }
             if is_active && (hl_content || hl_gutter) {
                 let left = if hl_content && !hl_gutter { gutter } else { 0.0 };
                 let mut highlight = div().absolute().top_0().bottom_0().left(px(left)).border_2().border_color(to_gpui(t.line_highlight_border));
@@ -792,3 +833,5 @@ mod tests {
 
 #[cfg(test)]
 mod e2e;
+#[cfg(test)]
+mod find_e2e;

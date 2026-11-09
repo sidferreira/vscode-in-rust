@@ -39,6 +39,22 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Saving", &["files.insertFinalNewline", "files.trimTrailingWhitespace"]),
+    (
+        "Search",
+        &[
+            "search.exclude",
+            "search.useIgnoreFiles",
+            "search.useGlobalIgnoreFiles",
+            "search.useParentIgnoreFiles",
+            "search.followSymlinks",
+            "search.smartCase",
+            "search.maxResults",
+            "search.searchOnType",
+            "search.searchOnTypeDebouncePeriod",
+            "search.collapseResults",
+            "search.showLineNumbers",
+        ],
+    ),
 ];
 
 pub fn all_keys() -> impl Iterator<Item = &'static str> {
@@ -83,6 +99,7 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- `files.exclude` merges with the default (object settings deep-merge, as `mergeContents`) and supports `true`/`false` and `when` with `$(basename)`; patterns are matched against the path relative to the opened folder.\n");
     out.push_str("- `workbench.activityBar.location: top` and `bottom` show the view icons as a horizontal strip in the side bar (no title bar integration).\n");
     out.push_str("- `editor.detectIndentation` is not implemented: `editor.tabSize` and `editor.insertSpaces` always apply.\n");
+    out.push_str("- Search reads `files.exclude` too (it is listed under Explorer). Entries of `search.exclude` and `files.exclude` whose value is an object (`when` clauses) are ignored by the search.\n");
     out
 }
 

@@ -8,9 +8,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+use serde_json::json;
 
 use super::model::{Row, result_count_message};
 use super::{SearchView, Status};
+use crate::config::AppConfig;
 use crate::{ActivityView, Workbench};
 
 impl SearchView {
@@ -206,4 +208,94 @@ fn clearing_the_query_clears_results(cx: &mut TestAppContext) {
     settle(cx);
     assert_eq!(summary(&v, cx), None);
     assert_eq!(v.read_with(cx, |v, _| v.status().clone()), Status::Idle);
+}
+
+// ---- search settings (`search.*`, `files.exclude`) from the configuration -------------------
+
+/// Like `start`, but with a temp settings.json (never the user's) installed as the configuration,
+/// and `docs/c.md` holding the word the tests search for.
+fn start_configured<'a>(cx: &'a mut TestAppContext, name: &str) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
+    let dir = workspace(name);
+    fs::write(dir.join("docs/c.md"), "alpha in docs\n").unwrap();
+    let settings_dir = std::env::temp_dir().join(format!("rscode-e2e-search-settings-{name}-{}", std::process::id()));
+    fs::create_dir_all(&settings_dir).unwrap();
+    let settings = settings_dir.join("settings.json");
+    fs::write(&settings, "{}").unwrap();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::icons::install(cx);
+        crate::settings_view::install(cx);
+        crate::editor_view::init(cx);
+        crate::search_view::init(cx);
+        AppConfig::install(cx, Some(settings));
+    });
+    let root = dir.clone();
+    let (wb, cx) = cx.add_window_view(move |_, cx| Workbench::new(root, cx));
+    cx.run_until_parked();
+    (wb, cx, dir)
+}
+
+fn set_setting(cx: &mut VisualTestContext, key: &str, value: serde_json::Value) {
+    cx.update(|_, cx| AppConfig::set_value(cx, key, Some(value))).unwrap();
+}
+
+#[gpui_kit::test]
+fn search_exclude_setting_hides_a_folder_and_reruns_the_query(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start_configured(cx, "exclude");
+    cx.simulate_keystrokes("cmd-shift-f");
+    cx.run_until_parked();
+    let v = view(&wb, cx);
+    cx.simulate_input("alpha");
+    settle(cx);
+    assert!(files(&v, cx).iter().any(|(n, _)| n == "c.md"), "docs/c.md matches before the setting");
+    set_setting(cx, "search.exclude", json!({ "**/docs": true }));
+    settle(cx);
+    let after = files(&v, cx);
+    assert!(!after.iter().any(|(n, _)| n == "c.md"), "docs/ is excluded and the query ran again: {after:?}");
+    assert!(after.iter().any(|(n, _)| n == "a.txt"));
+}
+
+#[gpui_kit::test]
+fn smart_case_setting_makes_an_uppercase_query_case_sensitive(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start_configured(cx, "smartcase");
+    cx.simulate_keystrokes("cmd-shift-f");
+    cx.run_until_parked();
+    let v = view(&wb, cx);
+    cx.simulate_input("Alpha");
+    settle(cx);
+    let insensitive = files(&v, cx);
+    assert!(insensitive.iter().any(|(n, _)| n == "b.rs"), "smart case is off: {insensitive:?}");
+    set_setting(cx, "search.smartCase", json!(true));
+    settle(cx);
+    // Only the line that really reads "Alpha" in a.txt.
+    assert_eq!(files(&v, cx), vec![("a.txt".to_string(), 1)]);
+}
+
+#[gpui_kit::test]
+fn search_on_type_off_waits_for_enter(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start_configured(cx, "ontype");
+    set_setting(cx, "search.searchOnType", json!(false));
+    cx.simulate_keystrokes("cmd-shift-f");
+    cx.run_until_parked();
+    let v = view(&wb, cx);
+    cx.simulate_input("alpha");
+    settle(cx);
+    assert_eq!(summary(&v, cx), None, "typing does not search");
+    cx.simulate_keystrokes("enter");
+    settle(cx);
+    assert!(summary(&v, cx).is_some(), "Enter searches");
+}
+
+#[gpui_kit::test]
+fn max_results_setting_limits_the_results_and_reruns_the_query(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start_configured(cx, "maxresults");
+    cx.simulate_keystrokes("cmd-shift-f");
+    cx.run_until_parked();
+    let v = view(&wb, cx);
+    cx.simulate_input("alpha");
+    settle(cx);
+    assert!(!matches!(v.read_with(cx, |v, _| v.status().clone()), Status::Done { limit_hit: true, .. }));
+    set_setting(cx, "search.maxResults", json!(2));
+    settle(cx);
+    assert!(matches!(v.read_with(cx, |v, _| v.status().clone()), Status::Done { limit_hit: true, .. }));
 }

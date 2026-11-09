@@ -393,7 +393,21 @@ counts ranges and sets `limit_hit`.
 (`**/node_modules`, `**/bower_components`, `**/*.code-search`), `files.exclude` (`.git .svn .hg .jj
 .DS_Store Thumbs.db`), `useIgnoreFiles` true, `useGlobalIgnoreFiles` false, `useParentIgnoreFiles`
 false, `followSymlinks` true, `smartCase` false, `maxResults` 20000, `searchOnType` true, debounce 300 ms.
-`search_view::current_settings` is the single TODO hook for the configuration service.
+
+**Settings wiring (2026-11-09).** `search_view::current_settings` reads the live `AppConfig` (defaults when no
+configuration is installed). `config::settings::search_settings` maps `Configuration` to `SearchSettings`:
+`files.exclude` and `search.exclude` come from `get_value`, which already merges the default map with the user's
+(objects deep-merge, a `false` turns a default off); entries whose value is an object (`when`) are ignored by search.
+`search.maxResults` is registered `["number","null"]` (unvalidated): null is unlimited. `search.collapseResults` is
+matched by its camelCase value. Eleven keys are in `WIRED_KEYS` ("Search" group): `search.exclude`,
+`useIgnoreFiles`, `useGlobalIgnoreFiles`, `useParentIgnoreFiles`, `followSymlinks`, `smartCase`, `maxResults`,
+`searchOnType`, `searchOnTypeDebouncePeriod`, `collapseResults`, `showLineNumbers` (a line number before each match
+row). `files.exclude` stays under Explorer; search reads it too. The view observes the global
+(`on_config_changed`): a change that affects what a search finds (exclude globs, ignore-file flags, symlinks,
+smart case, `maxResults`) re-runs a non-empty query; the other keys just apply to the next search or the display.
+Headless tests in `search/e2e_tests.rs` use a temp settings file: `search.exclude` hides `docs/` and re-runs,
+`smartCase` makes "Alpha" case-sensitive, `searchOnType: false` waits for Enter, `maxResults` limits and re-runs.
+`showLineNumbers` is not covered by a test (it is one label in the row).
 
 **View** (`vsr-app/src/search_view.rs`, state in `search/model.rs`). Query box with Match Case,
 Whole Word and Regex toggles inside it (Alt+Cmd+C/W/R), "files to include/exclude" behind the

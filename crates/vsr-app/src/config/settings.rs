@@ -8,6 +8,8 @@
 use serde::Deserialize;
 use serde_json::Value;
 use vsr_editor::EditorOptions;
+use vsr_search::SearchSettings;
+use vsr_search::settings::{CollapseResults, ExcludeMap};
 use vsr_settings::Configuration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -230,6 +232,46 @@ impl LayoutSettings {
     }
 }
 
+/// The settings the Search view reads (`search.*` and `files.exclude`), built from the
+/// configuration. Object values come from `Configuration::get_value`, which already merges the
+/// registered default with the user's map (upstream `mergeContents`), so defaults are not layered
+/// on again. Entries whose value is not a boolean (`when` clauses) are ignored by the search.
+pub fn search_settings(c: &Configuration) -> SearchSettings {
+    let d = SearchSettings::default();
+    let exclude_map = |key: &str, fallback: &ExcludeMap| -> ExcludeMap {
+        match c.get_value(key).and_then(Value::as_object) {
+            Some(map) => map.iter().filter_map(|(glob, on)| on.as_bool().map(|on| (glob.clone(), on))).collect(),
+            None => fallback.clone(),
+        }
+    };
+    // Registered as `["number", "null"]`, so unvalidated here: null is unlimited.
+    let max_results = match c.get_value("search.maxResults") {
+        Some(Value::Null) => None,
+        Some(v) => v.as_f64().filter(|n| n.is_finite() && *n >= 0.0).map_or(d.max_results, |n| Some(n as usize)),
+        None => d.max_results,
+    };
+    SearchSettings {
+        files_exclude: exclude_map("files.exclude", &d.files_exclude),
+        search_exclude: exclude_map("search.exclude", &d.search_exclude),
+        use_ignore_files: c.get_bool("search.useIgnoreFiles").unwrap_or(d.use_ignore_files),
+        use_global_ignore_files: c.get_bool("search.useGlobalIgnoreFiles").unwrap_or(d.use_global_ignore_files),
+        use_parent_ignore_files: c.get_bool("search.useParentIgnoreFiles").unwrap_or(d.use_parent_ignore_files),
+        follow_symlinks: c.get_bool("search.followSymlinks").unwrap_or(d.follow_symlinks),
+        smart_case: c.get_bool("search.smartCase").unwrap_or(d.smart_case),
+        max_results,
+        search_on_type: c.get_bool("search.searchOnType").unwrap_or(d.search_on_type),
+        search_on_type_debounce_ms: c
+            .get_f64("search.searchOnTypeDebouncePeriod")
+            .map_or(d.search_on_type_debounce_ms, |n| n.max(0.0) as u64),
+        show_line_numbers: c.get_bool("search.showLineNumbers").unwrap_or(d.show_line_numbers),
+        collapse_results: match c.get_str("search.collapseResults") {
+            Some("auto") => CollapseResults::Auto,
+            Some("alwaysCollapse") => CollapseResults::AlwaysCollapse,
+            _ => CollapseResults::AlwaysExpand,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -317,5 +359,63 @@ mod tests {
         let l = LayoutSettings::from_configuration(&config(r#"{ "workbench.sideBar.location": "top", "workbench.editor.showTabs": "x" }"#));
         assert_eq!(l.side_bar, SideBarLocation::Left);
         assert_eq!(l.show_tabs, ShowTabs::Multiple);
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use vsr_search::SearchSettings;
+    use vsr_search::settings::CollapseResults;
+    use vsr_settings::{SettingsRegistry, UserSettings};
+
+    use super::*;
+
+    fn config(user: &str) -> Configuration {
+        Configuration::new(&SettingsRegistry::load_default(), UserSettings::parse(user).unwrap())
+    }
+
+    #[test]
+    fn defaults_are_the_upstream_defaults() {
+        let s = search_settings(&config(""));
+        let d = SearchSettings::default();
+        assert_eq!(s.max_results, d.max_results);
+        assert_eq!(s.smart_case, d.smart_case);
+        assert_eq!(s.search_on_type_debounce_ms, 300);
+        assert_eq!(s.collapse_results, CollapseResults::AlwaysExpand);
+        assert_eq!(s.exclude_globs(false).len(), d.exclude_globs(false).len(), "{:?}", s.exclude_globs(false));
+        assert!(s.exclude_globs(false).contains(&"**/node_modules".to_string()));
+    }
+
+    #[test]
+    fn exclude_maps_merge_with_defaults_and_ignore_when_clauses() {
+        let s = search_settings(&config(
+            r#"{ "search.exclude": { "**/docs": true, "**/node_modules": false, "**/*.map": { "when": "$(basename).ts" } } }"#,
+        ));
+        let g = s.exclude_globs(false);
+        assert!(g.contains(&"**/docs".to_string()));
+        assert!(!g.contains(&"**/node_modules".to_string()), "false turns a default off");
+        assert!(!g.iter().any(|x| x.ends_with(".map")), "when clauses are ignored: {g:?}");
+        assert!(g.contains(&"**/bower_components".to_string()), "the rest of the default stays");
+    }
+
+    #[test]
+    fn max_results_null_is_unlimited_and_bad_values_fall_back() {
+        assert_eq!(search_settings(&config(r#"{ "search.maxResults": null }"#)).max_results, None);
+        assert_eq!(search_settings(&config(r#"{ "search.maxResults": 7 }"#)).max_results, Some(7));
+        assert_eq!(search_settings(&config(r#"{ "search.maxResults": "lots" }"#)).max_results, Some(20000));
+    }
+
+    #[test]
+    fn toggles_and_enums_are_read() {
+        let s = search_settings(&config(
+            r#"{ "search.smartCase": true, "search.useIgnoreFiles": false, "search.followSymlinks": false,
+                 "search.searchOnType": false, "search.searchOnTypeDebouncePeriod": 50,
+                 "search.collapseResults": "alwaysCollapse", "search.showLineNumbers": true }"#,
+        ));
+        assert!(s.smart_case && !s.use_ignore_files && !s.follow_symlinks && !s.search_on_type && s.show_line_numbers);
+        assert_eq!(s.search_on_type_debounce_ms, 50);
+        assert_eq!(s.collapse_results, CollapseResults::AlwaysCollapse);
+        let bad = search_settings(&config(r#"{ "search.collapseResults": "sideways" }"#));
+        assert_eq!(bad.collapse_results, CollapseResults::AlwaysExpand);
     }
 }

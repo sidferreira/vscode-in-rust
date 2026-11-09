@@ -298,6 +298,127 @@ impl LayoutSettings {
     }
 }
 
+/// `workbench.editor.openPositioning`: where a new editor tab goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenPositioning {
+    Left,
+    #[default]
+    Right,
+    First,
+    Last,
+}
+
+/// `workbench.editor.labelFormat`: how a tab's label is built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LabelFormat {
+    #[default]
+    Default,
+    Short,
+    Medium,
+    Long,
+}
+
+/// Where an editor open comes from. The source decides whether it opens as a preview
+/// (`EditorGroupSettings::opens_pinned`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenSource {
+    /// Explorer click: a single click previews, a double click pins.
+    Explorer { double_click: bool },
+    /// A Search result (single click).
+    Search,
+    /// Quick Open, Go to File, Go to Line.
+    QuickOpen,
+    /// Code navigation (go to definition and so on). rscode has none yet, so nothing opens from it.
+    #[allow(dead_code)]
+    CodeNavigation,
+}
+
+/// The `workbench.editor.*` settings that place, pin, close and label editors. Read by the
+/// editor model (`model::Editors`), so it is UI free. Defaults are the registered defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditorGroupSettings {
+    pub open_positioning: OpenPositioning,
+    pub focus_recent_editor_after_close: bool,
+    pub enable_preview: bool,
+    pub enable_preview_from_quick_open: bool,
+    pub enable_preview_from_code_navigation: bool,
+    pub close_on_file_delete: bool,
+    pub limit_enabled: bool,
+    pub limit_value: usize,
+    pub limit_exclude_dirty: bool,
+    pub highlight_modified_tabs: bool,
+    pub label_format: LabelFormat,
+    pub scroll_to_switch_tabs: bool,
+    /// `workbench.editor.empty.hint` is `text` (the hint is shown) rather than `hidden`.
+    pub empty_hint: bool,
+}
+
+impl Default for EditorGroupSettings {
+    fn default() -> Self {
+        Self {
+            open_positioning: OpenPositioning::Right,
+            focus_recent_editor_after_close: true,
+            enable_preview: true,
+            enable_preview_from_quick_open: false,
+            enable_preview_from_code_navigation: false,
+            close_on_file_delete: false,
+            limit_enabled: false,
+            limit_value: 10,
+            limit_exclude_dirty: false,
+            highlight_modified_tabs: false,
+            label_format: LabelFormat::Default,
+            scroll_to_switch_tabs: false,
+            empty_hint: true,
+        }
+    }
+}
+
+impl EditorGroupSettings {
+    pub fn from_configuration(c: &Configuration) -> Self {
+        let d = Self::default();
+        Self {
+            open_positioning: c.get_enum("workbench.editor.openPositioning").unwrap_or(d.open_positioning),
+            focus_recent_editor_after_close: c
+                .get_bool("workbench.editor.focusRecentEditorAfterClose")
+                .unwrap_or(d.focus_recent_editor_after_close),
+            enable_preview: c.get_bool("workbench.editor.enablePreview").unwrap_or(d.enable_preview),
+            enable_preview_from_quick_open: c
+                .get_bool("workbench.editor.enablePreviewFromQuickOpen")
+                .unwrap_or(d.enable_preview_from_quick_open),
+            enable_preview_from_code_navigation: c
+                .get_bool("workbench.editor.enablePreviewFromCodeNavigation")
+                .unwrap_or(d.enable_preview_from_code_navigation),
+            close_on_file_delete: c.get_bool("workbench.editor.closeOnFileDelete").unwrap_or(d.close_on_file_delete),
+            limit_enabled: c.get_bool("workbench.editor.limit.enabled").unwrap_or(d.limit_enabled),
+            limit_value: c.get_f64("workbench.editor.limit.value").map_or(d.limit_value, |n| n.max(1.0) as usize),
+            limit_exclude_dirty: c.get_bool("workbench.editor.limit.excludeDirty").unwrap_or(d.limit_exclude_dirty),
+            highlight_modified_tabs: c
+                .get_bool("workbench.editor.highlightModifiedTabs")
+                .unwrap_or(d.highlight_modified_tabs),
+            label_format: c.get_enum("workbench.editor.labelFormat").unwrap_or(d.label_format),
+            scroll_to_switch_tabs: c.get_bool("workbench.editor.scrollToSwitchTabs").unwrap_or(d.scroll_to_switch_tabs),
+            empty_hint: c.get_str("workbench.editor.empty.hint") != Some("hidden"),
+        }
+    }
+
+    /// Whether an open from `source` keeps its editor (upstream `openEditorPinned`): with
+    /// previews off everything is pinned; Quick Open and code navigation preview only when their
+    /// own setting says so.
+    pub fn opens_pinned(&self, source: OpenSource) -> bool {
+        if !self.enable_preview {
+            return true;
+        }
+        match source {
+            OpenSource::Explorer { double_click } => double_click,
+            OpenSource::Search => false,
+            OpenSource::QuickOpen => !self.enable_preview_from_quick_open,
+            OpenSource::CodeNavigation => !self.enable_preview_from_code_navigation,
+        }
+    }
+}
+
 /// The settings the Search view reads (`search.*` and `files.exclude`), built from the
 /// configuration. Object values come from `Configuration::get_value`, which already merges the
 /// registered default with the user's map (upstream `mergeContents`), so defaults are not layered

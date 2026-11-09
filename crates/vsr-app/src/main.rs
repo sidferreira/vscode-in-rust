@@ -16,6 +16,7 @@ mod quick_access; // Command Palette, Go to Line, help on the Quick Pick (ADR-00
 mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
 mod search_view; // Search view (ADR-0023)
+mod session; // session restore, hot exit (ADR-0040)
 mod settings_view; // Settings editor (ADR-0017)
 mod text_layout;
 mod theme;

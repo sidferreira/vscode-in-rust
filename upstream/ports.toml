@@ -1,0 +1,59 @@
+# Upstream port manifest: which upstream VS Code files we port, where they live
+# in Rust, and the upstream commit each entry was last synced at.
+# Read and edited by scripts/upstream-sync (see UPSTREAM.md).
+#
+# Format: a small TOML subset (strings, string arrays, comments). Keep it simple;
+# the tool's parser is stdlib-only and rejects anything fancier.
+#
+# [[port]] fields:
+#   id        stable name used on the command line (kebab-case)
+#   status    planned | partial | ported
+#   upstream  upstream path globs, git ":(glob)" semantics: ** crosses dirs,
+#             * does not, a bare directory matches everything below it
+#   exclude   optional globs removed from `upstream`
+#   rust      Rust files/dirs in this repo that port those paths
+#   synced    full upstream commit SHA this entry was last brought up to date with
+#             (update it with `scripts/upstream-sync mark <id>`, not by hand)
+#   notes     free text for agents
+
+[upstream]
+repo = "https://github.com/microsoft/vscode"
+branch = "main"
+clone = "../vscode-original"   # relative to this repo's root
+ref = "HEAD"                   # default comparison target in the clone
+pinned = "50e1350fc78df67b11049b903d96b530f28d26a5"   # 1.147.0, 2026-11-09: baseline the port started from
+version = "1.147.0"
+
+[[port]]
+id = "editor-text-model"
+status = "partial"
+upstream = [
+  "src/vs/editor/common/model/pieceTreeTextBuffer/**",
+  "src/vs/editor/test/common/model/pieceTreeTextBuffer/**",
+]
+rust = ["crates/vsr-text/src/lib.rs", "crates/vsr-text/tests/buffer.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Piece tree text buffer. vsr-text currently uses a line vector behind the same API (ADR-0005); the real piece tree is still to port. Port pieceTreeTextBuffer.test.ts as Rust tests."
+
+[[port]]
+id = "editor-core-position-range"
+status = "partial"
+upstream = [
+  "src/vs/editor/common/core/position.ts",
+  "src/vs/editor/common/core/range.ts",
+]
+rust = ["crates/vsr-text/src/position.rs", "crates/vsr-text/src/range.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "1-based line/column Position and Range value types."
+
+[[port]]
+id = "theme-dark-modern"
+status = "planned"
+upstream = [
+  "extensions/theme-defaults/themes/dark_modern.json",
+  "extensions/theme-defaults/themes/dark_plus.json",
+  "extensions/theme-defaults/themes/dark_vs.json",
+]
+rust = ["crates/vsr-theme"]   # not created yet
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Default theme. dark_modern includes dark_plus which includes dark_vs, so all three define the result."

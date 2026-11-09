@@ -1,6 +1,7 @@
 //! Behavioural tests for the text buffer. Semantics mirror VS Code:
 //! upstream: src/vs/editor/common/model/pieceTreeTextBuffer/pieceTreeTextBufferBuilder.ts @ 50e1350fc78d
-//! upstream: src/vs/editor/common/core/position.ts, range.ts @ 50e1350fc78d
+//! upstream: src/vs/editor/common/core/position.ts @ 50e1350fc78d
+//! upstream: src/vs/editor/common/core/range.ts @ 50e1350fc78d
 //!
 //! Lines and columns are 1-based; columns and offsets count UTF-16 code units
 //! (that is what the extension API exposes, so we match it at the boundary).

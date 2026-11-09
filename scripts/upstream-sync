@@ -1,0 +1,770 @@
+#!/usr/bin/env python3
+"""upstream-sync: track which upstream VS Code changes affect code we have ported.
+
+Stdlib-only, Python >= 3.8. See ../UPSTREAM.md for the full workflow.
+
+The manifest (upstream/ports.toml) maps upstream path globs to Rust paths. Each
+entry records the upstream commit it was last synced at. This tool asks git
+(in the upstream clone, via `git -C <clone>`) what changed under those paths
+between that commit and the target ref (default: the clone's HEAD).
+
+Subcommands:
+  status            per-entry list/count of upstream commits since the entry's synced commit
+  diff <entry>      the upstream diff for an entry since its synced commit
+  report            write upstream/SYNC_REPORT.md, a work-list for an LLM agent
+  mark <entry> [c]  set an entry's synced commit (default: the target ref) after porting
+  check             validate the manifest and the `// upstream:` headers in Rust files
+  fetch             print (never run) the commands to update the upstream clone
+"""
+
+import argparse
+import datetime
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+DEFAULT_MANIFEST = os.path.join(REPO_ROOT, "upstream", "ports.toml")
+DEFAULT_CLONE = "../vscode-original"  # relative to REPO_ROOT
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+VALID_STATUS = ("planned", "partial", "ported")
+# `// upstream: <path> @ <sha>` (also `//!` / `///`), one upstream path per line.
+HEADER_RE = re.compile(r"^\s*//[/!]?\s*upstream:\s*(.+?)\s*@\s*([0-9a-fA-F]{7,40})\b")
+
+
+class SyncError(Exception):
+    pass
+
+
+# --------------------------------------------------------------------------
+# Minimal TOML subset reader (Python 3.9 has no tomllib).
+# Supported: comments, [table], [[array-of-tables]], key = value where value is
+# a basic "string", a 'literal string', integer, true/false, or an array of
+# those (may span lines, trailing comma allowed). That is all ports.toml uses.
+# --------------------------------------------------------------------------
+
+def _strip_comment(line):
+    out, quote, i = [], None, 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            out.append(ch)
+            if ch == "\\" and quote == '"' and i + 1 < len(line):
+                out.append(line[i + 1])
+                i += 1
+            elif ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+            out.append(ch)
+        elif ch == "#":
+            break
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out).strip()
+
+
+def _parse_value(text, where):
+    tokens = []
+    i, n = 0, len(text)
+
+    def parse_scalar(j):
+        if text[j] == '"':
+            k, buf = j + 1, []
+            while k < n and text[k] != '"':
+                if text[k] == "\\":
+                    k += 1
+                    esc = {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}
+                    if k >= n or text[k] not in esc:
+                        raise SyncError("%s: unsupported escape" % where)
+                    buf.append(esc[text[k]])
+                else:
+                    buf.append(text[k])
+                k += 1
+            if k >= n:
+                raise SyncError("%s: unterminated string" % where)
+            return "".join(buf), k + 1
+        if text[j] == "'":
+            k = text.find("'", j + 1)
+            if k < 0:
+                raise SyncError("%s: unterminated string" % where)
+            return text[j + 1:k], k + 1
+        m = re.match(r"(true|false|[+-]?\d+)", text[j:])
+        if not m:
+            raise SyncError("%s: cannot parse value %r" % (where, text[j:]))
+        tok = m.group(1)
+        val = {"true": True, "false": False}.get(tok)
+        if val is None:
+            val = int(tok)
+        return val, j + len(tok)
+
+    def skip_ws(j):
+        while j < n and text[j] in " \t\r\n":
+            j += 1
+        return j
+
+    i = skip_ws(i)
+    if i < n and text[i] == "[":
+        i = skip_ws(i + 1)
+        while i < n and text[i] != "]":
+            val, i = parse_scalar(i)
+            tokens.append(val)
+            i = skip_ws(i)
+            if i < n and text[i] == ",":
+                i = skip_ws(i + 1)
+            elif i < n and text[i] != "]":
+                raise SyncError("%s: expected ',' or ']'" % where)
+        if i >= n:
+            raise SyncError("%s: unterminated array" % where)
+        value, i = tokens, i + 1
+    else:
+        value, i = parse_scalar(i)
+    if skip_ws(i) != n:
+        raise SyncError("%s: trailing characters after value" % where)
+    return value
+
+
+def parse_toml(text, filename="<toml>"):
+    """Parse the TOML subset. Returns (data, port_spans) where port_spans lists
+    (start_line, end_line) 0-based half-open line ranges of each [[port]] block,
+    used by `mark` to edit in place without losing comments."""
+    data, current = {}, None
+    current = data
+    lines = text.splitlines()
+    spans, open_port = [], None
+    i = 0
+    while i < len(lines):
+        where = "%s:%d" % (filename, i + 1)
+        line = _strip_comment(lines[i])
+        if not line:
+            i += 1
+            continue
+        m = re.match(r"^\[\[\s*([A-Za-z0-9_-]+)\s*\]\]$", line)
+        if m:
+            if open_port is not None:
+                spans.append((open_port, i))
+            current = {}
+            data.setdefault(m.group(1), []).append(current)
+            open_port = i if m.group(1) == "port" else None
+            i += 1
+            continue
+        m = re.match(r"^\[\s*([A-Za-z0-9_-]+)\s*\]$", line)
+        if m:
+            if open_port is not None:
+                spans.append((open_port, i))
+                open_port = None
+            current = data.setdefault(m.group(1), {})
+            i += 1
+            continue
+        m = re.match(r"^([A-Za-z0-9_-]+)\s*=\s*(.*)$", line)
+        if not m:
+            raise SyncError("%s: cannot parse line %r" % (where, lines[i]))
+        key, rest = m.group(1), m.group(2)
+        if rest.startswith("[") and not _array_closed(rest):
+            parts = [rest]
+            while True:
+                i += 1
+                if i >= len(lines):
+                    raise SyncError("%s: unterminated array" % where)
+                parts.append(_strip_comment(lines[i]))
+                if _array_closed("\n".join(parts)):
+                    break
+            rest = "\n".join(parts)
+        if key in current:
+            raise SyncError("%s: duplicate key %r" % (where, key))
+        current[key] = _parse_value(rest, where)
+        i += 1
+    if open_port is not None:
+        spans.append((open_port, len(lines)))
+    return data, spans
+
+
+def _array_closed(text):
+    depth, quote = 0, None
+    for ch in text:
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+    return depth == 0
+
+
+# --------------------------------------------------------------------------
+# Manifest
+# --------------------------------------------------------------------------
+
+class Manifest:
+    def __init__(self, path):
+        self.path = path
+        try:
+            with open(path, encoding="utf-8") as f:
+                self.text = f.read()
+        except OSError as e:
+            raise SyncError("cannot read manifest %s: %s" % (path, e))
+        # Repo root = parent of the manifest's directory (upstream/ports.toml).
+        self.root = os.path.dirname(os.path.dirname(path))
+        self.data, self.spans = parse_toml(self.text, os.path.relpath(path))
+        self.upstream = self.data.get("upstream", {})
+        self.ports = self.data.get("port", [])
+        seen = set()
+        for p in self.ports:
+            pid = p.get("id")
+            if not pid:
+                raise SyncError("%s: a [[port]] entry has no id" % path)
+            if pid in seen:
+                raise SyncError("%s: duplicate port id %r" % (path, pid))
+            seen.add(pid)
+            for key in ("upstream", "rust", "exclude", "tests"):
+                if isinstance(p.get(key), str):
+                    p[key] = [p[key]]
+            if not p.get("upstream"):
+                raise SyncError("%s: port %r has no upstream paths" % (path, pid))
+            if p.get("status", "planned") not in VALID_STATUS:
+                raise SyncError("%s: port %r has invalid status %r (want one of %s)"
+                                % (path, pid, p.get("status"), ", ".join(VALID_STATUS)))
+            p.setdefault("status", "planned")
+            p.setdefault("rust", [])
+            p.setdefault("exclude", [])
+            p.setdefault("synced", self.upstream.get("pinned", ""))
+            if not p["synced"]:
+                raise SyncError("%s: port %r has no synced commit and no [upstream].pinned"
+                                % (path, pid))
+
+    def get(self, pid):
+        for p in self.ports:
+            if p["id"] == pid:
+                return p
+        raise SyncError("no port entry %r (known: %s)"
+                        % (pid, ", ".join(p["id"] for p in self.ports)))
+
+    def set_fields(self, pid, fields):
+        """Rewrite `key = "value"` lines inside one [[port]] block, in place."""
+        idx = [p["id"] for p in self.ports].index(pid)
+        start, end = self.spans[idx]
+        lines = self.text.splitlines(True)
+        for key, value in fields.items():
+            new_line = '%s = "%s"' % (key, value)
+            for j in range(start, end):
+                if re.match(r"^\s*%s\s*=" % re.escape(key), lines[j]):
+                    body = lines[j].rstrip("\n")
+                    kept = _strip_comment(body)
+                    comment = body[body.find(kept) + len(kept):]  # trailing "  # ..." if any
+                    nl = "\n" if lines[j].endswith("\n") else ""
+                    lines[j] = new_line + comment + nl
+                    break
+            else:
+                # insert after the id line
+                for j in range(start, end):
+                    if re.match(r"^\s*id\s*=", lines[j]):
+                        lines.insert(j + 1, new_line + "\n")
+                        end += 1
+                        break
+        self.text = "".join(lines)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(self.text)
+        os.replace(tmp, self.path)
+        self.data, self.spans = parse_toml(self.text, self.path)
+
+
+# --------------------------------------------------------------------------
+# Git helpers
+# --------------------------------------------------------------------------
+
+class Upstream:
+    def __init__(self, clone):
+        self.clone = clone
+        if not os.path.isdir(clone):
+            raise SyncError("upstream clone not found at %s (use --clone or UPSTREAM_CLONE)" % clone)
+        self._shallow = None
+
+    def git(self, *args, check=True):
+        cmd = ["git", "-C", self.clone, "-c", "core.quotepath=off"] + list(args)
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, encoding="utf-8", errors="replace")
+        if check and r.returncode != 0:
+            raise SyncError("git %s failed: %s" % (" ".join(args), r.stderr.strip()))
+        return r.stdout
+
+    def resolve(self, rev):
+        out = subprocess.run(
+            ["git", "-C", self.clone, "rev-parse", "--verify", "--quiet", rev + "^{commit}"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True)
+        if out.returncode != 0:
+            raise SyncError(
+                "commit %r is not in the upstream clone %s. If it is newer, fetch upstream "
+                "(see `upstream-sync fetch`); if older, the clone is shallow and needs "
+                "`git fetch --deepen=N` / `--shallow-since=DATE`." % (rev, self.clone))
+        return out.stdout.strip()
+
+    def is_ancestor(self, a, b):
+        r = subprocess.run(["git", "-C", self.clone, "merge-base", "--is-ancestor", a, b],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return r.returncode == 0
+
+    def shallow_commits(self):
+        if self._shallow is None:
+            path = self.git("rev-parse", "--git-path", "shallow").strip()
+            if not os.path.isabs(path):
+                path = os.path.join(self.clone, path)
+            try:
+                with open(path) as f:
+                    self._shallow = {l.strip() for l in f if l.strip()}
+            except OSError:
+                self._shallow = set()
+        return self._shallow
+
+
+def pathspecs(port):
+    specs = [":(glob)" + p for p in port["upstream"]]
+    specs += [":(glob,exclude)" + p for p in port.get("exclude", [])]
+    return specs
+
+
+def commits_between(up, base, ref, port):
+    fmt = "%H%x1f%h%x1f%ad%x1f%an%x1f%s"
+    out = up.git("log", "--no-merges", "--date=short", "--format=" + fmt,
+                 "%s..%s" % (base, ref), "--", *pathspecs(port))
+    shallow = up.shallow_commits()
+    commits = []
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        full, short, date, author, subject = line.split("\x1f", 4)
+        commits.append({"sha": full, "short": short, "date": date, "author": author,
+                        "subject": subject, "shallow_boundary": full in shallow})
+    return commits
+
+
+def changed_files(up, base, ref, port):
+    out = up.git("diff", "--name-status", "-M", base, ref, "--", *pathspecs(port))
+    files = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            files.append({"status": parts[0], "paths": parts[1:]})
+    return files
+
+
+def diffstat(up, base, ref, port):
+    return up.git("diff", "--stat=120", "-M", base, ref, "--", *pathspecs(port)).rstrip()
+
+
+def matched_files(up, ref, port):
+    out = up.git("diff", "--name-only", EMPTY_TREE, ref, "--", *pathspecs(port))
+    return [l for l in out.splitlines() if l]
+
+
+def unmatched_patterns(up, ref, port):
+    files = matched_files(up, ref, port)
+    missing = []
+    for pat in port["upstream"]:
+        if not any(_glob_match(pat, f) for f in files):
+            missing.append(pat)
+    return missing
+
+
+def _glob_match(pattern, path):
+    """Approximate git :(glob) semantics: `**` crosses dirs, `*` does not, and a
+    pattern that names a directory matches everything below it."""
+    rx, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            rx += "(?:.*/)?"
+            i += 3
+        elif pattern.startswith("**", i):
+            rx += ".*"
+            i += 2
+        elif pattern[i] == "*":
+            rx += "[^/]*"
+            i += 1
+        elif pattern[i] == "?":
+            rx += "[^/]"
+            i += 1
+        else:
+            rx += re.escape(pattern[i])
+            i += 1
+    return re.fullmatch(rx + "(?:/.*)?", path) is not None
+
+
+# --------------------------------------------------------------------------
+# Core computation
+# --------------------------------------------------------------------------
+
+def entry_state(up, port, ref_sha):
+    base = up.resolve(port["synced"])
+    st = {"id": port["id"], "status": port["status"], "synced": base, "ref": ref_sha,
+          "upstream": port["upstream"], "rust": port["rust"], "warnings": []}
+    if not up.is_ancestor(base, ref_sha):
+        st["warnings"].append("synced commit %s is not an ancestor of %s; the commit list "
+                              "is what is reachable from the ref but not from synced" % (base[:12], ref_sha[:12]))
+    commits = commits_between(up, base, ref_sha, port) if base != ref_sha else []
+    st["files"] = changed_files(up, base, ref_sha, port) if base != ref_sha else []
+    # A shallow-boundary commit has no parent here, so git reports it as adding
+    # every file. Keep it only if the net diff shows the entry really changed.
+    boundary = [c for c in commits if c["shallow_boundary"]]
+    st["commits"] = [c for c in commits if not c["shallow_boundary"] or st["files"]]
+    if boundary and st["files"]:
+        st["warnings"].append("clone is shallow: commits marked [shallow] have no parent here and "
+                              "look like they touch every file; the net file diff is accurate, "
+                              "their per-commit diffs are not (deepen the clone for real history)")
+    for pat in unmatched_patterns(up, ref_sha, port):
+        st["warnings"].append("pattern %r matches no file at %s (moved or deleted upstream?)"
+                              % (pat, ref_sha[:12]))
+    for f in st["files"]:
+        if f["status"] == "D":
+            st["warnings"].append("upstream deleted %s (possibly moved outside this entry)" % f["paths"][0])
+        elif f["status"].startswith("R"):
+            st["warnings"].append("upstream renamed %s -> %s" % (f["paths"][0], f["paths"][-1]))
+    return st
+
+
+def compute(manifest, up, ref, only=None):
+    ref_sha = up.resolve(ref)
+    ports = [manifest.get(only)] if only else manifest.ports
+    return ref_sha, [entry_state(up, p, ref_sha) for p in ports]
+
+
+# --------------------------------------------------------------------------
+# Commands
+# --------------------------------------------------------------------------
+
+def cmd_status(args, manifest, up):
+    ref_sha, states = compute(manifest, up, args.ref, args.entry)
+    if args.json:
+        print(json.dumps({"ref": ref_sha, "entries": states}, indent=2))
+        return 0
+    print("upstream: %s  ref %s (%s)" % (up.clone, args.ref, ref_sha[:12]))
+    total = 0
+    for st in states:
+        n = len(st["commits"])
+        total += n
+        flag = "up to date" if n == 0 and not st["files"] else "%d commit(s), %d file(s) changed" % (n, len(st["files"]))
+        print("\n%-24s [%s] synced %s: %s" % (st["id"], st["status"], st["synced"][:12], flag))
+        for c in st["commits"][: args.limit]:
+            print("    %s %s %s%s" % (c["short"], c["date"], c["subject"],
+                                      "  [shallow]" if c["shallow_boundary"] else ""))
+        if n > args.limit:
+            print("    ... and %d more" % (n - args.limit))
+        for w in st["warnings"]:
+            print("    warning: %s" % w)
+    print("\n%d entr%s, %d with upstream changes, %d commit(s) total"
+          % (len(states), "y" if len(states) == 1 else "ies",
+             sum(1 for s in states if s["commits"] or s["files"]), total))
+    return 0
+
+
+def cmd_diff(args, manifest, up):
+    port = manifest.get(args.entry)
+    base, ref_sha = up.resolve(port["synced"]), up.resolve(args.ref)
+    extra = ["--stat=120"] if args.stat else []
+    if args.log:
+        out = up.git("log", "-p", "--no-merges", "-M", "%s..%s" % (base, ref_sha), "--", *pathspecs(port))
+    else:
+        out = up.git("diff", "-M", *extra, base, ref_sha, "--", *pathspecs(port))
+    sys.stdout.write(out)
+    return 0
+
+
+def render_report(manifest, up, ref, ref_sha, states, with_diff=0, today=None):
+    repo_url = manifest.upstream.get("repo", "https://github.com/microsoft/vscode").rstrip("/")
+    today = today or datetime.date.today().isoformat()
+    changed = [s for s in states if s["commits"] or s["files"]]
+    L = []
+    L.append("# Upstream sync report")
+    L.append("")
+    L.append("Generated %s by `scripts/upstream-sync report`. Target ref `%s` = `%s`."
+             % (today, ref, ref_sha))
+    L.append("")
+    L.append("%d of %d port entries have upstream changes since their synced commit."
+             % (len(changed), len(states)))
+    L.append("")
+    if changed:
+        L.append("## Instructions for the agent")
+        L.append("")
+        L.append("Work through each entry below, one at a time (see UPSTREAM.md):")
+        L.append("")
+        L.append("1. Read the upstream diff: `scripts/upstream-sync diff <id>` "
+                 "(add `--log` for per-commit patches with messages).")
+        L.append("2. Decide per commit: port it, or record why it does not apply "
+                 "(UI-only, Electron/web-specific, already covered).")
+        L.append("3. Change the Rust code listed under *Rust*; port or update the matching tests.")
+        L.append("4. Update the `// upstream: <path> @ <commit>` header of every Rust file you touched "
+                 "to the target commit.")
+        L.append("5. `cargo test`, then `scripts/upstream-sync mark <id> %s`." % ref_sha[:12])
+        L.append("6. Entries with status `planned` have no Rust code yet: just `mark` them "
+                 "(nothing to port), unless you are starting the port now.")
+        L.append("")
+    L.append("## Summary")
+    L.append("")
+    L.append("| entry | status | synced | commits | files |")
+    L.append("|---|---|---|---|---|")
+    for s in states:
+        L.append("| `%s` | %s | `%s` | %d | %d |" % (s["id"], s["status"], s["synced"][:12],
+                                                    len(s["commits"]), len(s["files"])))
+    L.append("")
+    for s in changed:
+        L.append("## `%s` (%s)" % (s["id"], s["status"]))
+        L.append("")
+        L.append("- Upstream: %s" % ", ".join("`%s`" % p for p in s["upstream"]))
+        L.append("- Rust: %s" % (", ".join("`%s`" % p for p in s["rust"]) or "_none yet_"))
+        L.append("- Range: `%s..%s`" % (s["synced"][:12], ref_sha[:12]))
+        L.append("- Diff: `scripts/upstream-sync diff %s`" % s["id"])
+        L.append("- When done: `scripts/upstream-sync mark %s %s`" % (s["id"], ref_sha[:12]))
+        L.append("")
+        for w in s["warnings"]:
+            L.append("> **Warning:** %s" % w)
+        if s["warnings"]:
+            L.append("")
+        L.append("### Commits (%d)" % len(s["commits"]))
+        L.append("")
+        for c in s["commits"]:
+            L.append("- [ ] [`%s`](%s/commit/%s) %s %s (%s)%s"
+                     % (c["short"], repo_url, c["sha"], c["date"], c["subject"].replace("|", "\\|"),
+                        c["author"], " **[shallow boundary]**" if c["shallow_boundary"] else ""))
+        L.append("")
+        L.append("### Files")
+        L.append("")
+        if not s["files"]:
+            L.append("_No net file changes between the two commits._")
+            L.append("")
+            continue
+        for f in s["files"]:
+            L.append("- `%s` %s" % (f["status"], " -> ".join("`%s`" % p for p in f["paths"])))
+        L.append("")
+        L.append("```")
+        L.append(diffstat(up, s["synced"], ref_sha, manifest.get(s["id"])))
+        L.append("```")
+        L.append("")
+        if with_diff:
+            d = up.git("diff", "-M", s["synced"], ref_sha, "--", *pathspecs(manifest.get(s["id"]))).splitlines()
+            L.append("### Diff%s" % (" (first %d of %d lines)" % (with_diff, len(d)) if len(d) > with_diff else ""))
+            L.append("")
+            L.append("```diff")
+            L.extend(d[:with_diff])
+            L.append("```")
+            L.append("")
+    if len(changed) < len(states):
+        L.append("## Up to date")
+        L.append("")
+        for s in states:
+            if s not in changed:
+                L.append("- `%s` (%s) at `%s`" % (s["id"], s["status"], s["synced"][:12]))
+        L.append("")
+    return "\n".join(L)
+
+
+def cmd_report(args, manifest, up):
+    ref_sha, states = compute(manifest, up, args.ref, args.entry)
+    text = render_report(manifest, up, args.ref, ref_sha, states, args.with_diff)
+    if args.output == "-":
+        sys.stdout.write(text)
+    else:
+        out = args.output or os.path.join(os.path.dirname(manifest.path), "SYNC_REPORT.md")
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(text)
+        n = sum(1 for s in states if s["commits"] or s["files"])
+        print("wrote %s (%d of %d entries changed)" % (out, n, len(states)))
+    return 0
+
+
+def cmd_mark(args, manifest, up):
+    if args.all and args.commit is None and args.entry:
+        args.commit, args.entry = args.entry, None  # `mark --all <commit>`
+    ids = [p["id"] for p in manifest.ports] if args.all else [args.entry]
+    target = up.resolve(args.commit or args.ref)
+    for pid in ids:
+        port = manifest.get(pid)
+        fields = {"synced": target}
+        if args.status:
+            if args.status not in VALID_STATUS:
+                raise SyncError("invalid status %r" % args.status)
+            fields["status"] = args.status
+        old = port["synced"]
+        manifest.set_fields(pid, fields)
+        print("%s: synced %s -> %s%s" % (pid, old[:12], target[:12],
+                                         " status=%s" % args.status if args.status else ""))
+    return 0
+
+
+def scan_headers(root, rust_paths):
+    found = []
+    for rp in rust_paths:
+        base = os.path.join(root, rp)
+        files = []
+        if os.path.isfile(base):
+            files = [base]
+        elif os.path.isdir(base):
+            for d, _, names in os.walk(base):
+                files += [os.path.join(d, n) for n in names if n.endswith(".rs")]
+        for fp in sorted(files):
+            headers = []
+            with open(fp, encoding="utf-8", errors="replace") as f:
+                for _ in range(40):
+                    line = f.readline()
+                    if not line:
+                        break
+                    m = HEADER_RE.match(line)
+                    if m:
+                        headers.append((m.group(1), m.group(2)))
+            found.append((os.path.relpath(fp, root), headers))
+    return found
+
+
+def cmd_check(args, manifest, up):
+    """Validate manifest entries, then every `upstream:` header in the Rust paths
+    the manifest lists. A header's commit must match the synced commit of the
+    entry whose globs cover the header's path."""
+    problems = 0
+    ref_sha = up.resolve(args.ref)
+    synced = {}
+    for port in manifest.ports:
+        msgs = []
+        try:
+            synced[port["id"]] = up.resolve(port["synced"])
+        except SyncError as e:
+            msgs.append(str(e))
+        for pat in unmatched_patterns(up, ref_sha, port):
+            msgs.append("pattern %r matches no upstream file at %s" % (pat, ref_sha[:12]))
+        if port["status"] != "planned" and not any(
+                os.path.exists(os.path.join(manifest.root, r)) for r in port["rust"]):
+            msgs.append("status is %s but no Rust path exists" % port["status"])
+        print("%-28s %s" % (port["id"], "ok" if not msgs else "%d problem(s)" % len(msgs)))
+        for m in msgs:
+            print("    " + m)
+        problems += len(msgs)
+
+    files = {}
+    for port in manifest.ports:
+        for rel, headers in scan_headers(manifest.root, port["rust"]):
+            files[rel] = headers
+    header_msgs = []
+    for rel in sorted(files):
+        headers = files[rel]
+        if not headers:
+            header_msgs.append("%s: no `// upstream: <path> @ <commit>` header" % rel)
+        for path, sha in headers:
+            if re.search(r"[,\s]", path):
+                header_msgs.append("%s: header %r must name exactly one upstream path" % (rel, path))
+                continue
+            owners = [p for p in manifest.ports if any(_glob_match(g, path) for g in p["upstream"])]
+            if not owners:
+                header_msgs.append("%s: header path %s is not covered by any port entry" % (rel, path))
+            for p in owners:
+                want = synced.get(p["id"])
+                if want and not want.startswith(sha.lower()):
+                    header_msgs.append("%s: header %s @ %s, but entry %r is synced at %s"
+                                       % (rel, path, sha, p["id"], want[:12]))
+    print("%-28s %s" % ("rust headers (%d files)" % len(files),
+                        "ok" if not header_msgs else "%d problem(s)" % len(header_msgs)))
+    for m in header_msgs:
+        print("    " + m)
+    problems += len(header_msgs)
+    return 1 if problems else 0
+
+
+def cmd_fetch(args, manifest, up):
+    repo = manifest.upstream.get("repo", "https://github.com/microsoft/vscode")
+    branch = manifest.upstream.get("branch", "main")
+    c = up.clone
+    print("""\
+# upstream-sync never fetches by itself. Run these yourself (they download data):
+
+# one-time: add microsoft/vscode as the `upstream` remote (origin is the fork)
+git -C {c} remote add upstream {repo}.git
+
+# update: fetch new upstream commits. The clone is shallow, so either keep it
+# shallow from the pinned commit's date (small) ...
+git -C {c} fetch --shallow-since=<date of [upstream].pinned> upstream {branch}
+# ... or plain fetch / deepen if you have the disk space:
+git -C {c} fetch upstream {branch}
+
+# then move the clone forward (it is a read-only reference, so fast-forward only)
+git -C {c} merge --ff-only upstream/{branch}     # or: git -C {c} pull --ff-only upstream {branch}
+
+# alternatively leave the checkout alone and compare against the remote ref:
+scripts/upstream-sync status --ref upstream/{branch}
+""".format(c=c, repo=repo.rstrip("/"), branch=branch))
+    return 0
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+
+def build_parser():
+    p = argparse.ArgumentParser(prog="upstream-sync", description=__doc__.split("\n\n")[0])
+    p.add_argument("--manifest", default=os.environ.get("UPSTREAM_MANIFEST", DEFAULT_MANIFEST),
+                   help="path to ports.toml (default: upstream/ports.toml)")
+    p.add_argument("--clone", default=os.environ.get("UPSTREAM_CLONE"),
+                   help="upstream clone path (default: [upstream].clone, else ../vscode-original, "
+                        "relative to the repo root, i.e. the manifest's parent dir; env UPSTREAM_CLONE)")
+    p.add_argument("--ref", default=None,
+                   help="upstream ref to compare against (default: [upstream].ref, else HEAD)")
+    sub = p.add_subparsers(dest="cmd")
+    sub.required = True
+
+    s = sub.add_parser("status", help="list upstream commits per entry since its synced commit")
+    s.add_argument("entry", nargs="?")
+    s.add_argument("--limit", type=int, default=20)
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("diff", help="show the upstream diff for an entry since its synced commit")
+    s.add_argument("entry")
+    s.add_argument("--stat", action="store_true")
+    s.add_argument("--log", action="store_true", help="per-commit patches (git log -p) instead of one diff")
+    s.set_defaults(func=cmd_diff)
+
+    s = sub.add_parser("report", help="write upstream/SYNC_REPORT.md work-list")
+    s.add_argument("entry", nargs="?")
+    s.add_argument("-o", "--output", help="output path, or - for stdout")
+    s.add_argument("--with-diff", type=int, default=0, metavar="N",
+                   help="embed up to N lines of diff per entry")
+    s.set_defaults(func=cmd_report)
+
+    s = sub.add_parser("mark", help="set an entry's synced commit after porting")
+    s.add_argument("entry", nargs="?", help="entry id")
+    s.add_argument("commit", nargs="?", help="upstream commit (default: the target ref)")
+    s.add_argument("--all", action="store_true", help="mark every entry")
+    s.add_argument("--status", help="also set status (planned/partial/ported)")
+    s.set_defaults(func=cmd_mark)
+
+    s = sub.add_parser("check", help="validate manifest paths and Rust `// upstream:` headers")
+    s.set_defaults(func=cmd_check)
+
+    s = sub.add_parser("fetch", help="print (do not run) the commands to update the upstream clone")
+    s.set_defaults(func=cmd_fetch)
+    return p
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    try:
+        manifest = Manifest(os.path.abspath(args.manifest))
+        clone = args.clone or manifest.upstream.get("clone", DEFAULT_CLONE)
+        if not os.path.isabs(clone):
+            clone = os.path.normpath(os.path.join(manifest.root, clone))
+        args.ref = args.ref or manifest.upstream.get("ref", "HEAD")
+        if args.cmd == "mark" and not args.entry and not args.all:
+            raise SyncError("mark needs an entry id or --all")
+        return args.func(args, manifest, Upstream(clone))
+    except SyncError as e:
+        print("upstream-sync: error: %s" % e, file=sys.stderr)
+        return 2
+    except BrokenPipeError:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

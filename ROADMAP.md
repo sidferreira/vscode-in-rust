@@ -12,8 +12,11 @@ Priority order set by the user (2026-11-09). Work top to bottom; details and rat
 2. **Settings migration** (in progress)
    - [x] Configuration service + live reload: settings take effect (ADR-0022)
    - [x] Map all 2062 settings with a status per setting (`scripts/settings-port`, ADR-0025)
-   - In progress: migrate feature group by group, each with a headless test proving the effect
-     (minimap, editor rendering basics; next: workbench.editor tab behaviour)
+   - [x] First groups migrated: search, find, quick open, palette, minimap, editor rendering, tabs,
+     files (auto save, read-only), window/workbench, word wrap (96 wired)
+   - In progress (user's choice, 2026-11-09): **enabling features** that unblock many settings at once:
+     theme service, language registry + syntax highlighting, file watcher + Explorer file operations,
+     session restore + hot exit + welcome page (the welcome page becomes the startup default)
 3. **Extensions** (ADR-0020)
    - P0 Node extension-host handshake → P1 ErrorLens → oxc (LSP) → TS / XML / Kotlin →
      GitLens → Claude Code → GitHub Pull Requests

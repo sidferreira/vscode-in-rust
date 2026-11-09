@@ -4,6 +4,7 @@
 //! upstream: src/vs/workbench/services/textMate/common/TMGrammarFactory.ts @ 50e1350fc78d
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use vsr_languages::bundled::builtin_registry;
@@ -11,7 +12,6 @@ use vsr_languages::{LanguageNameIdPair, LanguagesRegistry};
 use vsr_textmate::{Grammar, ScopeId, Theme, ThemeStyles, Token, TokenColorsProvider, TokenStyle};
 
 use crate::source::BundledGrammars;
-use crate::theme::BundledTheme;
 use crate::tokens::BackgroundTokenizer;
 
 /// `editor.maxTokenizationLineLength` default.
@@ -30,6 +30,8 @@ pub struct SyntaxService {
     grammars: BundledGrammars,
     loaded: Mutex<HashMap<String, Option<Arc<Grammar>>>>,
     styles: RwLock<Arc<ThemeStyles>>,
+    /// Bumped by every `set_token_colors`: a cache of drawn token colours compares it.
+    theme_generation: AtomicU64,
 }
 
 impl Default for SyntaxService {
@@ -39,13 +41,14 @@ impl Default for SyntaxService {
 }
 
 impl SyntaxService {
-    /// With every built-in language and the bundled Dark Modern token colors.
+    /// With every built-in language. No token has a style until `set_token_colors` is called.
     pub fn new() -> Self {
         Self {
             registry: RwLock::new(builtin_registry()),
             grammars: BundledGrammars::new(),
             loaded: Mutex::new(HashMap::new()),
-            styles: RwLock::new(Arc::new(ThemeStyles::new(Theme::from_rules(&BundledTheme::dark_modern().token_colors())))),
+            styles: RwLock::new(Arc::new(ThemeStyles::new(Theme::from_rules(&[])))),
+            theme_generation: AtomicU64::new(0),
         }
     }
 
@@ -115,6 +118,12 @@ impl SyntaxService {
     /// Replaces the token colors (a theme change). Tokens are kept: only styles change.
     pub fn set_token_colors(&self, provider: &dyn TokenColorsProvider) {
         *self.styles.write().expect("styles lock") = Arc::new(ThemeStyles::new(Theme::from_rules(&provider.token_colors())));
+        self.theme_generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Changes whenever the token colors change.
+    pub fn theme_generation(&self) -> u64 {
+        self.theme_generation.load(Ordering::Acquire)
     }
 
     pub fn style_of(&self, grammar: &Grammar, scope: ScopeId) -> TokenStyle {

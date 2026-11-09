@@ -6,8 +6,8 @@
 //!   token styles under the current theme
 //! - `DocumentTokens` / `BackgroundTokenizer`: per-line tokens with the rule stack per line;
 //!   an edit re-tokenizes from the first changed line until the state converges
-//! - `BundledTheme`: the Dark Modern `tokenColors`, behind `TokenColorsProvider` so the theme
-//!   service can replace it
+//! - token colors: `SyntaxService::set_token_colors` takes the active theme's rules (the app's
+//!   theme service provides them, ADR-0037); `BundledTheme` is the Dark Modern rules for tests
 
 mod service;
 mod source;

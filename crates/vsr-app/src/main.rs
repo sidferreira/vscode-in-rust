@@ -241,10 +241,12 @@ impl Workbench {
             read_only: ReadonlyRules::from_configuration(configuration, &root),
             ..Editors::default()
         };
+        theme_service::sync_token_colors(&editors.syntax, cx);
         let mut wb = Self {
             theme: ThemeService::theme(cx),
             _theme_sub: cx.observe_global::<ThemeService>(|this, cx| {
                 this.theme = ThemeService::theme(cx);
+                theme_service::sync_token_colors(&this.editors.syntax, cx);
                 cx.notify();
             }),
             _appearance_sub: None,

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use vsr_syntax::{BackgroundTokenizer, DocumentTokens, SyntaxService};
+use vsr_syntax::{BackgroundTokenizer, BundledTheme, DocumentTokens, SyntaxService};
 use vsr_textmate::{Grammar, Rgba, StateStack, TokenType};
 
 fn tokenize_all(g: &Grammar, lines: &[&str]) -> Vec<Vec<(String, String)>> {
@@ -141,6 +141,7 @@ fn every_bundled_grammar_loads_and_tokenizes() {
 #[test]
 fn dark_modern_colors() {
     let svc = SyntaxService::new();
+    svc.set_token_colors(&BundledTheme::dark_modern());
     let g = svc.grammar_for_language("rust").unwrap();
     let line = "fn main() { let x = \"s\"; // c";
     let r = g.tokenize_line(line, &StateStack::initial());
@@ -157,6 +158,7 @@ fn dark_modern_colors() {
 #[test]
 fn font_styles_come_from_the_theme() {
     let svc = SyntaxService::new();
+    svc.set_token_colors(&BundledTheme::dark_modern());
     let g = svc.grammar_for_language("markdown").unwrap();
     let r = g.tokenize_line("**bold** *it* ~~x~~", &StateStack::initial());
     let line = "**bold** *it* ~~x~~";

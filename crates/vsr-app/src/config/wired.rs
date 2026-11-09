@@ -75,6 +75,10 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "search.quickOpen.history.filterSortOrder",
         ],
     ),
+    (
+        "Command Palette",
+        &["workbench.commandPalette.history", "workbench.commandPalette.preserveInput"],
+    ),
 ];
 
 pub fn all_keys() -> impl Iterator<Item = &'static str> {

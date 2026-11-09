@@ -5,7 +5,7 @@ Suites (describe): Data Loss (insiders -> insiders); Data Loss (stable -> inside
 
 | # | scenario (it title) | suite | upstream file:line | steps (summary) | status | notes |
 |---|---|---|---|---|---|---|
-| 1 | verifies opened editors are restored | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:22` | Starts the app, opens www and app.js (kept) and an untitled file, restarts, and selects the three tabs to verify they were restored. | pending | Needs quick open, untitled files, session restore of tabs. |
+| 1 | verifies opened editors are restored | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:22` | Starts the app, opens www and app.js (kept) and an untitled file, restarts, and selects the three tabs to verify they were restored. | pending | Quick open (Cmd+P) and the Command Palette (`View: Keep Editor` is not registered yet) exist; still needs untitled files and session restore of tabs. |
 | 2 | verifies editors can save and restore | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:49` | Opens app.js, types text, waits for the dirty tab, saves, restarts and checks the contents include the text. | pending | Typing, dirty tab and save to disk are covered headlessly (`crates/vsr-app/src/editor_view/e2e.rs`: `typing_enter_undo_and_save`, `save_preserves_crlf_and_cmd_w_closes_the_tab`). Still needs restart and session restore of open editors. |
 | 3 | verifies that "hot exit" works for dirty files (without delay) | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:78` | Shared testHotExit helper: edits files, restarts without saving, and checks dirty content and tabs are restored. | blocked-on-feature hot exit / backup service |  |
 | 4 | verifies that "hot exit" works for dirty files (with delay) | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:82` | Same helper with a 2 second restart delay. | blocked-on-feature hot exit / backup service |  |
@@ -35,3 +35,20 @@ Blocked, grouped by feature:
 - cross-version state migration (needs stable VS Code install): #6
 - cross-version state migration: #7, #8
 - localization: #10
+
+## rscode-only scenarios (no upstream smoke test)
+
+The upstream smoke tests drive the Command Palette through `quickaccess.runCommand(...)` in most
+areas; these headless tests (`crates/vsr-app/src/quick_access/e2e_tests.rs`, ADR-0030) cover the
+palette itself:
+
+| scenario | status | test |
+|---|---|---|
+| Shift+Cmd+P and F1 open the palette with `>` | ready | `shift_cmd_p_and_f1_open_the_palette_with_the_prefix` |
+| type "toggle side", Enter hides the side bar; Cmd+B toggles | ready | `typing_toggle_side_then_enter_hides_the_side_bar`, `cmd_b_toggles_the_side_bar` |
+| recently used commands first, history setting, Clear Command History | ready | `recently_used_commands_come_first`, `history_setting_zero_disables_recently_used_and_clear_command_history_empties_it` |
+| Backspace over `>` is Quick Open, typing `>` is the palette, `?` lists providers | ready | `backspace_over_the_prefix_...`, `cmd_p_from_the_palette_...`, `question_mark_lists_the_providers_...` |
+| `:42` / Ctrl+G go to line, columns with tabs, offsets | ready | `go_to_line_with_colon_42_...`, `colon_in_quick_open_...`, `go_to_line_columns_are_visible_columns_...` |
+| key binding labels equal the keymap | ready | `the_keybinding_shown_is_the_one_in_the_keymap` |
+| editor commands (Select All, Find, Save) run from the palette | ready | `editor_commands_run_on_the_active_editor_and_need_one`, `save_from_the_palette_writes_the_file` |
+

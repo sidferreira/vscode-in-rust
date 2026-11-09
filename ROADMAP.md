@@ -6,8 +6,9 @@ Priority order set by the user (2026-11-09). Work top to bottom; details and rat
 1. **Search** (in progress)
    - [x] Search view / find in files on the ripgrep libraries, search.* settings wired (ADR-0023)
    - [x] In-editor Find widget: Cmd+F / Alt+Cmd+F, replace, find in selection (ADR-0027)
-   - [x] Quick Open files (Cmd+P), on a reusable Quick Pick (ADR-0028); the Command Palette (Shift+Cmd+P) reuses it
-   - Next: Replace in the Search view, Command Palette (Shift+Cmd+P)
+   - [x] Quick Open files (Cmd+P), on a reusable Quick Pick (ADR-0028)
+   - [x] Command Palette (Shift+Cmd+P, F1) on a shared command registry, Go to Line (Ctrl+G), Cmd+B, `>` `:` `?` prefixes (ADR-0030)
+   - Next: Replace in the Search view
 2. **Settings migration**
    - [x] Configuration service + live reload: settings take effect (ADR-0022)
    - Map all ~2062 settings (`scripts/settings-port`), then migrate feature group by group,

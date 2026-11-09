@@ -574,3 +574,70 @@ Quick Open (Cmd+P) is built on a reusable Quick Pick so the Command Palette can 
   `preserveInput`, `search.quickOpen.includeHistory`, `search.quickOpen.history.filterSortOrder`.
 - History entries match contiguously only and the file results exclude them, as upstream does.
 - Not yet: symbol picks, open to the side, remove from history, file icons, a file watcher.
+
+## ADR-0030 — Command registry and the Command Palette (2026-11-09)
+
+Shift+Cmd+P (and F1) opens the Command Palette on the Quick Pick of ADR-0028, backed by a real
+command registry that menus, key bindings and the extension host will share.
+
+- **`vsr-commands` (UI-free)** is `CommandsRegistry<H>`: an id, a `CommandDescriptor` (the metadata of
+  `Action2`: `title`, `category`, `f1`, `precondition`, `description`, `original_title` for the alias
+  match) and a handler `H`. Like `CommandsRegistry.registerCommand`, registering an id again overrides
+  it and disposing the newer `Registration` brings the older handler back. Preconditions are `When`
+  expressions (`key`, `!`, `==`, `!=`, `&&`, `||`, parentheses) evaluated against `ContextKeys`; the
+  palette lists `f1` commands whose precondition holds, like `MenuId.CommandPalette` filtered by
+  `enabled`. `CommandsHistory` is the LRU of recently used ids (`workbench.commandPalette.history`,
+  default 50, 0 off). `keybinding` formats a chord like `UILabelProvider` on macOS (`⇧⌘P`).
+- **`vsr-app/commands.rs`** instantiates `H = Handler::Action { action, scope }`: a command is a gpui
+  action plus metadata. Running it dispatches the action from where focus is (`Scope::Editor` first
+  focuses the editor), so the `on_action` listeners that already exist stay the only implementation and a
+  key press and a palette pick take one path. Every action rscode has is registered under its VS Code id
+  (63 commands, 21 in the palette with an editor open, 8 without): the key map's editor commands (`cursorLeft`... `undo`, `redo`,
+  `editor.action.selectAll`, clipboard, `workbench.action.files.save`, `closeActiveEditor`), Find
+  (`actions.find`, `editor.action.startFindReplaceAction`, next/previous, toggles, replace), the Search
+  view toggles, `workbench.action.{quit,quickOpen,showCommands,gotoLine,openSettings,toggleSidebarVisibility,clearCommandHistory}`,
+  `workbench.view.{explorer,search}`. New: Cmd+B (ADR-0022 noted it missing), Shift+Cmd+E, Ctrl+G, F1.
+  The registry is a gpui `Global` (`Commands`) with the history and the Quick Access providers.
+- **Key bindings are read, not stored.** The label on the right of a row is the first binding for that
+  action in gpui's keymap (`cx.key_bindings()`, context ignored, so it is right whatever has focus), so
+  a binding change shows up in the palette and cannot drift. A test compares every palette row with the
+  keymap. Each key is its own box (keybindingLabel.* colors of Dark Modern, inset bottom shadow); on
+  the focused row the boxes lose their fill like `quickInput.css`.
+- **Quick Access** (`quickAccess.ts`): `QuickAccessRegistry` picks the provider with the longest prefix
+  that the typed text starts with, else the default (files). `>` commands, `:` Go to Line/Column,
+  `?` help (lists every provider's help entries, Enter switches to it), `""` Go to File. One
+  `QuickPick` serves all of them: the text decides the provider on every change, so Backspace over `>`
+  is Quick Open, typing `>` in Quick Open is the palette, Cmd+P / Shift+Cmd+P / Ctrl+G inside an open
+  picker switch it. The picker's source produces the rows of files, commands and help; Go to Line needs the
+  active editor, so the workbench fills its one row when the picker emits `QuickPickEvent::Change`.
+  Placeholders follow the provider. `preserveInput` (`workbench.commandPalette.preserveInput`, default
+  off) restores the last text and selects what follows the prefix.
+- **Filtering is not the fuzzy scorer.** Upstream matches commands with `or(matchesBaseContiguousSubString,
+  matchesWords)` on `Category: Title` (and the English alias), plus the exact command id; the fuzzy scorer
+  is for files. Both filters are ported (`vsr-quickinput::filters`). Order: recently used (most recent
+  first, "recently used" separator, then "other commands"), the rest by `localeCompare` of the label with
+  the `Developer` category last. Commands with the same label show their id as description.
+- **Go to Line** is `parsePosition` ported with its two test cases (line, `line:col`, `line,col`,
+  `line#col`, negatives, visible columns with tabs, `::offset`). The prompts are upstream's
+  ("Type a line number to go to (from 1 to N)." and so on; the task text "between 1 and N to navigate
+  to" is not upstream's wording). Enter moves the caret and focuses the editor.
+- **How the extension host will register commands (ADR-0020).** `MainThreadCommands.$registerCommand(id)`
+  will call `registry.register(descriptor, Handler::Extension { id })`; contributed `contributes.commands`
+  (title, category, `enablement`) fill the descriptor, `contributes.menus.commandPalette` toggles `f1`,
+  and `contributes.keybindings` become gpui `KeyBinding`s bound to a generic `RunCommand(id)` action so
+  the palette label keeps coming from the keymap. Executing `Handler::Extension` sends
+  `$executeContributedCommand` over the RPC and awaits it; `commands.executeCommand` from an extension
+  for a built-in id goes through `Commands::execution`. `registerCommand` stacking and `Registration`
+  disposal already match what extensions expect.
+- **Tests.** Registry, `When`, history, labels and the command table are unit-tested; ports:
+  `commands.test.ts` (2), `quickAccess.test.ts` registry tests (2), `gotoLineQuickAccess.test.ts` (2),
+  `filters.test.ts` (6). 19 headless gpui E2E tests (`quick_access/e2e_tests.rs`) drive the real
+  workbench: Shift+Cmd+P / F1, "toggle side" + Enter hides the side bar, Cmd+B, recently used order,
+  history 0 and Clear Command History, `>` to files and back, `?` help, `:42` and Ctrl+G, tabs and
+  offsets, key binding labels vs the keymap, Select All / Find / Save from the palette, preserveInput.
+
+**Not implemented:** tf-idf "similar commands" (3+ characters that match nothing), commonly used
+commands, the alias line (localized builds), the remove-from-history button, persisted history
+(no storage service yet), the confirmation dialog of Clear Command History, user `keybindings.json`,
+menus built from the registry (the macOS menu still has only Quit), live reveal and decoration while
+typing a line number, the zero-based offset toggle, the `view`, `@` symbol, `#` and `%` providers.

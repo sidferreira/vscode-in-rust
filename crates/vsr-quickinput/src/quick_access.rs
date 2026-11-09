@@ -84,7 +84,7 @@ impl QuickAccessRegistry {
             self.providers.push(Rc::clone(&provider));
         }
         // Longer prefixes first: `ext install` wins over `ext`.
-        self.providers.sort_by(|a, b| b.prefix.chars().count().cmp(&a.prefix.chars().count()));
+        self.providers.sort_by_key(|a| std::cmp::Reverse(a.prefix.chars().count()));
         provider
     }
 

@@ -74,7 +74,7 @@ impl CommandsHistory {
     /// Ids, most recently used first.
     pub fn recent(&self) -> Vec<&str> {
         let mut v: Vec<(&str, u64)> = self.used.iter().map(|(k, c)| (k.as_str(), *c)).collect();
-        v.sort_by(|a, b| b.1.cmp(&a.1));
+        v.sort_by_key(|a| std::cmp::Reverse(a.1));
         v.into_iter().map(|(k, _)| k).collect()
     }
 

@@ -1,5 +1,7 @@
 //! Quick Open (Cmd+P, "Go to File"): the workbench side. Builds the file list of the workspace in
-//! the background, feeds the Quick Pick, and opens what is accepted.
+//! the background, feeds the Quick Pick, and opens what is accepted. Also owns the picker's life
+//! cycle for every Quick Access provider (`>` commands, `:` go to line, `?` help live in
+//! `quick_access.rs`, ADR-0030): the text typed decides which provider fills the rows.
 //!
 //! upstream: src/vs/workbench/contrib/search/browser/anythingQuickAccess.ts @ 50e1350fc78d
 //! upstream: src/vs/platform/quickinput/browser/quickAccess.ts @ 50e1350fc78d

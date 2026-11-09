@@ -10,6 +10,8 @@ mod editor_view;
 mod icons;
 mod keymap;
 mod model;
+mod quick_input; // Quick Pick component (ADR-0028)
+mod quick_open; // Quick Open, Cmd+P
 mod search_view; // Search view (ADR-0023)
 mod settings_view; // Settings editor (ADR-0017)
 mod text_layout;
@@ -50,6 +52,7 @@ fn main() {
         settings_view::install(cx); // Cmd+, binding + component theme
         editor_view::init(cx); // editor key bindings
         search_view::init(cx); // Shift+Cmd+F and Search view bindings
+        quick_open::init(cx); // Cmd+P
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -135,6 +138,8 @@ struct Workbench {
     _config_sub: Subscription,
     /// The Search view (created the first time Search is shown).
     search: Option<Entity<SearchView>>,
+    /// Quick Open (Cmd+P) state.
+    quick: quick_open::QuickOpenState,
     /// Root focus handle so workbench-level actions (Cmd+,) dispatch even before anything is focused.
     focus: Option<FocusHandle>,
     branch: Option<String>,
@@ -168,6 +173,7 @@ impl Workbench {
             installed_fonts: None,
             _config_sub: cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)),
             search: None,
+            quick: Default::default(),
             focus: None,
             branch: git_branch(&root),
             error: None,
@@ -972,8 +978,10 @@ impl Render for Workbench {
             .text_color(to_gpui(t.sidebar_fg))
             .font_family(".SystemUIFont")
             .text_size(px(13.))
+            .relative()
             .key_context("Workbench")
             .track_focus(&focus)
+            .on_action(cx.listener(|this, _: &quick_open::GoToFile, window, cx| this.show_quick_open(window, cx)))
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)))
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| this.focus_search(window, cx)))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
@@ -1004,6 +1012,7 @@ impl Render for Workbench {
             .child(self.title_bar())
             .child(middle)
             .when(layout.status_bar_visible, |d| d.child(self.status_bar()))
+            .children(self.quick.view())
     }
 }
 

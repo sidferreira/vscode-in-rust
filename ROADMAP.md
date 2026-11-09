@@ -5,7 +5,8 @@ Priority order set by the user (2026-11-09). Work top to bottom; details and rat
 
 1. **Search** (in progress)
    - Search view / find in files (ripgrep libraries: `grep-*`, `ignore`)
-   - Next: in-editor Find widget (Cmd+F), Quick Open files (Cmd+P)
+   - Quick Open files (Cmd+P) done, on a reusable Quick Pick (ADR-0028); the Command Palette (Shift+Cmd+P) reuses it
+   - Next: in-editor Find widget (Cmd+F)
 2. **Settings migration**
    - Configuration service + live reload (in progress, makes settings take effect)
    - Map all ~2062 settings (`scripts/settings-port`), then migrate feature group by group,

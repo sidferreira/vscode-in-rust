@@ -39,6 +39,15 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Saving", &["files.insertFinalNewline", "files.trimTrailingWhitespace"]),
+    (
+        "Quick Open",
+        &[
+            "workbench.quickOpen.closeOnFocusLost",
+            "workbench.quickOpen.preserveInput",
+            "search.quickOpen.includeHistory",
+            "search.quickOpen.history.filterSortOrder",
+        ],
+    ),
 ];
 
 pub fn all_keys() -> impl Iterator<Item = &'static str> {

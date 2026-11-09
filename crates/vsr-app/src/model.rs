@@ -122,11 +122,13 @@ pub struct Editors {
     pub active: Option<usize>,
     /// Options for editors opened from now on (`editor.tabSize`, `editor.insertSpaces`).
     pub options: EditorOptions,
+    /// Every file opened so far, most recent first (the editor history of Quick Open).
+    pub history: Vec<PathBuf>,
 }
 
 impl Default for Editors {
     fn default() -> Self {
-        Self { open: Vec::new(), active: None, options: EDITOR_OPTIONS }
+        Self { open: Vec::new(), active: None, options: EDITOR_OPTIONS, history: Vec::new() }
     }
 }
 
@@ -136,6 +138,7 @@ impl Editors {
     pub fn open_file(&mut self, path: &Path) -> io::Result<()> {
         if let Some(i) = self.open.iter().position(|e| e.path == path) {
             self.active = Some(i);
+            self.touch_history(path);
             return Ok(());
         }
         let bytes = fs::read(path)?;
@@ -144,7 +147,28 @@ impl Editors {
         let at = self.active.map_or(self.open.len(), |i| i + 1);
         self.open.insert(at, editor);
         self.active = Some(at);
+        self.touch_history(path);
         Ok(())
+    }
+
+    fn touch_history(&mut self, path: &Path) {
+        self.history.retain(|p| p != path);
+        self.history.insert(0, path.to_path_buf());
+    }
+
+    /// The files to offer as "recently opened": the active editor first, then the history,
+    /// most recent first (`IHistoryService.getHistory`).
+    pub fn recent_files(&self) -> Vec<PathBuf> {
+        let mut out: Vec<PathBuf> = Vec::new();
+        if let Some(a) = self.active_editor() {
+            out.push(a.path.clone());
+        }
+        for p in &self.history {
+            if !out.contains(p) {
+                out.push(p.clone());
+            }
+        }
+        out
     }
 
     /// Close a tab; focus moves to the tab on the right, else the left.
@@ -242,6 +266,22 @@ mod tests {
         let titles: Vec<_> = ed.open.iter().map(|e| e.title.as_str()).collect();
         assert_eq!(titles, ["b.txt", "A.md", "c.rs"]);
         assert_eq!(ed.active, Some(1));
+    }
+
+    #[test]
+    fn recent_files_are_most_recent_first_with_the_active_editor_on_top() {
+        let dir = tmp_workspace("history");
+        let mut ed = Editors::default();
+        for f in ["b.txt", "c.rs", "A.md", "b.txt"] {
+            ed.open_file(&dir.join(f)).unwrap();
+        }
+        let names = |ed: &Editors| -> Vec<String> {
+            ed.recent_files().iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect()
+        };
+        assert_eq!(names(&ed), ["b.txt", "A.md", "c.rs"]);
+        ed.close(ed.active.unwrap()); // closed files stay in the history
+        ed.active = Some(0);
+        assert_eq!(names(&ed), ["c.rs", "b.txt", "A.md"]);
     }
 
     #[test]

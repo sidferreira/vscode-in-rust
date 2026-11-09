@@ -859,11 +859,10 @@ fn label_and_description_match_distance<T>(item: &T, score: &ItemScore, accessor
     }
     if let Some(l) = label {
         match_end = l[l.len() - 1].end as i64;
-        if desc.is_some() {
-            if let Some(d) = accessor.description(item).filter(|d| !d.is_empty()) {
+        if desc.is_some()
+            && let Some(d) = accessor.description(item).filter(|d| !d.is_empty()) {
                 match_end += d.chars().count() as i64;
             }
-        }
     } else if let Some(d) = desc {
         match_end = d[d.len() - 1].end as i64;
     }
@@ -915,16 +914,14 @@ fn fallback_compare<T>(a: &T, b: &T, query: &PreparedQuery, accessor: &dyn ItemA
     if label_a != label_b {
         return compare_anything(&label_a, &label_b, &query.normalized);
     }
-    if let (Some(da), Some(db)) = (&desc_a, &desc_b) {
-        if da != db {
+    if let (Some(da), Some(db)) = (&desc_a, &desc_b)
+        && da != db {
             return compare_anything(da, db, &query.normalized);
         }
-    }
-    if let (Some(pa), Some(pb)) = (&path_a, &path_b) {
-        if pa != pb {
+    if let (Some(pa), Some(pb)) = (&path_a, &path_b)
+        && pa != pb {
             return compare_anything(pa, pb, &query.normalized);
         }
-    }
     0
 }
 

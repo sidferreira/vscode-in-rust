@@ -27,7 +27,17 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Startup", &["workbench.startupEditor"]),
-    ("Explorer", &["files.exclude"]),
+    (
+        "Explorer",
+        &[
+            "files.exclude",
+            "files.enableTrash",
+            "explorer.confirmDelete",
+            "explorer.sortOrder",
+            "explorer.compactFolders",
+            "explorer.autoReveal",
+        ],
+    ),
     (
         "Editor text",
         &[
@@ -210,6 +220,9 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- Search reads `files.exclude` too (it is listed under Explorer). Entries of `search.exclude` and `files.exclude` whose value is an object (`when` clauses) are ignored by the search.\n");
     out.push_str("- `workbench.editor.enablePreviewFromCodeNavigation` is read, but nothing opens from code navigation yet, so it has no effect.\n");
     out.push_str("- Editor groups: rscode has one group. `limit.*` counts the whole group, `revealIfOpen` and `focusRecentEditorAfterClose` apply to that group's tabs. `limit.perEditorGroup` is not read.\n");
+    out.push_str("- `explorer.sortOrder: foldersNestsFiles` sorts like `default`: rscode has no file nesting (`explorer.fileNesting.*`), so nothing is nested. Names sort case-insensitively with numbers in order (`file2` before `file10`).\n");
+    out.push_str("- `explorer.autoReveal` runs when an editor opens. Switching tabs does not reveal the file yet. The scroll is a request to the tree's scroll handle; the headless tests cannot observe it.\n");
+    out.push_str("- `explorer.confirmDelete` covers Delete (Trash, or permanent when `files.enableTrash` is off) and Delete Permanently. Dirty editors are not asked about: they stay open with their text.\n");
     out.push_str("- `workbench.editor.labelFormat: long` shows the directory's absolute path; `default` adds the directory (relative to the folder) only to tabs that share a name.\n");
     out.push_str("- `workbench.editor.highlightModifiedTabs` always uses the focused-group colours (`tab.activeModifiedBorder`, `tab.inactiveModifiedBorder`).\n");
     out.push_str("- `workbench.editor.closeOnFileDelete` checks that files exist once a second (no file watcher yet). Editors with unsaved changes stay open.\n");

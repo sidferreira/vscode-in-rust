@@ -442,9 +442,9 @@ match = ["files.hotExit", "files.restoreUndoStack"]
 
 [[rule]]
 status = "blocked"
-reason = "needs the Explorer Delete command (the workbench deletes to the Trash; no command or key reaches it yet)"
-comment = "enableTrash moves deleted files to the macOS Trash (ADR-0039). The workbench honours it; the Delete key and the context menu come with the explorer's inline editing."
-match = ["files.enableTrash"]
+reason = "needs Explorer copy, paste and duplicate (incremental names apply to duplicated items)"
+comment = "explorer.incrementalNaming names a pasted or duplicated item that already exists (names.rs has the naming functions). rscode has no copy, paste or duplicate yet (ADR-0041)."
+match = ["explorer.incrementalNaming"]
 
 [[rule]]
 status = "blocked"

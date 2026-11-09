@@ -8,6 +8,7 @@ use gpui_kit::{Focusable, TestAppContext, VisualTestContext};
 use serde_json::json;
 
 use super::e2e::{start, tree_names, workspace};
+use crate::explorer::testutil::TempWorkspace;
 use crate::config::AppConfig;
 use crate::Workbench;
 
@@ -218,4 +219,94 @@ fn rename_selects_the_name_without_the_last_extension() {
     assert_eq!(rename_selection(".env", false), 4);
     assert_eq!(rename_selection("Makefile", false), 8);
     assert_eq!(rename_selection("src.d", true), 5, "a folder selects all of its name");
+}
+
+fn set(cx: &mut VisualTestContext, key: &str, value: serde_json::Value) {
+    cx.update(|_, cx| AppConfig::set_value(cx, key, Some(value))).unwrap();
+    cx.run_until_parked();
+}
+
+fn row_names(wb: &gpui_kit::Entity<Workbench>, cx: &mut VisualTestContext) -> Vec<String> {
+    wb.read_with(cx, |wb, _| wb.visible_rows().into_iter().map(|(e, _)| e.name).collect())
+}
+
+#[gpui::test]
+fn sort_order_follows_explorer_sort_order_live(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("sort-order");
+    fs::write(ws.path().join("a.txt"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    assert_eq!(row_names(&wb, cx), ["src", "a.txt"], "default: folders first");
+    set(cx, "explorer.sortOrder", json!("mixed"));
+    assert_eq!(row_names(&wb, cx), ["a.txt", "src"], "mixed: by name");
+    set(cx, "explorer.sortOrder", json!("filesFirst"));
+    assert_eq!(row_names(&wb, cx), ["a.txt", "src"]);
+    set(cx, "explorer.sortOrder", json!("foldersNestsFiles"));
+    assert_eq!(row_names(&wb, cx), ["src", "a.txt"], "without file nesting it sorts as default");
+}
+
+#[gpui::test]
+fn compact_folders_shows_a_single_child_chain_as_one_row(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("compact");
+    fs::create_dir_all(ws.path().join("a/b/c")).unwrap();
+    fs::write(ws.path().join("a/b/c/deep.txt"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    assert_eq!(row_names(&wb, cx), ["a/b/c", "src"], "the chain is one row");
+    // The row opens the deepest folder: Right expands it, and its file is the next row.
+    wb.update(cx, |wb, _| wb.select(&ws.path().join("a/b/c")));
+    wb.update(cx, |wb, cx| wb.expand_or_first_child(cx));
+    cx.run_until_parked();
+    assert_eq!(row_names(&wb, cx), ["a/b/c", "deep.txt", "src"]);
+    set(cx, "explorer.compactFolders", json!(false));
+    assert_eq!(row_names(&wb, cx), ["a", "src"], "without compaction each folder has its own row");
+}
+
+#[gpui::test]
+fn auto_reveal_expands_and_selects_the_opened_file(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("auto-reveal");
+    fs::create_dir_all(ws.path().join("src/deep/er")).unwrap();
+    fs::write(ws.path().join("src/deep/er/x.rs"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let file = ws.path().join("src/deep/er/x.rs");
+    wb.update(cx, |wb, _| wb.open(&file));
+    cx.run_until_parked();
+    let (selected_now, src_open, deep_open) = wb.read_with(cx, |wb, _| {
+        (wb.explorer.selected.clone(), wb.expanded.contains(&wb.root.join("src/deep")), wb.expanded.contains(&wb.root.join("src")))
+    });
+    assert_eq!(selected_now, Some(file));
+    assert!(src_open && deep_open, "the folders above the file are expanded");
+}
+
+/// A tree taller than the window: 120 files at the root, so the last one is out of view.
+fn tall_workspace(tag: &str) -> (TempWorkspace, TempWorkspace) {
+    let (ws, bin) = workspace(tag);
+    for i in 0..120 {
+        fs::write(ws.path().join(format!("f{i:03}.txt")), "").unwrap();
+    }
+    (ws, bin)
+}
+
+fn scroll_y(wb: &gpui_kit::Entity<Workbench>, cx: &mut VisualTestContext) -> f32 {
+    wb.read_with(cx, |wb, _| f32::from(wb.explorer.scroll.offset().y))
+}
+
+#[gpui::test]
+fn auto_reveal_focus_no_scroll_selects_without_scrolling(cx: &mut TestAppContext) {
+    let (ws, bin) = tall_workspace("reveal-noscroll");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "explorer.autoReveal", json!("focusNoScroll"));
+    wb.update(cx, |wb, _| wb.open(&ws.path().join("f119.txt")));
+    cx.run_until_parked();
+    assert_eq!(scroll_y(&wb, cx), 0.0, "not scrolled");
+    assert_eq!(wb.read_with(cx, |wb, _| wb.explorer.selected.clone()), Some(ws.path().join("f119.txt")), "but selected");
+}
+
+#[gpui::test]
+fn auto_reveal_false_leaves_the_selection_alone(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("reveal-off");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "explorer.autoReveal", json!(false));
+    wb.update(cx, |wb, _| wb.open(&ws.path().join("src/main.rs")));
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.explorer.selected.clone()), None);
+    assert!(!wb.read_with(cx, |wb, _| wb.expanded.contains(&wb.root.join("src"))));
 }

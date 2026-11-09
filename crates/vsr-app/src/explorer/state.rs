@@ -5,6 +5,9 @@ use std::path::PathBuf;
 
 use gpui_kit::*;
 
+use super::settings::ExplorerSettings;
+use crate::config::AppConfig;
+
 pub struct ExplorerState {
     /// Focus of the tree: the key bindings of `actions::KEY_CONTEXT` apply while it has focus.
     pub focus: FocusHandle,
@@ -16,6 +19,8 @@ pub struct ExplorerState {
     pub confirm: Option<PendingDelete>,
     /// The inline name input (New File, New Folder, Rename), while one is open.
     pub inline: Option<super::inline::InlineEdit>,
+    /// The `explorer.*` settings in effect (re-read when the configuration changes).
+    pub settings: ExplorerSettings,
 }
 
 /// A delete the user has to confirm: the path, and whether it goes to the Trash.
@@ -27,6 +32,7 @@ pub struct PendingDelete {
 
 impl ExplorerState {
     pub fn new(cx: &mut App) -> Self {
-        Self { focus: cx.focus_handle(), scroll: ScrollHandle::new(), selected: None, confirm: None, inline: None }
+        let settings = ExplorerSettings::from_configuration(AppConfig::get(cx).configuration());
+        Self { focus: cx.focus_handle(), scroll: ScrollHandle::new(), selected: None, confirm: None, inline: None, settings }
     }
 }

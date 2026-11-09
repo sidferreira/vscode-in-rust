@@ -165,7 +165,6 @@ struct Workbench {
     /// Keeps the file watcher running (dropping it stops the events).
     _watcher: Box<dyn FileWatcher>,
     /// Where `files.enableTrash` deletes go (ADR-0039).
-    #[allow(dead_code)] // read by the explorer's delete, which the explorer UI calls next
     trash: Box<dyn Trash>,
     /// Installed font families, read once when first needed.
     installed_fonts: Option<HashSet<String>>,
@@ -277,7 +276,9 @@ impl Workbench {
     }
 
     fn list(&self, dir: &Path) -> Vec<DirEntry> {
-        list_dir(dir, &self.root, &self.exclude).unwrap_or_default()
+        let mut entries = list_dir(dir, &self.root, &self.exclude).unwrap_or_default();
+        explorer::sort::sort_entries(&mut entries, self.explorer.settings.sort_order);
+        entries
     }
 
     /// Picks the first installed family of `editor.fontFamily`.
@@ -321,6 +322,7 @@ impl Workbench {
                 e.editor.set_options(options);
             }
         }
+        self.apply_explorer_settings(cx);
         if let Some(exclude) = new_exclude {
             self.exclude = exclude;
             let dirs: Vec<PathBuf> = self.children.keys().cloned().collect();
@@ -348,6 +350,7 @@ impl Workbench {
         if let Err(e) = self.editors.open_with(path, options) {
             self.error = Some(format!("{}: {e}", path.display()));
         }
+        self.reveal_in_tree(path); // explorer.autoReveal (ADR-0041)
     }
 
     /// `workbench.action.files.toggleActiveEditorReadonlyInSession`: flips the active editor's

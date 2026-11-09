@@ -10,15 +10,8 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use super::state::PendingDelete;
-use crate::config::AppConfig;
 use crate::ui::to_gpui;
 use crate::Workbench;
-
-/// `explorer.confirmDelete`, `files.enableTrash` in the configuration.
-fn settings(cx: &App) -> (bool, bool) {
-    let c = AppConfig::get(cx).configuration();
-    (c.get_bool("explorer.confirmDelete").unwrap_or(true), c.get_bool("files.enableTrash").unwrap_or(true))
-}
 
 /// The question the bar asks about `path` (upstream `getConfirmMessage`, one element).
 pub fn question(path: &Path, use_trash: bool) -> (String, String) {
@@ -38,9 +31,9 @@ impl Workbench {
     /// Delete key (`moveFileToTrash`) and Cmd+Alt+Backspace (`deleteFile`, always permanent).
     pub(crate) fn request_delete(&mut self, permanent: bool, cx: &mut Context<Self>) {
         let Some(path) = self.explorer.selected.clone() else { return };
-        let (confirm, enable_trash) = settings(cx);
-        let pending = PendingDelete { path, use_trash: enable_trash && !permanent };
-        if confirm {
+        let settings = self.explorer.settings;
+        let pending = PendingDelete { path, use_trash: settings.enable_trash && !permanent };
+        if settings.confirm_delete {
             self.explorer.confirm = Some(pending);
             cx.notify();
         } else {

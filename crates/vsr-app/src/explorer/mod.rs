@@ -6,6 +6,8 @@ pub mod delete; // delete with the inline confirmation bar (ADR-0041)
 pub mod inline; // the inline name input: New File, New Folder, Rename (ADR-0041)
 pub mod names; // validation and incremental naming (explorer.incrementalNaming)
 pub mod ops; // create, rename, delete on the disk
+pub mod settings; // explorer.* settings (ADR-0041)
+pub mod sort; // explorer.sortOrder
 pub mod state; // the tree's focus, selection and scroll
 pub mod trash; // the Trash behind a trait (files.enableTrash)
 pub mod view; // the tree rows and their keyboard navigation

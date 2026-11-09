@@ -13,6 +13,8 @@ use gpui_kit::*;
 
 use super::inline::{self, InlineKind};
 use super::names::Severity;
+use super::settings::{AutoReveal, ExplorerSettings};
+use crate::config::AppConfig;
 use super::actions::{
     self, CancelDelete, CollapseAll, CollapseOrParent, DeleteFile, ExpandOrFirstChild, MoveFileToTrash, MoveSelectionDown, MoveSelectionUp,
     NewFile, NewFolder, OpenOrToggle, RefreshAll, RenameFile,
@@ -68,9 +70,10 @@ impl Workbench {
     pub(crate) fn toggle_dir(&mut self, path: &Path) {
         if !self.expanded.remove(path) {
             self.expanded.insert(path.to_path_buf());
-            self.children
-                .entry(path.to_path_buf())
-                .or_insert_with(|| list_dir(path, &self.root, &self.exclude).unwrap_or_default());
+            if !self.children.contains_key(path) {
+                let entries = self.list(path);
+                self.children.insert(path.to_path_buf(), entries);
+            }
         }
     }
 
@@ -84,10 +87,69 @@ impl Workbench {
     fn flatten(&self, dir: &Path, depth: usize, out: &mut Vec<(DirEntry, usize)>) {
         let Some(entries) = self.children.get(dir) else { return };
         for e in entries {
-            out.push((e.clone(), depth));
-            if e.is_dir && self.expanded.contains(&e.path) {
-                self.flatten(&e.path, depth + 1, out);
+            let row = if e.is_dir && self.explorer.settings.compact_folders { self.compacted(e) } else { e.clone() };
+            let descend = row.is_dir && self.expanded.contains(&row.path);
+            let path = row.path.clone();
+            out.push((row, depth));
+            if descend {
+                self.flatten(&path, depth + 1, out);
             }
+        }
+    }
+
+    /// `explorer.compactFolders`: a folder whose only child is a folder shares its row with that
+    /// child (`a/b/c`). The row stands for the deepest folder, which is the one it opens.
+    fn compacted(&self, top: &DirEntry) -> DirEntry {
+        let mut row = top.clone();
+        while let Some(child) = self.single_child_dir(&row.path) {
+            row.name = format!("{}/{}", row.name, child.name);
+            row.path = child.path;
+            row.modified = child.modified;
+        }
+        row
+    }
+
+    /// The only entry of `dir` when that entry is a folder. Listed on demand when `dir` is not loaded.
+    fn single_child_dir(&self, dir: &Path) -> Option<DirEntry> {
+        let listed;
+        let entries: &[DirEntry] = match self.children.get(dir) {
+            Some(v) => v.as_slice(),
+            None => {
+                listed = self.list(dir);
+                listed.as_slice()
+            }
+        };
+        match entries {
+            [only] if only.is_dir => Some(only.clone()),
+            _ => None,
+        }
+    }
+
+    /// `explorer.autoReveal`: the file the editor shows is expanded to, selected, and (with `true`)
+    /// scrolled into view.
+    pub(crate) fn reveal_in_tree(&mut self, path: &Path) {
+        let mode = self.explorer.settings.auto_reveal;
+        if mode == AutoReveal::Off || path == self.root || !path.starts_with(&self.root) {
+            return;
+        }
+        let Some(parent) = path.parent().map(Path::to_path_buf) else { return };
+        self.expand_to(&parent);
+        self.explorer.selected = Some(path.to_path_buf());
+        if mode == AutoReveal::On {
+            if let Some(ix) = self.row_index(path) {
+                self.explorer.scroll.scroll_to_item(ix);
+            }
+        }
+    }
+
+    /// `explorer.*` changed in the configuration: take the new values, and list again when the
+    /// sort order changed.
+    pub(crate) fn apply_explorer_settings(&mut self, cx: &mut Context<Self>) {
+        let new = ExplorerSettings::from_configuration(AppConfig::get(cx).configuration());
+        let sort_changed = new.sort_order != self.explorer.settings.sort_order;
+        self.explorer.settings = new;
+        if sort_changed {
+            self.refresh_all(cx);
         }
     }
 
@@ -135,9 +197,14 @@ impl Workbench {
         let Some(sel) = self.explorer.selected.clone() else { return };
         if sel.is_dir() && self.expanded.contains(&sel) {
             self.toggle_dir(&sel);
-        } else if let Some(parent) = sel.parent().filter(|p| p.starts_with(&self.root) && *p != self.root.as_path()) {
-            self.select(&parent.to_path_buf());
-            self.explorer.scroll.scroll_to_item(self.row_index(parent).unwrap_or(0));
+        } else {
+            // The nearest folder above that has a row (a compacted folder hides its parents' rows).
+            let rows = self.visible_rows();
+            let above = sel.ancestors().skip(1).take_while(|p| p.starts_with(&self.root) && *p != self.root.as_path());
+            if let Some(row) = above.filter_map(|p| rows.iter().position(|(e, _)| e.path == p)).next() {
+                self.select(&rows[row].0.path.clone());
+                self.explorer.scroll.scroll_to_item(row);
+            }
         }
         cx.notify();
     }

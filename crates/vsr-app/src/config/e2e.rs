@@ -434,3 +434,96 @@ fn selection_and_ligature_settings_apply_live(cx: &mut TestAppContext) {
     let features = wb.read_with(cx, |wb, _| wb.editor_settings.font_features.clone());
     assert_eq!(features, [("liga".to_string(), 1), ("calt".to_string(), 1)]);
 }
+
+// ---- (e) editor groups: preview, order, limit, closing deleted files ----------------------------
+
+/// The file names of the open tabs, in tab order.
+fn tab_titles(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> Vec<String> {
+    wb.read_with(cx, |wb, _| wb.editors.open.iter().map(|e| e.title.clone()).collect())
+}
+
+/// Opens `name` the way a single click in the Explorer does (a preview unless previews are off).
+fn click_explorer(wb: &Entity<Workbench>, cx: &mut VisualTestContext, dir: &Path, name: &str) {
+    let path = dir.join(name);
+    wb.update(cx, |wb, cx| {
+        wb.open_from(&path, crate::config::settings::OpenSource::Explorer { double_click: false });
+        cx.notify();
+    });
+    cx.run_until_parked();
+}
+
+#[gpui_kit::test]
+fn single_click_previews_and_the_next_click_replaces_the_preview(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "preview", None, &[("a.txt", "a"), ("b.txt", "b"), ("c.txt", "c")]);
+    click_explorer(&wb, cx, &f.dir, "a.txt");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.is_preview(0)), "a single click previews");
+    click_explorer(&wb, cx, &f.dir, "b.txt");
+    assert_eq!(tab_titles(&wb, cx), ["b.txt"], "the preview is replaced");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.is_preview(0)));
+
+    // Editing the preview pins it: the next preview opens beside it.
+    cx.simulate_keystrokes("x");
+    assert_eq!(editor_value(&wb, cx), "xb");
+    cx.run_until_parked();
+    assert!(!wb.read_with(cx, |wb, _| wb.editors.is_preview(0)), "an edit pins the preview");
+    click_explorer(&wb, cx, &f.dir, "c.txt");
+    assert_eq!(tab_titles(&wb, cx), ["b.txt", "c.txt"]);
+}
+
+#[gpui_kit::test]
+fn turning_previews_off_opens_every_file_pinned(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "preview-off", Some(r#"{ "workbench.editor.enablePreview": false }"#), &[("a.txt", "a"), ("b.txt", "b")]);
+    click_explorer(&wb, cx, &f.dir, "a.txt");
+    click_explorer(&wb, cx, &f.dir, "b.txt");
+    assert_eq!(tab_titles(&wb, cx), ["a.txt", "b.txt"]);
+    assert!(wb.read_with(cx, |wb, _| !wb.editors.is_preview(0) && !wb.editors.is_preview(1)));
+}
+
+#[gpui_kit::test]
+fn open_positioning_first_puts_new_tabs_at_the_start(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "positioning", None, &[("a.txt", "a"), ("b.txt", "b"), ("c.txt", "c")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    open_file(&wb, cx, &f.dir.join("b.txt"));
+    assert_eq!(tab_titles(&wb, cx), ["a.txt", "b.txt"], "right of the active tab by default");
+
+    set(cx, "workbench.editor.openPositioning", json!("first"));
+    open_file(&wb, cx, &f.dir.join("c.txt"));
+    assert_eq!(tab_titles(&wb, cx), ["c.txt", "a.txt", "b.txt"]);
+}
+
+#[gpui_kit::test]
+fn limit_closes_the_least_recently_used_editor_when_exceeded(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "limit", None, &[("a.txt", "a"), ("b.txt", "b"), ("c.txt", "c")]);
+    set(cx, "workbench.editor.limit.enabled", json!(true));
+    set(cx, "workbench.editor.limit.value", json!(2));
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    open_file(&wb, cx, &f.dir.join("b.txt"));
+    open_file(&wb, cx, &f.dir.join("c.txt"));
+    assert_eq!(tab_titles(&wb, cx), ["b.txt", "c.txt"], "a.txt was used least recently");
+}
+
+#[gpui_kit::test]
+fn close_on_file_delete_closes_clean_tabs_and_keeps_dirty_ones(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "delete", None, &[("a.txt", "a"), ("b.txt", "b")]);
+    set(cx, "workbench.editor.closeOnFileDelete", json!(true));
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    open_file(&wb, cx, &f.dir.join("b.txt"));
+    cx.simulate_keystrokes("x");
+    cx.run_until_parked();
+    fs::remove_file(f.dir.join("a.txt")).unwrap();
+    fs::remove_file(f.dir.join("b.txt")).unwrap();
+    cx.executor().advance_clock(std::time::Duration::from_secs(2));
+    cx.run_until_parked();
+    assert_eq!(tab_titles(&wb, cx), ["b.txt"], "the clean tab closes, the edited one stays");
+}
+
+#[gpui_kit::test]
+fn close_on_file_delete_off_keeps_the_tab(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "delete-off", None, &[("a.txt", "a")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    fs::remove_file(f.dir.join("a.txt")).unwrap();
+    cx.executor().advance_clock(std::time::Duration::from_secs(2));
+    cx.run_until_parked();
+    assert_eq!(tab_titles(&wb, cx), ["a.txt"]);
+}
+

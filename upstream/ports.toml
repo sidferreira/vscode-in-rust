@@ -432,3 +432,14 @@ upstream = [
 rust = ["crates/vsr-quickinput/src/filters.rs", "crates/vsr-quickinput/tests/upstream_filters.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "matchesContiguousSubString, matchesBaseContiguousSubString, matchesWords (memoised, as upstream), or, with tryNormalizeToBase as an accent table for Latin-1 and Latin Extended-A instead of full NFD. 6 of the filters.test.ts tests ported (or, PrefixFilter ignore case, matchesContiguousSubString, matchesBaseContiguousSubString, WordFilter, matchesWords performance). Not ported: camel case, strict prefix, matchesSubString, matchesFuzzy, fuzzyScore* suites (fuzzyScore itself lives in fuzzy.rs), Korean alternate characters."
+
+[[port]]
+id = "editor-group-model"
+status = "partial"
+upstream = [
+  "src/vs/workbench/common/editor/editorGroupModel.ts",
+  "src/vs/workbench/test/browser/parts/editor/editorGroupModel.test.ts",
+]
+rust = ["crates/vsr-app/src/model.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Editor tabs of the one group (ADR-0033): preview (one, replaced, pinned by an edit or a double click), MRU, openPositioning (left/right/first/last), focusRecentEditorAfterClose, the editor limit (editorsObserver), closeOnFileDelete, tab labels (labelFormat). 7 of editorGroupModel.test.ts ported: Pinned and Active, Pinned and Active (LEFT), Pinned and Not Active, Preview gets overwritten, Preview editor moves to the side of the active one, Preview tab does not have a stable position, closing picks next from MRU list. Not ported: sticky editors, events, serialization, groups, transient, selection, move across groups."

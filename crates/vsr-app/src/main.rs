@@ -28,16 +28,21 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use config::glob::ExcludeMatcher;
-use config::settings::{ActivityBarLocation, EditorSettings, LayoutSettings, ShowTabs, SideBarLocation};
+use config::settings::{
+    ActivityBarLocation, EditorGroupSettings, EditorSettings, LayoutSettings, OpenSource, ShowTabs, SideBarLocation,
+};
 use config::AppConfig;
 use editor_view::{EditorHost, EditorView};
-use model::{DirEntry, Editors, list_dir};
+use model::{DirEntry, Editors, OpenOptions, list_dir};
 use theme::{Theme, metrics as m};
 use search_view::{FocusSearch, SearchEvent, SearchView};
 use settings_view::{OpenSettings, SettingsEvent, SettingsView};
 use ui::to_gpui;
 
 actions!(rscode, [Quit]);
+
+/// How often open files are checked for `workbench.editor.closeOnFileDelete`.
+const CLOSE_ON_DELETE_POLL: std::time::Duration = std::time::Duration::from_secs(1);
 
 fn main() {
     let root = std::env::args()
@@ -158,7 +163,11 @@ impl Workbench {
         let configuration = AppConfig::get(cx).configuration();
         let exclude = ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null));
         let editor_settings = EditorSettings::from_configuration(configuration);
-        let editors = Editors { options: editor_settings.editor_options(), ..Editors::default() };
+        let editors = Editors {
+            options: editor_settings.editor_options(),
+            settings: EditorGroupSettings::from_configuration(configuration),
+            ..Editors::default()
+        };
         let mut wb = Self {
             theme: Theme::dark_modern(),
             root: root.clone(),
@@ -184,6 +193,16 @@ impl Workbench {
         };
         wb.resolve_editor_font(cx);
         wb.children.insert(root.clone(), wb.list(&root));
+        // `workbench.editor.closeOnFileDelete`: no file watcher yet, so existence is polled.
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(CLOSE_ON_DELETE_POLL).await;
+                if this.update(cx, |wb, cx| wb.close_deleted_files(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         // Open a README if there is one, so the first launch shows real text.
         for name in ["README.md", "Cargo.toml"] {
             let p = root.join(name);
@@ -222,6 +241,7 @@ impl Workbench {
         let new_exclude = affects_exclude
             .then(|| ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null)));
         let new_settings = EditorSettings::from_configuration(configuration);
+        self.editors.apply_settings(EditorGroupSettings::from_configuration(configuration));
 
         let old_options = self.editor_settings.editor_options();
         if new_settings.font_families != self.editor_settings.font_families {
@@ -249,9 +269,20 @@ impl Workbench {
         cx.notify();
     }
 
+    /// Open `path` as a pinned editor (the default for opens without a source).
     fn open(&mut self, path: &Path) {
+        self.open_with(path, OpenOptions::PINNED);
+    }
+
+    /// Open `path` from `source`: as the preview editor or pinned, as the settings say.
+    fn open_from(&mut self, path: &Path, source: OpenSource) {
+        let options = if self.editors.settings.opens_pinned(source) { OpenOptions::PINNED } else { OpenOptions::PREVIEW };
+        self.open_with(path, options);
+    }
+
+    fn open_with(&mut self, path: &Path, options: OpenOptions) {
         self.settings_active = false;
-        if let Err(e) = self.editors.open_file(path) {
+        if let Err(e) = self.editors.open_with(path, options) {
             self.error = Some(format!("{}: {e}", path.display()));
         }
     }
@@ -266,7 +297,7 @@ impl Workbench {
         let settings = search_view::current_settings(cx);
         let view = cx.new(|cx| SearchView::new(root, settings, window, cx));
         cx.subscribe_in(&view, window, |this, _, ev: &SearchEvent, window, cx| match ev {
-            SearchEvent::Open { path, range } => this.open_at(path, *range, window, cx),
+            SearchEvent::Open { path, range } => this.open_at(path, *range, OpenSource::Search, window, cx),
             SearchEvent::OpenSettings => this.open_settings(window, cx),
             SearchEvent::Replace(req) => this.apply_search_replace(req, cx),
         })
@@ -284,10 +315,18 @@ impl Workbench {
         cx.notify();
     }
 
-    /// Open `path` with `range` selected and scrolled into view (a Search result was activated).
-    fn open_at(&mut self, path: &Path, range: vsr_search::SearchRange, _window: &mut Window, cx: &mut Context<Self>) {
+    /// Open `path` with `range` selected and scrolled into view (a Search result or a
+    /// `:line:column` in Quick Open was activated).
+    fn open_at(
+        &mut self,
+        path: &Path,
+        range: vsr_search::SearchRange,
+        source: OpenSource,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         use vsr_editor::Position;
-        self.open(path);
+        self.open_from(path, source);
         if let Some(e) = self.editors.active.and_then(|i| self.editors.open.get_mut(i)).filter(|e| e.path == path) {
             e.editor.set_cursor(Position::new(range.start_line, range.start_column), false);
             e.editor.set_cursor(Position::new(range.end_line, range.end_column), true);
@@ -387,6 +426,21 @@ impl Workbench {
                     }),
                 ),
         )
+    }
+
+    /// `workbench.editor.closeOnFileDelete`: close the editors whose file is gone (a dirty one
+    /// stays open, as upstream does).
+    fn close_deleted_files(&mut self, cx: &mut Context<Self>) {
+        if !self.editors.settings.close_on_file_delete {
+            return;
+        }
+        let closed = self.editors.close_missing(|p| p.exists());
+        if !closed.is_empty() {
+            for path in &closed {
+                self.editor_view.forget(path);
+            }
+            cx.notify();
+        }
     }
 
     fn close_tab(&mut self, index: usize) {
@@ -714,11 +768,13 @@ impl Workbench {
                     _ => div().flex_none().w(px(16.)),
                 })
                 .child(div().whitespace_nowrap().overflow_hidden().child(entry.name))
-                .on_click(cx.listener(move |this, _, _, cx| {
+                .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
                     if is_dir {
                         this.toggle_dir(&path);
                     } else {
-                        this.open(&path);
+                        // A single click previews, a double click pins (`workbench.editor.enablePreview`).
+                        let source = OpenSource::Explorer { double_click: ev.click_count() >= 2 };
+                        this.open_from(&path, source);
                     }
                     cx.notify();
                 }))
@@ -754,6 +810,18 @@ impl Workbench {
             .flex_row()
             .overflow_hidden()
             .bg(to_gpui(t.chrome_bg))
+            // `workbench.editor.scrollToSwitchTabs`: a wheel step over the strip activates the
+            // neighbouring tab (scrolling down goes right, as upstream).
+            .on_scroll(cx.listener(|this, ev: &ScrollEvent, _, cx| {
+                if this.editors.settings.scroll_to_switch_tabs {
+                    let dy = f32::from(ev.delta.pixel_delta(px(m::TAB_HEIGHT)).y);
+                    if dy != 0.0 {
+                        this.editors.step_active(if dy < 0.0 { 1 } else { -1 });
+                        this.settings_active = false;
+                        cx.notify();
+                    }
+                }
+            }))
             // Bottom border across the whole strip; the active tab paints over it.
             .child(
                 div()
@@ -765,6 +833,8 @@ impl Workbench {
                     .bg(to_gpui(t.border)),
             );
         let single = show_tabs == ShowTabs::Single;
+        let highlight = self.editors.settings.highlight_modified_tabs;
+        let labels = self.editors.tab_labels(&self.root, self.editors.settings.label_format);
         for (i, e) in self.editors.open.iter().enumerate() {
             // `workbench.editor.showTabs: single` shows only the active editor's tab.
             if single && (self.editors.active != Some(i) || self.settings_active) {
@@ -773,7 +843,18 @@ impl Workbench {
             let active = self.editors.active == Some(i) && !self.settings_active;
             let fg = to_gpui(if active { t.tab_active_fg } else { t.tab_inactive_fg });
             let line = |d: Div, c| d.absolute().left_0().w_full().h(px(1.)).bg(to_gpui(c));
-            let dirty = e.is_dirty();
+            // `workbench.editor.highlightModifiedTabs` marks a modified tab with a top border in
+            // place of the dirty dot (upstream hides the dot in that case).
+            let modified = e.is_dirty();
+            let highlighted = modified && highlight;
+            let dirty = modified && !highlight;
+            let top_line = if highlighted {
+                Some(if active { t.tab_active_modified_border } else { t.tab_inactive_modified_border })
+            } else if active {
+                Some(t.accent)
+            } else {
+                None
+            };
             // Dirty tabs show a filled circle in place of the close button until the button
             // itself is hovered (upstream `.tab.dirty ... .action-label:not(:hover)`).
             let layer = |id: &'static str, c: char| {
@@ -828,6 +909,7 @@ impl Workbench {
                 .id(("tab", i))
                 .debug_selector(|| format!("tab:{i}"))
                 .group(format!("tab-{i}"))
+                .when(self.editors.is_preview(i), |d| d.italic())
                 .relative()
                 .flex_none()
                 .h_full()
@@ -840,10 +922,9 @@ impl Workbench {
                 .text_size(px(13.))
                 .text_color(fg)
                 .bg(to_gpui(if active { t.tab_active_bg } else { t.chrome_bg }))
-                .child(if active {
-                    line(div().top_0(), t.accent)
-                } else {
-                    line(div().bottom_0(), t.border)
+                .child(match top_line {
+                    Some(c) => line(div().top_0(), c),
+                    None => line(div().bottom_0(), t.border),
                 })
                 .child(
                     div()
@@ -854,13 +935,18 @@ impl Workbench {
                         .w(px(1.))
                         .bg(to_gpui(t.border)),
                 )
-                .child(e.title.clone())
+                .child(labels[i].title.clone())
+                .children(labels[i].description.clone().map(|d| div().text_color(to_gpui(t.description_fg)).child(d)))
                 .child(close)
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| {
-                        this.editors.active = Some(i);
+                    cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                        this.editors.activate(i);
                         this.settings_active = false;
+                        // A double click pins a preview (upstream: double click keeps the editor).
+                        if let Some(path) = this.editors.open.get(i).map(|e| e.path.clone()).filter(|_| ev.click_count >= 2) {
+                            this.editors.pin(&path);
+                        }
                         cx.notify();
                     }),
                 )
@@ -893,7 +979,8 @@ impl Workbench {
                 .justify_center()
                 .text_size(px(16.))
                 .text_color(to_gpui(t.tab_inactive_fg))
-                .child("rscode — open a file from the Explorer")
+                // `workbench.editor.empty.hint: hidden` shows nothing.
+                .children(self.editors.settings.empty_hint.then_some("rscode — open a file from the Explorer"))
                 .into_any_element(),
         };
         div()
@@ -911,6 +998,9 @@ impl Workbench {
 
 impl Render for Workbench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A preview that was edited (it is dirty now) is pinned. Editing re-renders the tab strip,
+        // so this runs on the frame that shows the dirty state.
+        self.editors.pin_dirty_preview();
         let focus = match &self.focus {
             Some(f) => f.clone(),
             None => {

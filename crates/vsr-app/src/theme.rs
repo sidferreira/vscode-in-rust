@@ -51,6 +51,10 @@ pub struct Theme {
     pub tab_active_bg: Rgba8,
     pub tab_active_fg: Rgba8,
     pub tab_inactive_fg: Rgba8,
+    /// `tab.activeModifiedBorder` / `tab.inactiveModifiedBorder` (theme.ts defaults; Dark Modern
+    /// does not override them): the top border of a modified tab with `highlightModifiedTabs`.
+    pub tab_active_modified_border: Rgba8,
+    pub tab_inactive_modified_border: Rgba8,
     pub list_hover_bg: Rgba8,
     pub list_active_bg: Rgba8,
     pub error_fg: Rgba8,
@@ -153,6 +157,8 @@ impl Theme {
             tab_active_bg: c("#1F1F1F"),
             tab_active_fg: c("#FFFFFF"),
             tab_inactive_fg: c("#9D9D9D"),
+            tab_active_modified_border: c("#3399CC"),
+            tab_inactive_modified_border: c("#3399CC80"),
             list_hover_bg: c("#2A2D2E"),
             list_active_bg: c("#37373D"),
             error_fg: c("#F14C4C"),

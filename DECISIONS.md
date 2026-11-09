@@ -777,3 +777,44 @@ control-character glyphs and final-line numbering), `editor.scrollPredominantAxi
 **Testing.** Pure logic is unit-tested (`decorations.rs`, `brackets.rs`, `settings.rs`); the effects
 are E2E tests in `config/e2e.rs` that change the setting and check the boxes appear or disappear.
 `docs/settings-coverage.md` is regenerated from `wired.rs`.
+
+## ADR-0033 — Editor tabs: preview, MRU, placement, limit (2026-11-09)
+
+The `workbench.editor.*` group (ADR-0022 wiring, `docs/settings-migration.md`). rscode has one editor
+group, so the tab model is upstream's `EditorGroupModel` for that group.
+
+- **Model (`model.rs`, UI free).** `Editors` keeps `mru` (open paths, most recent first), `preview` (at
+  most one path) and `settings: EditorGroupSettings` (the typed `workbench.editor.*` view in
+  `config/settings.rs`). `open_with(path, OpenOptions { pinned, active })` is `openEditor`: a preview open
+  of a new file replaces the current preview at its place (the target moves left by one when it lies
+  after the preview); a pinned open of the preview pins it; an open that is not focused goes second in
+  the MRU list. `close` focuses the MRU editor (`focusRecentEditorAfterClose`, default on) or the right
+  neighbour, then the left.
+- **Preview rules.** `EditorGroupSettings::opens_pinned(OpenSource)`: with `enablePreview` off everything
+  pins; an Explorer double click pins; Quick Open and code navigation preview only when
+  `enablePreviewFromQuickOpen` / `enablePreviewFromCodeNavigation` say so. A preview is pinned by an edit
+  (the workbench calls `pin_dirty_preview` on each render, so the dirty state and the pin land together) or
+  a tab double click. Turning `enablePreview` off pins the current preview.
+- **Limit.** `limit.*` closes the least recently used clean editors that are not active, the upstream
+  rule of `editorsObserver.ts` (dirty editors never close; `excludeDirty` takes them out of the count).
+  It runs when an editor opens and when the setting changes.
+- **Deleted files.** `closeOnFileDelete` polls file existence once a second (no watcher yet). Clean
+  editors of missing files close; dirty ones stay open, as upstream.
+- **Look.** Preview tabs are italic. `highlightModifiedTabs` replaces the dirty dot with a top border in
+  the `tab.*ModifiedBorder` colours (theme.ts defaults, which Dark Modern does not override). `labelFormat`
+  adds the directory (short: its name, medium: relative to the folder, long: absolute; default: relative,
+  only for tabs that share a name). `scrollToSwitchTabs` steps the active tab with the wheel.
+- **Wired:** `enablePreview`, `enablePreviewFromQuickOpen`, `enablePreviewFromCodeNavigation` (read; no
+  code navigation yet, so nothing opens from it), `openPositioning`, `focusRecentEditorAfterClose`,
+  `closeOnFileDelete`, `limit.enabled`, `limit.value`, `limit.excludeDirty`, `highlightModifiedTabs`,
+  `labelFormat`, `scrollToSwitchTabs`, `empty.hint`.
+- **Deferred (`upstream/settings.toml`, status n/a with a `not yet:` reason, for the user to review):**
+  editor splits and groups (`closeEmptyGroups`, `revealIfOpen`, `openSideBySideDirection`, ...),
+  navigation history (`mouseBackForwardToNavigate`, `swipeToNavigate`, `navigationScope`), session
+  restore (`restoreEditors`, `restoreViewState`: the Cmd+W path in `editor_view.rs` drops the scroll state
+  itself, so this needs that file), untitled / binary / custom / large-file editors, language detection,
+  tab strip presentation (`wrapTabs`, scrollbars, pinned tab sizing, editor actions, centered layout),
+  decorations and custom labels, single window.
+- **Tests.** Seven upstream `editorGroupModel.test.ts` cases are ported in `model.rs` (`editor-group-model`
+  in `upstream/ports.toml`); the rest are model tests, and `config/e2e.rs` drives the workbench headless
+  (preview replaced and pinned by an edit, `enablePreview` off, `openPositioning`, the limit, deleted files).

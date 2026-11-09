@@ -104,6 +104,24 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         "Command Palette",
         &["workbench.commandPalette.history", "workbench.commandPalette.preserveInput"],
     ),
+    (
+        "Editor management",
+        &[
+            "workbench.editor.enablePreview",
+            "workbench.editor.enablePreviewFromQuickOpen",
+            "workbench.editor.enablePreviewFromCodeNavigation",
+            "workbench.editor.openPositioning",
+            "workbench.editor.focusRecentEditorAfterClose",
+            "workbench.editor.closeOnFileDelete",
+            "workbench.editor.limit.enabled",
+            "workbench.editor.limit.value",
+            "workbench.editor.limit.excludeDirty",
+            "workbench.editor.highlightModifiedTabs",
+            "workbench.editor.labelFormat",
+            "workbench.editor.scrollToSwitchTabs",
+            "workbench.editor.empty.hint",
+        ],
+    ),
 ];
 
 pub fn all_keys() -> impl Iterator<Item = &'static str> {
@@ -150,6 +168,11 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- Find widget: regular expressions use Rust `regex` syntax (no look-around or backreferences, as in the Search view); Whole Word uses `\\b` rather than `editor.wordSeparators`; there is one cursor, so no \"Select All Occurrences of Find Match\". `editor.find.addExtraSpaceOnTop`, `globalFindClipboard`, `history` and `replaceHistory` are not implemented.\n");
     out.push_str("- `editor.detectIndentation` is not implemented: `editor.tabSize` and `editor.insertSpaces` always apply.\n");
     out.push_str("- Search reads `files.exclude` too (it is listed under Explorer). Entries of `search.exclude` and `files.exclude` whose value is an object (`when` clauses) are ignored by the search.\n");
+    out.push_str("- `workbench.editor.enablePreviewFromCodeNavigation` is read, but nothing opens from code navigation yet, so it has no effect.\n");
+    out.push_str("- Editor groups: rscode has one group. `limit.*` counts the whole group, `revealIfOpen` and `focusRecentEditorAfterClose` apply to that group's tabs. `limit.perEditorGroup` is not read.\n");
+    out.push_str("- `workbench.editor.labelFormat: long` shows the directory's absolute path; `default` adds the directory (relative to the folder) only to tabs that share a name.\n");
+    out.push_str("- `workbench.editor.highlightModifiedTabs` always uses the focused-group colours (`tab.activeModifiedBorder`, `tab.inactiveModifiedBorder`).\n");
+    out.push_str("- `workbench.editor.closeOnFileDelete` checks that files exist once a second (no file watcher yet). Editors with unsaved changes stay open.\n");
     out
 }
 

@@ -14,6 +14,8 @@ pub struct ExplorerState {
     pub selected: Option<PathBuf>,
     /// The delete waiting for the inline confirmation bar (`explorer.confirmDelete`).
     pub confirm: Option<PendingDelete>,
+    /// The inline name input (New File, New Folder, Rename), while one is open.
+    pub inline: Option<super::inline::InlineEdit>,
 }
 
 /// A delete the user has to confirm: the path, and whether it goes to the Trash.
@@ -25,6 +27,6 @@ pub struct PendingDelete {
 
 impl ExplorerState {
     pub fn new(cx: &mut App) -> Self {
-        Self { focus: cx.focus_handle(), scroll: ScrollHandle::new(), selected: None, confirm: None }
+        Self { focus: cx.focus_handle(), scroll: ScrollHandle::new(), selected: None, confirm: None, inline: None }
     }
 }

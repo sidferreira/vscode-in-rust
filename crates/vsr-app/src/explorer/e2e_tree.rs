@@ -4,10 +4,10 @@
 
 use std::fs;
 
-use gpui_kit::{TestAppContext, VisualTestContext};
+use gpui_kit::{Focusable, TestAppContext, VisualTestContext};
 use serde_json::json;
 
-use super::e2e::{start, workspace};
+use super::e2e::{start, tree_names, workspace};
 use crate::config::AppConfig;
 use crate::Workbench;
 
@@ -125,4 +125,97 @@ fn with_files_enable_trash_off_delete_is_permanent_and_asks_the_stronger_questio
     cx.run_until_parked();
     assert!(!lib.exists());
     assert!(fs::read_dir(bin.path()).unwrap().next().is_none(), "the Trash stays empty");
+}
+
+fn run(wb: &gpui_kit::Entity<Workbench>, cx: &mut VisualTestContext, f: impl FnOnce(&mut Workbench, &mut gpui_kit::Context<Workbench>) + 'static) {
+    wb.update(cx, f);
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn new_file_from_the_command_takes_a_name_and_opens_the_file(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("new-file-inline");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    wb.update(cx, |wb, _| wb.select(&ws.path().join("src/main.rs")));
+    cx.update(|window, cx| wb.update(cx, |wb, cx| wb.start_inline(super::inline::InlineKind::NewFile, window, cx)));
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_some()), "the name box is open");
+    cx.simulate_input("notes.txt");
+    cx.run_until_parked();
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    let created = ws.path().join("src/notes.txt");
+    assert!(created.is_file(), "the file exists after Enter");
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_none()));
+    assert!(tree_names(&wb, cx, &ws.path().join("src")).contains(&"notes.txt".to_string()));
+    let active = wb.read_with(cx, |wb, _| wb.editors.active_editor().map(|e| e.path.clone()));
+    assert_eq!(active, Some(created));
+}
+
+#[gpui::test]
+fn an_invalid_name_shows_the_message_and_creates_nothing(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("new-invalid");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    wb.update(cx, |wb, _| wb.select(&ws.path().join("src")));
+    cx.update(|window, cx| wb.update(cx, |wb, cx| wb.start_inline(super::inline::InlineKind::NewFile, window, cx)));
+    cx.run_until_parked();
+    cx.simulate_input("lib.rs");
+    cx.run_until_parked();
+    let msg = wb.read_with(cx, |wb, _| wb.explorer.inline.as_ref().and_then(|e| e.message.clone()));
+    let msg = msg.expect("a message under the box");
+    assert_eq!(msg.text, "A file or folder lib.rs already exists at this location. Please choose a different name.");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_some()), "Enter does not commit an invalid name");
+    assert!(!ws.path().join("src/lib.rs").is_file() || std::fs::read_to_string(ws.path().join("src/lib.rs")).unwrap() == "pub fn lib() {}\n", "the existing file is untouched");
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_none()), "Escape cancels");
+}
+
+#[gpui::test]
+fn enter_starts_rename_and_the_name_commits_on_enter(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("rename-inline");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let main = ws.path().join("src/main.rs");
+    wb.update(cx, |wb, _| wb.select(&main));
+    focus_tree(&wb, cx);
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_some()), "Enter starts Rename");
+    // The box is open with the name; typing and Enter are the same path as New File.
+    let typed = wb.update(cx, |wb, cx| wb.explorer.inline.as_ref().map(|e| e.value(cx)));
+    assert_eq!(typed.as_deref(), Some("main.rs"));
+    cx.update(|window, cx| wb.update(cx, |wb, cx| wb.cancel_inline(window, cx)));
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_none()));
+    assert!(main.is_file(), "Escape keeps the file");
+}
+
+#[gpui::test]
+fn rename_commits_the_typed_name_and_moves_the_file(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("rename-commit");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let main = ws.path().join("src/main.rs");
+    wb.update(cx, |wb, _| wb.select(&main));
+    cx.update(|window, cx| wb.update(cx, |wb, cx| wb.start_inline(super::inline::InlineKind::Rename, window, cx)));
+    cx.run_until_parked();
+    cx.simulate_input("app");
+    cx.run_until_parked();
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    let renamed = ws.path().join("src/app.rs");
+    assert!(renamed.is_file() && !main.exists());
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_none()));
+    assert_eq!(wb.read_with(cx, |wb, _| wb.explorer.selected.clone()), Some(renamed));
+}
+
+#[test]
+fn rename_selects_the_name_without_the_last_extension() {
+    use super::inline::rename_selection;
+    assert_eq!(rename_selection("main.rs", false), 4);
+    assert_eq!(rename_selection("foo.tar.gz", false), 7);
+    assert_eq!(rename_selection(".env", false), 4);
+    assert_eq!(rename_selection("Makefile", false), 8);
+    assert_eq!(rename_selection("src.d", true), 5, "a folder selects all of its name");
 }

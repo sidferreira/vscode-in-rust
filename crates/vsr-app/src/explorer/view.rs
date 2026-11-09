@@ -7,17 +7,63 @@
 
 use std::path::{Path, PathBuf};
 
+use gpui_kit::component::input::{Enter as InputEnter, Escape as InputEscape, Input};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use super::actions::{self, CancelDelete, CollapseAll, CollapseOrParent, DeleteFile, ExpandOrFirstChild, MoveFileToTrash, MoveSelectionDown, MoveSelectionUp, OpenOrToggle, RefreshAll};
+use super::inline::{self, InlineKind};
+use super::names::Severity;
+use super::actions::{
+    self, CancelDelete, CollapseAll, CollapseOrParent, DeleteFile, ExpandOrFirstChild, MoveFileToTrash, MoveSelectionDown, MoveSelectionUp,
+    NewFile, NewFolder, OpenOrToggle, RefreshAll, RenameFile,
+};
 use crate::config::settings::OpenSource;
 use crate::icons;
 use crate::model::{DirEntry, list_dir};
 use crate::ui::to_gpui;
 use crate::Workbench;
 
+/// A row of the tree: an entry, or the inline name box at a depth.
+enum Row {
+    Entry(DirEntry, usize),
+    Input(usize),
+}
+
 impl Workbench {
+    /// The inline name box as a tree row, with its validation message under it.
+    fn inline_row(&self, depth: usize, cx: &App) -> impl IntoElement {
+        let t = &self.theme;
+        let indent = self.layout(cx).tree_indent;
+        let Some(edit) = self.explorer.inline.as_ref() else { return div().into_any_element() };
+        let message = edit.message.as_ref().map(|m| {
+            let (bg, border) = match m.severity {
+                Severity::Error => (t.validation_error_bg, t.validation_error_border),
+                Severity::Warning => (t.validation_error_bg, t.validation_error_border),
+            };
+            div()
+                .mx(px(8.))
+                .px(px(6.))
+                .py(px(3.))
+                .border_1()
+                .border_color(to_gpui(border))
+                .bg(to_gpui(bg))
+                .text_size(px(12.))
+                .whitespace_normal()
+                .child(m.text.clone())
+        });
+        div()
+            .flex_none()
+            .w_full()
+            .flex()
+            .flex_col()
+            .pl(px(8. + depth as f32 * indent))
+            .pr(px(8.))
+            .text_size(px(13.))
+            .child(Input::new(&edit.input).h(px(22.)))
+            .children(message)
+            .into_any_element()
+    }
+
     /// Expand or collapse a folder, listing it the first time it opens.
     pub(crate) fn toggle_dir(&mut self, path: &Path) {
         if !self.expanded.remove(path) {
@@ -42,6 +88,23 @@ impl Workbench {
             if e.is_dir && self.expanded.contains(&e.path) {
                 self.flatten(&e.path, depth + 1, out);
             }
+        }
+    }
+
+    /// Expand `dir` and the folders above it (inside the workspace), so its rows are visible.
+    pub(crate) fn expand_to(&mut self, dir: &Path) {
+        let mut chain: Vec<PathBuf> = dir
+            .ancestors()
+            .take_while(|p| p.starts_with(&self.root) && *p != self.root.as_path())
+            .map(Path::to_path_buf)
+            .collect();
+        chain.reverse();
+        for folder in chain {
+            if !self.children.contains_key(&folder) {
+                let entries = self.list(&folder);
+                self.children.insert(folder.clone(), entries);
+            }
+            self.expanded.insert(folder);
         }
     }
 
@@ -133,6 +196,16 @@ impl Workbench {
             .on_action(cx.listener(|this, _: &CollapseOrParent, _, cx| this.collapse_or_parent(cx)))
             .on_action(cx.listener(|this, _: &ExpandOrFirstChild, _, cx| this.expand_or_first_child(cx)))
             .on_action(cx.listener(|this, _: &OpenOrToggle, _, cx| this.open_or_toggle(cx)))
+            .on_action(cx.listener(|this, _: &NewFile, window, cx| this.start_inline(InlineKind::NewFile, window, cx)))
+            .on_action(cx.listener(|this, _: &NewFolder, window, cx| this.start_inline(InlineKind::NewFolder, window, cx)))
+            .on_action(cx.listener(|this, _: &RenameFile, window, cx| {
+                // Enter confirms a pending delete; otherwise it renames the selection.
+                if this.explorer.confirm.is_some() {
+                    this.confirm_delete(cx);
+                } else {
+                    this.start_inline(InlineKind::Rename, window, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &MoveFileToTrash, _, cx| this.request_delete(false, cx)))
             .on_action(cx.listener(|this, _: &DeleteFile, _, cx| this.request_delete(true, cx)))
             .on_action(cx.listener(|this, _: &CancelDelete, _, cx| this.cancel_delete(cx)))
@@ -168,7 +241,30 @@ impl Workbench {
             .child(chevron(icons::CHEVRON_DOWN))
             .child(crate::folder_name(&self.root).to_uppercase());
 
-        let list = rows.into_iter().enumerate().map(|(i, (entry, depth))| {
+        let inline_open = self.explorer.inline.is_some();
+        let new_parent = self.explorer.inline.as_ref().filter(|e| e.is_new()).map(|e| e.parent.clone());
+        let rename_target = self.explorer.inline.as_ref().and_then(|e| e.target.clone());
+        let mut items: Vec<Row> = Vec::new();
+        if new_parent.as_deref() == Some(self.root.as_path()) {
+            items.push(Row::Input(0));
+        }
+        for (entry, depth) in rows {
+            if rename_target.as_deref() == Some(entry.path.as_path()) {
+                items.push(Row::Input(depth));
+                continue;
+            }
+            let opens_input = new_parent.as_deref() == Some(entry.path.as_path());
+            items.push(Row::Entry(entry, depth));
+            if opens_input {
+                items.push(Row::Input(depth + 1));
+            }
+        }
+
+        let list = items.into_iter().enumerate().map(|(i, row)| {
+            let (entry, depth) = match row {
+                Row::Input(depth) => return self.inline_row(depth, cx).into_any_element(),
+                Row::Entry(entry, depth) => (entry, depth),
+            };
             let is_active = active.as_deref() == Some(entry.path.as_path());
             let is_selected = selected.as_deref() == Some(entry.path.as_path());
             let open = self.expanded.contains(&entry.path);
@@ -203,19 +299,35 @@ impl Workbench {
                     }
                     cx.notify();
                 }))
+                .into_any_element()
         });
 
-        let tree = div()
+        let mut tree = div()
             .id("tree-scroll")
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
             .track_scroll(&self.explorer.scroll)
             .track_focus(&self.explorer.focus)
-            .key_context(actions::KEY_CONTEXT)
             .flex()
             .flex_col()
+            // Enter and Escape in the box commit or cancel it (captured before the box sees them).
+            .capture_action(cx.listener(|this, _: &InputEnter, window, cx| {
+                if this.explorer.inline.is_some() {
+                    cx.stop_propagation();
+                    this.enter_inline(window, cx);
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &InputEscape, window, cx| {
+                if this.explorer.inline.is_some() {
+                    cx.stop_propagation();
+                    this.cancel_inline(window, cx);
+                }
+            }))
             .children(list);
+        if let Some(ctx) = inline::tree_key_context(inline_open) {
+            tree = tree.key_context(ctx);
+        }
 
         let bar = self.delete_bar(cx);
         div()

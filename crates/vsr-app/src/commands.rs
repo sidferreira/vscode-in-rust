@@ -213,6 +213,15 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
         D::new("workbench.files.action.collapseExplorerFolders", "Collapse Folders in Explorer").f1(),
         action(crate::explorer::actions::CollapseAll, Workbench),
     );
+    r.register(
+        D::new("explorer.newFile", "New File...").category("File").f1(),
+        action(crate::explorer::actions::NewFile, Workbench),
+    );
+    r.register(
+        D::new("explorer.newFolder", "New Folder...").category("File").f1(),
+        action(crate::explorer::actions::NewFolder, Workbench),
+    );
+    r.register(D::new("renameFile", "Rename..."), action(crate::explorer::actions::RenameFile, Workbench));
     r.register(D::new("moveFileToTrash", "Delete"), action(crate::explorer::actions::MoveFileToTrash, Workbench));
     r.register(D::new("deleteFile", "Delete Permanently"), action(crate::explorer::actions::DeleteFile, Workbench));
 
@@ -370,6 +379,9 @@ mod tests {
             "workbench.view.explorer",
             "workbench.files.action.refreshFilesExplorer",
             "workbench.files.action.collapseExplorerFolders",
+            "explorer.newFile",
+            "explorer.newFolder",
+            "renameFile",
             "moveFileToTrash",
             "deleteFile",
             "actions.find",

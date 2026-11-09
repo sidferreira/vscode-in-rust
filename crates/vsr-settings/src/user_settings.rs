@@ -44,6 +44,11 @@ impl UserSettings {
         self.values.get(key)
     }
 
+    /// The keys and values the user has set, sorted by key.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
+        self.values.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
     pub fn set(&mut self, key: &str, value: Value) {
         self.values.insert(key.to_string(), value);
     }

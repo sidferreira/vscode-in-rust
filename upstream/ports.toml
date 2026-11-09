@@ -144,3 +144,17 @@ upstream = [
 rust = ["crates/vsr-app/src/editor_view.rs", "crates/vsr-app/src/keymap.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Editable gpui editor surface (ADR-0018): blinking line cursor, selection and current-line highlight, active line number, key table for macOS defaults, platform text input (typing, IME marking). Not ported: smooth/phase/expand cursor styles, multi-cursor, overview ruler, selection rounded corners, glyph margin, word wrap. text_layout.rs (pixel/column mapping, adapts common/core/cursorColumns.ts) and editor_view/e2e.rs are ours and carry no header."
+
+[[port]]
+id = "configuration"
+status = "partial"
+upstream = [
+  "src/vs/platform/configuration/common/configuration.ts",
+  "src/vs/platform/configuration/common/configurationModels.ts",
+]
+rust = [
+  "crates/vsr-settings/src/configuration.rs",
+  "crates/vsr-settings/tests/configuration.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Default + user layers only (no workspace, folder, language-override or policy layers). Validation against the registered schema happens in the model (upstream leaves it to consumers); out-of-range numbers are clamped like editorOptions. Change keys are the diff of the raw user documents, affects() is affectsConfiguration without overrides."

@@ -112,3 +112,13 @@ upstream's codepoints from `codiconsLibrary.ts`. No emoji/unicode stand-ins.
 Mirrors upstream's dev `scripts/code.sh`: builds `vsr-app` if needed, resolves path arguments
 against the caller's cwd, launches detached (logs to `$TMPDIR/vscode-rust/last-run.log`);
 `--wait` stays attached, `--release` uses the optimised build.
+
+## ADR-0013 — vsr-editor: UI-free editing core (2026-11-09)
+
+Single-cursor `Editor` over `vsr_text::TextBuffer`: moves (char/word/line/page/doc, sticky
+visible column, Home toggles first-non-whitespace), selection (anchor/active), typing, Enter
+(keeps indentation), Tab to next tab stop, Backspace to previous tab stop in leading whitespace
+(upstream `useTabStops` default), Delete, cut/copy/paste, undo/redo with typing coalescing, and
+a dirty flag relative to the saved state. Mirrors `src/vs/editor/common/cursor/*`; 40 cases
+ported from `cursor.test.ts` / `cursorMoveCommand.test.ts`. Not yet: multi-cursor, onEnter /
+auto-indent rules, block indent, word-separator config, grapheme clusters.

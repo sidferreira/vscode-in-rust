@@ -16,6 +16,8 @@
 //! a syntax error keeps the previous configuration and is reported through `error()`; writes are
 //! refused until the file parses again (upstream refuses to write into an invalid settings file too).
 
+#[cfg(test)]
+mod e2e;
 pub mod glob;
 pub mod settings;
 pub mod wired;

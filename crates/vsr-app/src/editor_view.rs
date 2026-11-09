@@ -738,6 +738,7 @@ fn rows(
             row.child(
                 div()
                     .flex_none()
+                    .debug_selector(|| format!("gutter:{line}"))
                     .w(px(gutter))
                     .pr(px(26.))
                     .text_right()

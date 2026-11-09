@@ -665,6 +665,7 @@ impl Workbench {
         let t = &self.theme;
         let mut strip = div()
             .relative()
+            .debug_selector(|| "tab-strip".to_string())
             .flex_none()
             .h(px(m::TAB_HEIGHT))
             .w_full()
@@ -744,6 +745,7 @@ impl Workbench {
                 );
             let tab = div()
                 .id(("tab", i))
+                .debug_selector(|| format!("tab:{i}"))
                 .group(format!("tab-{i}"))
                 .relative()
                 .flex_none()

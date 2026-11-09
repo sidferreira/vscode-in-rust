@@ -310,3 +310,19 @@ fn auto_reveal_false_leaves_the_selection_alone(cx: &mut TestAppContext) {
     assert_eq!(wb.read_with(cx, |wb, _| wb.explorer.selected.clone()), None);
     assert!(!wb.read_with(cx, |wb, _| wb.expanded.contains(&wb.root.join("src"))));
 }
+
+#[gpui::test]
+fn refresh_explorer_relists_and_collapse_folders_closes_them(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("refresh-collapse");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let src = ws.path().join("src");
+    wb.update(cx, |wb, _| wb.toggle_dir(&src));
+    fs::write(src.join("made_outside.rs"), "").unwrap();
+    wb.update(cx, |wb, cx| wb.refresh_all(cx));
+    cx.run_until_parked();
+    assert!(row_names(&wb, cx).contains(&"made_outside.rs".to_string()));
+    wb.update(cx, |wb, cx| wb.collapse_all(cx));
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.expanded.is_empty()));
+    assert_eq!(row_names(&wb, cx), ["src"]);
+}

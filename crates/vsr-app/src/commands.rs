@@ -410,6 +410,18 @@ mod tests {
     }
 
     #[test]
+    fn explorer_palette_labels_follow_upstream() {
+        let r = registry();
+        let label = |id: &str| r.descriptor(id).unwrap().label();
+        assert_eq!(label("explorer.newFile"), "File: New File...");
+        assert_eq!(label("explorer.newFolder"), "File: New Folder...");
+        assert_eq!(label("workbench.files.action.refreshFilesExplorer"), "Refresh Explorer");
+        assert_eq!(label("workbench.files.action.collapseExplorerFolders"), "Collapse Folders in Explorer");
+        assert!(!r.palette_commands(&ContextKeys::default()).iter().any(|d| d.id == "renameFile" || d.id == "moveFileToTrash"),
+            "Rename and Delete are keys and menu items, not palette entries");
+    }
+
+    #[test]
     fn palette_hides_editor_commands_without_an_editor() {
         let r = registry();
         let ids = |ctx: &ContextKeys| r.palette_commands(ctx).iter().map(|d| d.id.clone()).collect::<Vec<_>>();

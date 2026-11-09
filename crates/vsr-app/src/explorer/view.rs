@@ -8,11 +8,15 @@
 use std::path::{Path, PathBuf};
 
 use gpui_kit::component::input::{Enter as InputEnter, Escape as InputEscape, Input};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use super::inline::{self, InlineKind};
 use super::names::Severity;
+
+/// The group of the Explorer header: its title actions show while it is hovered.
+const HEADER_GROUP: &str = "explorer-header";
 use super::settings::{AutoReveal, ExplorerSettings};
 use crate::config::AppConfig;
 use super::actions::{
@@ -297,7 +301,53 @@ impl Workbench {
                 .child(icons::glyph(c))
         };
 
+        // View title actions (ADR-0041): shown while the header is hovered, as upstream's
+        // `navigation` group of the Explorer's view title.
+        let title_button = |id: &'static str, glyph: char, tip: &'static str| {
+            div()
+                .id(id)
+                .flex_none()
+                .w(px(22.))
+                .h(px(22.))
+                .rounded(px(5.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .font_family(icons::FAMILY)
+                .text_size(px(16.))
+                .text_color(to_gpui(t.sidebar_fg))
+                .hover(|s| s.bg(to_gpui(t.toolbar_hover_bg)))
+                .child(icons::glyph(glyph))
+                .tooltip(move |w, cx| Tooltip::new(tip).build(w, cx))
+        };
+        let title_actions = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .invisible()
+            .group_hover(HEADER_GROUP, |s| s.visible())
+            .child(
+                title_button("explorer-new-file", icons::NEW_FILE, "New File...").on_click(cx.listener(
+                    |this, _: &ClickEvent, window, cx| this.start_inline(InlineKind::NewFile, window, cx),
+                )),
+            )
+            .child(
+                title_button("explorer-new-folder", icons::NEW_FOLDER, "New Folder...").on_click(cx.listener(
+                    |this, _: &ClickEvent, window, cx| this.start_inline(InlineKind::NewFolder, window, cx),
+                )),
+            )
+            .child(
+                title_button("explorer-refresh", icons::REFRESH, "Refresh Explorer")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_all(cx))),
+            )
+            .child(
+                title_button("explorer-collapse", icons::COLLAPSE_ALL, "Collapse Folders in Explorer")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.collapse_all(cx))),
+            );
+
         let header = div()
+            .group(HEADER_GROUP)
             .flex_none()
             .h(px(22.))
             .px(px(8.))
@@ -306,7 +356,8 @@ impl Workbench {
             .text_size(px(11.))
             .font_weight(FontWeight::BOLD)
             .child(chevron(icons::CHEVRON_DOWN))
-            .child(crate::folder_name(&self.root).to_uppercase());
+            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(crate::folder_name(&self.root).to_uppercase()))
+            .child(title_actions);
 
         let inline_open = self.explorer.inline.is_some();
         let new_parent = self.explorer.inline.as_ref().filter(|e| e.is_new()).map(|e| e.parent.clone());

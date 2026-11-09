@@ -8,13 +8,16 @@
 //!
 //! upstream: src/vs/workbench/test/browser/parts/editor/editorGroupModel.test.ts @ 50e1350fc78df67b11049b903d96b530f28d26a5
 
+use std::cell::Cell;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use vsr_editor::{Editor, EditorOptions, Selection};
+use vsr_syntax::SyntaxService;
 use vsr_text::{DefaultEol, Eol, Position, TextBuffer};
 
 use crate::config::glob::ExcludeMatcher;
@@ -74,6 +77,14 @@ pub struct OpenEditor {
     /// The file's modification time when the buffer last matched the disk (opened, saved or
     /// reloaded). A different time on disk means the file changed under the editor (ADR-0039).
     disk_stamp: Option<SystemTime>,
+    /// The language id (`rust`, `plaintext`...), from the file name and first line, or picked with
+    /// "Change Language Mode" (then `language_explicit`, and settings changes leave it alone).
+    language: String,
+    language_explicit: bool,
+    /// The tokenizer of the language's grammar, `None` for languages without one (ADR-0038).
+    syntax: Option<crate::syntax::SyntaxDoc>,
+    /// The `(editor version, line count)` the tokenizer was last synced at.
+    syntax_synced: Cell<Option<(u64, usize)>>,
 }
 
 /// The modification time of `path`, if it exists.
@@ -96,7 +107,44 @@ impl OpenEditor {
             config_read_only,
             session_read_only: None,
             disk_stamp: disk_stamp(path),
+            language: vsr_languages::PLAINTEXT_LANGUAGE_ID.to_string(),
+            language_explicit: false,
+            syntax: None,
+            syntax_synced: Cell::new(None),
         }
+    }
+
+    pub fn language_id(&self) -> &str {
+        &self.language
+    }
+
+    /// Gives the editor a language and a tokenizer for its grammar (if it has one).
+    pub fn set_language(&mut self, service: &Arc<SyntaxService>, id: &str, explicit: bool, max_line_length: usize) {
+        self.language = id.to_string();
+        self.language_explicit = explicit;
+        self.syntax = service
+            .tokenizer_for(id, max_line_length)
+            .map(|tokenizer| crate::syntax::SyntaxDoc { service: service.clone(), tokenizer });
+        self.syntax_synced.set(None);
+    }
+
+    /// Brings the tokens up to date with the buffer (cheap when nothing changed).
+    pub fn sync_syntax(&self) {
+        let Some(doc) = &self.syntax else { return };
+        let key = (self.editor.version(), self.editor.buffer().line_count());
+        if self.syntax_synced.get() != Some(key) {
+            doc.sync(self.editor.buffer());
+            self.syntax_synced.set(Some(key));
+        }
+    }
+
+    pub fn syntax(&self) -> Option<&crate::syntax::SyntaxDoc> {
+        self.syntax.as_ref()
+    }
+
+    /// Whether the language's tokenizer still has lines to do (a repaint is due when it finishes).
+    pub fn syntax_busy(&self) -> bool {
+        self.syntax.as_ref().is_some_and(|d| d.tokenizer.is_busy())
     }
 
     /// Whether the file on disk changed since the buffer last matched it. A file that is gone is
@@ -119,6 +167,7 @@ impl OpenEditor {
         editor.set_selection(selection);
         self.editor = editor;
         self.disk_stamp = disk_stamp(&self.path);
+        self.syntax_synced.set(None);
     }
 
     /// The file moved or was renamed to `path`: the editor follows it.
@@ -161,7 +210,16 @@ impl OpenEditor {
     pub fn save_with(&mut self, transforms: SaveTransforms) -> io::Result<()> {
         let cursors: Vec<Position> = if transforms.auto_save { vec![self.editor.selection().active] } else { Vec::new() };
         if transforms.trim_trailing_whitespace {
-            self.editor.trim_trailing_whitespace(&cursors);
+            if transforms.keep_in_regex_and_strings && self.syntax.is_some() {
+                // `files.trimTrailingWhitespaceInRegexAndStrings: false`: whitespace inside a string
+                // or a regular expression stays (and so does a line with no accurate tokens yet).
+                self.sync_syntax();
+                let doc = self.syntax.as_ref().expect("checked above");
+                let buffer_lines: Vec<String> = (1..=self.editor.buffer().line_count()).map(|l| self.editor.buffer().line_content(l).to_string()).collect();
+                self.editor.trim_trailing_whitespace_unless(&cursors, |line, offset| doc.keeps_trailing_whitespace(line, &buffer_lines[line - 1], offset));
+            } else {
+                self.editor.trim_trailing_whitespace(&cursors);
+            }
         }
         if transforms.insert_final_newline {
             self.editor.insert_final_newline();
@@ -184,6 +242,9 @@ pub struct SaveTransforms {
     pub insert_final_newline: bool,
     pub trim_final_newlines: bool,
     pub auto_save: bool,
+    /// `files.trimTrailingWhitespaceInRegexAndStrings` is off: trailing whitespace inside strings
+    /// and regular expressions is kept.
+    pub keep_in_regex_and_strings: bool,
 }
 
 /// How an editor open places its editor (upstream `IEditorOpenOptions`, the parts rscode uses).
@@ -227,6 +288,11 @@ pub struct Editors {
     pub default_eol: DefaultEol,
     /// `files.readonly*`: which files open read-only.
     pub read_only: ReadonlyRules,
+    /// Languages and syntax highlighting (ADR-0038). One service per `Editors`, so tests that set
+    /// `files.associations` do not leak into each other.
+    pub syntax: Arc<SyntaxService>,
+    /// `editor.maxTokenizationLineLength`.
+    pub max_tokenization_line_length: usize,
 }
 
 impl Default for Editors {
@@ -241,6 +307,8 @@ impl Default for Editors {
             settings: EditorGroupSettings::default(),
             default_eol: DefaultEol::Lf,
             read_only: ReadonlyRules::default(),
+            syntax: Arc::new(SyntaxService::new()),
+            max_tokenization_line_length: vsr_syntax::DEFAULT_MAX_TOKENIZATION_LINE_LENGTH,
         }
     }
 }
@@ -271,7 +339,9 @@ impl Editors {
         }
         let bytes = fs::read(path)?;
         let text = String::from_utf8_lossy(&bytes);
-        let editor = OpenEditor::from_text(path, &text, self.options, self.default_eol, self.read_only.is_read_only(path));
+        let mut editor = OpenEditor::from_text(path, &text, self.options, self.default_eol, self.read_only.is_read_only(path));
+        let language = self.guess_language(path, &text);
+        editor.set_language(&self.syntax, &language, false, self.max_tokenization_line_length);
 
         let target = self.target_index();
         let preview_index = self.preview.as_deref().and_then(|p| self.index_of(p));
@@ -304,6 +374,63 @@ impl Editors {
         self.enforce_limit();
         self.touch_history(path);
         Ok(())
+    }
+
+    /// The language of a file: `files.associations`, the file name and extension, then the first
+    /// line (`getLanguageIdByFilepathOrFirstLine`); plain text when nothing matches.
+    pub fn guess_language(&self, path: &Path, text: &str) -> String {
+        let first_line = text.lines().next();
+        self.syntax.language_for_file(&path.to_string_lossy(), first_line)
+    }
+
+    /// `files.associations` changed: sets them and re-evaluates the editors whose language was not
+    /// picked by hand.
+    pub fn apply_associations(&mut self, associations: &[(String, String)]) {
+        self.syntax.set_configured_associations(associations);
+        for i in 0..self.open.len() {
+            if self.open[i].language_explicit {
+                continue;
+            }
+            let first = self.open[i].buffer().line_content(1).to_string();
+            let id = self.syntax.language_for_file(&self.open[i].path.to_string_lossy(), Some(&first));
+            if id != self.open[i].language {
+                let max = self.max_tokenization_line_length;
+                let syntax = self.syntax.clone();
+                self.open[i].set_language(&syntax, &id, false, max);
+            }
+        }
+    }
+
+    /// `editor.maxTokenizationLineLength`.
+    pub fn set_max_tokenization_line_length(&mut self, n: usize) {
+        self.max_tokenization_line_length = n;
+        for e in &self.open {
+            if let Some(d) = e.syntax() {
+                d.tokenizer.set_max_line_length(n);
+            }
+        }
+    }
+
+    /// "Change Language Mode": the editor at `index` gets `language_id`, for good (until the file
+    /// is closed), whatever the file name says.
+    pub fn set_language_of(&mut self, index: usize, language_id: &str) {
+        let (syntax, max) = (self.syntax.clone(), self.max_tokenization_line_length);
+        if let Some(e) = self.open.get_mut(index) {
+            e.set_language(&syntax, language_id, true, max);
+        }
+    }
+
+    /// "Auto Detect": the language of the editor at `index` follows its file name and first line again.
+    pub fn auto_detect_language(&mut self, index: usize) {
+        let Some(e) = self.open.get(index) else { return };
+        let id = self.syntax.language_for_file(&e.path.to_string_lossy(), Some(e.buffer().line_content(1)));
+        let (syntax, max) = (self.syntax.clone(), self.max_tokenization_line_length);
+        self.open[index].set_language(&syntax, &id, false, max);
+    }
+
+    /// The language name the status bar shows for `e` (`Plain Text` for plaintext, like VS Code).
+    pub fn language_name(&self, e: &OpenEditor) -> String {
+        self.syntax.language_display_name(e.language_id())
     }
 
     /// Where a new editor goes (`workbench.editor.openPositioning`, upstream `openEditor`).

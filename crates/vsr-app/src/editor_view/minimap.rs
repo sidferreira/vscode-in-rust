@@ -43,7 +43,7 @@ use self::layout::{
     MinimapLayout, MinimapLayoutInfo, MinimapLayoutInput, RenderMinimap, SliderOptions, Viewport,
     compute_contained_minimap_line_count, compute_minimap_layout, sampling_lines,
 };
-use self::raster::{RasterParams, render_lines};
+use self::raster::{ColorRun, RasterParams, render_lines_colored};
 use crate::config::minimap::{MinimapAutohide, MinimapSide, MinimapSize, ShowSlider};
 use crate::config::settings::EditorSettings;
 use crate::model::OpenEditor;
@@ -388,6 +388,8 @@ impl MinimapView {
             (params.render == RenderMinimap::Text, params.font_scale, params.line_height, params.char_width).hash(&mut h);
             (params.canvas_width, params.canvas_height, params.tab_size, params.top_padding_lines).hash(&mut h);
             (params.fg, params.bg, sampling.as_ref().map(Vec::len)).hash(&mut h);
+            // Token colours change as the tokenizer works through the file.
+            i.editor.syntax().map(|d| d.tokenizer.progress()).hash(&mut h);
             h.finish()
         };
         let cached = self.image.borrow().as_ref().filter(|(k, _)| *k == key).map(|(_, img)| img.clone());
@@ -404,7 +406,23 @@ impl MinimapView {
                     }
                 })
                 .collect();
-            let canvas = render_lines(&params, lines.iter().map(|l| l.as_ref()));
+            // Token colours (ADR-0038): by model line, so only without word wrap.
+            let numbers: Vec<usize> = (first..=last.max(first))
+                .filter(|_| last >= first)
+                .map(|n| sampling.as_ref().map_or(n, |s| s.get(n - 1).copied().unwrap_or(line_count)).clamp(1, line_count))
+                .collect();
+            let colors: Vec<Option<Vec<ColorRun>>> = numbers
+                .iter()
+                .zip(lines.iter())
+                .map(|(&n, text)| {
+                    if wrapped.is_some() {
+                        return None;
+                    }
+                    let runs = i.editor.syntax()?.style_runs(n, text)?;
+                    Some(crate::syntax::minimap_colors(text, &runs, params.fg))
+                })
+                .collect();
+            let canvas = render_lines_colored(&params, lines.iter().zip(colors.iter()).map(|(l, c)| (l.as_ref(), c.as_deref())));
             let frame = image::Frame::new(
                 image::RgbaImage::from_raw(canvas.width as u32, canvas.height as u32, canvas.data)
                     .unwrap_or_else(|| image::RgbaImage::new(1, 1)),

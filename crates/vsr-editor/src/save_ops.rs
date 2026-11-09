@@ -28,6 +28,14 @@ impl Editor {
     /// whitespace before the caret column stays (auto-save semantics); pass `&[]` for a manual
     /// save. One undo step; returns whether anything changed.
     pub fn trim_trailing_whitespace(&mut self, cursors: &[Position]) -> bool {
+        self.trim_trailing_whitespace_unless(cursors, |_, _| false)
+    }
+
+    /// `trim_trailing_whitespace`, leaving a line alone when `skip(line, offset)` says so, where
+    /// `offset` is the 0-based UTF-16 offset upstream looks the token up at (its `fromColumn`):
+    /// `files.trimTrailingWhitespaceInRegexAndStrings: false` skips whitespace inside strings and
+    /// regular expressions through it.
+    pub fn trim_trailing_whitespace_unless(&mut self, cursors: &[Position], skip: impl Fn(usize, usize) -> bool) -> bool {
         let mut edits: Vec<(Range, String)> = Vec::new();
         for line in 1..=self.buffer.line_count() {
             let content = self.buffer.line_content(line);
@@ -43,7 +51,7 @@ impl Editor {
                 }
                 from = from.max(c);
             }
-            if from < max_col {
+            if from < max_col && !skip(line, from) {
                 edits.push((Range::new(Position::new(line, from), Position::new(line, max_col)), String::new()));
             }
         }

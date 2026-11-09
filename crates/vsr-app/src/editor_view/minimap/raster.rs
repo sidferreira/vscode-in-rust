@@ -196,8 +196,19 @@ pub struct RasterParams {
     pub top_padding_lines: usize,
 }
 
-/// Draws `lines` (the first one at minimap line `top_padding_lines`) into a fresh canvas.
+/// The colour of a stretch of a line: from this UTF-16 index on (token colours, ADR-0038).
+pub type ColorRun = (usize, [u8; 3]);
+
+/// Draws `lines` (the first one at minimap line `top_padding_lines`) into a fresh canvas, all in
+/// the foreground colour.
+#[cfg(test)]
 pub fn render_lines<'a>(p: &RasterParams, lines: impl Iterator<Item = &'a str>) -> Canvas {
+    render_lines_colored(p, lines.map(|l| (l, None)))
+}
+
+/// Like `render_lines`, with an optional list of colour runs (sorted by index) per line; text
+/// before the first run, and lines without runs, use the foreground.
+pub fn render_lines_colored<'a>(p: &RasterParams, lines: impl Iterator<Item = (&'a str, Option<&'a [ColorRun]>)>) -> Canvas {
     let mut canvas = Canvas::new(p.canvas_width, p.canvas_height, p.bg);
     if p.canvas_width == 0 || p.canvas_height == 0 {
         return canvas;
@@ -209,11 +220,11 @@ pub fn render_lines<'a>(p: &RasterParams, lines: impl Iterator<Item = &'a str>) 
     let force_1px = p.line_height == 1;
     let max_dx = p.canvas_width as isize - p.char_width as isize;
     let mut dy = p.top_padding_lines * p.line_height;
-    for line in lines {
+    for (line, colors) in lines {
         if dy >= p.canvas_height {
             break;
         }
-        render_line(&mut canvas, &renderer, p, line, dy + inner_padding, max_dx, force_1px);
+        render_line(&mut canvas, &renderer, p, line, colors, dy + inner_padding, max_dx, force_1px);
         dy += p.line_height;
     }
     canvas
@@ -224,13 +235,21 @@ fn render_line(
     renderer: &CharRenderer,
     p: &RasterParams,
     content: &str,
+    colors: Option<&[ColorRun]>,
     dy: usize,
     max_dx: isize,
     force_1px: bool,
 ) {
     let mut dx = MINIMAP_GUTTER_WIDTH as usize;
     let mut tabs_char_delta = 0usize;
+    let (mut color, mut next_run) = (p.fg, 0usize);
     for (char_index, unit) in content.encode_utf16().enumerate() {
+        if let Some(runs) = colors {
+            while next_run < runs.len() && runs[next_run].0 <= char_index {
+                color = runs[next_run].1;
+                next_run += 1;
+            }
+        }
         if dx as isize > max_dx {
             return; // hit the edge of the minimap
         }
@@ -246,14 +265,14 @@ fn render_line(
                 let count = if is_full_width(unit) { 2 } else { 1 };
                 for _ in 0..count {
                     if p.render == RenderMinimap::Blocks {
-                        renderer.block_render_char(canvas, dx, dy, p.fg, p.fg_alpha, p.bg, force_1px);
+                        renderer.block_render_char(canvas, dx, dy, color, p.fg_alpha, p.bg, force_1px);
                     } else {
                         renderer.render_char(
                             canvas,
                             dx,
                             dy,
                             u32::from(unit),
-                            p.fg,
+                            color,
                             p.fg_alpha,
                             p.bg,
                             p.font_scale,

@@ -389,6 +389,8 @@ pub struct EditorSettings {
     pub insert_final_newline: bool,
     /// `files.trimFinalNewlines`.
     pub trim_final_newlines: bool,
+    /// `files.trimTrailingWhitespaceInRegexAndStrings` (default true).
+    pub trim_in_regex_and_strings: bool,
     /// `files.saveConflictResolution` is `askUser` (true) or `overwriteFileOnDisk` (false, ADR-0039).
     pub save_conflict_ask: bool,
     /// `files.eol`: the line break of a file that has none yet (ADR-0034). `auto` is LF on macOS.
@@ -439,6 +441,7 @@ impl Default for EditorSettings {
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             trim_final_newlines: false,
+            trim_in_regex_and_strings: true,
             save_conflict_ask: true,
             eol: DefaultEol::Lf,
             auto_save: AutoSaveMode::Off,
@@ -457,6 +460,7 @@ impl EditorSettings {
             trim_trailing_whitespace: self.trim_trailing_whitespace,
             insert_final_newline: self.insert_final_newline,
             trim_final_newlines: self.trim_final_newlines,
+            keep_in_regex_and_strings: !self.trim_in_regex_and_strings,
             auto_save,
         }
     }
@@ -504,6 +508,7 @@ impl EditorSettings {
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             trim_final_newlines: c.get_bool("files.trimFinalNewlines").unwrap_or(false),
+            trim_in_regex_and_strings: c.get_bool("files.trimTrailingWhitespaceInRegexAndStrings").unwrap_or(true),
             save_conflict_ask: c.get_str("files.saveConflictResolution") != Some("overwriteFileOnDisk"),
             eol: match c.get_str("files.eol") {
                 Some("\r\n") => DefaultEol::CrLf,

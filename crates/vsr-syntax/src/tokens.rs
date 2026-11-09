@@ -159,6 +159,12 @@ impl DocumentTokens {
         true
     }
 
+    /// Whether the line's tokens were computed from the right start state (upstream
+    /// `hasAccurateTokensForLine`).
+    pub fn is_accurate(&self, line: usize) -> bool {
+        line < self.valid_upto
+    }
+
     /// The tokens of a 0-based line, if it has been tokenized (possibly before a later edit).
     pub fn tokens(&self, line: usize) -> Option<Arc<[Token]>> {
         self.lines.get(line)?.tokens.clone()

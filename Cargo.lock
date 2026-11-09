@@ -7288,10 +7288,13 @@ dependencies = [
  "vsr-commands",
  "vsr-editor",
  "vsr-find",
+ "vsr-languages",
  "vsr-quickinput",
  "vsr-search",
  "vsr-settings",
+ "vsr-syntax",
  "vsr-text",
+ "vsr-textmate",
 ]
 
 [[package]]

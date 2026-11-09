@@ -527,3 +527,135 @@ fn close_on_file_delete_off_keeps_the_tab(cx: &mut TestAppContext) {
     assert_eq!(tab_titles(&wb, cx), ["a.txt"]);
 }
 
+// ---- window.title / window.titleSeparator ---------------------------------------------------
+
+fn window_title_of(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> String {
+    wb.read_with(cx, |wb, app| wb.window_title(app))
+}
+
+/// The title last given to the OS window (the test platform does not expose its title).
+fn applied_title(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> String {
+    wb.read_with(cx, |wb, _| wb.applied_window_title.as_ref().map(|(t, _)| t.clone()).unwrap_or_default())
+}
+
+#[gpui_kit::test]
+fn window_title_and_separator_apply_live_to_the_window(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "title", None, &[("a.txt", "a")]);
+    let folder = f.dir.file_name().unwrap().to_string_lossy().into_owned();
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+
+    // Default (macOS): file, separator, folder; the empty profile name collapses its separator.
+    let default = format!("a.txt \u{2014} {folder}");
+    assert_eq!(window_title_of(&wb, cx), default);
+    assert_eq!(applied_title(&wb, cx), default, "the title given to the OS window");
+
+    set(cx, "window.titleSeparator", json!(" - "));
+    assert_eq!(window_title_of(&wb, cx), format!("a.txt - {folder}"));
+
+    set(cx, "window.title", json!("${rootName}: ${activeEditorMedium}"));
+    assert_eq!(window_title_of(&wb, cx), format!("{folder}: a.txt"));
+    assert_eq!(applied_title(&wb, cx), format!("{folder}: a.txt"));
+
+    // Settings editor: its name is the active editor.
+    set(cx, "window.title", json!("${activeEditorShort}"));
+    cx.simulate_keystrokes("cmd-,");
+    cx.run_until_parked();
+    assert_eq!(window_title_of(&wb, cx), "Settings");
+
+    // Back to the default when the setting is reset.
+    cx.update(|_, cx| AppConfig::set_value(cx, "window.title", None)).unwrap();
+    cx.run_until_parked();
+    assert_eq!(window_title_of(&wb, cx), format!("Settings - {folder}"));
+}
+
+// ---- workbench.startupEditor ----------------------------------------------------------------
+
+#[gpui_kit::test]
+fn startup_editor_readme_opens_the_readme_and_the_default_opens_nothing(cx: &mut TestAppContext) {
+    let (wb, cx, _f) = workbench(cx, "startup-readme", Some(r#"{ "workbench.startupEditor": "readme" }"#), &[("README.md", "# hi"), ("Cargo.toml", "")]);
+    assert_eq!(tab_titles(&wb, cx), ["README.md"]);
+}
+
+#[gpui_kit::test]
+fn startup_editor_default_is_the_welcome_page_which_rscode_does_not_have_yet(cx: &mut TestAppContext) {
+    let (wb, cx, _f) = workbench(cx, "startup-default", None, &[("README.md", "# hi")]);
+    assert!(tab_titles(&wb, cx).is_empty(), "no README is opened: there is no Welcome page to open instead");
+}
+
+// ---- window.zoomLevel and the zoom commands -------------------------------------------------
+
+#[gpui_kit::test]
+fn zoom_commands_change_the_level_and_scale_the_editor_text(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "zoom", None, &[("a.txt", "a")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    let font = |wb: &Entity<Workbench>, cx: &mut VisualTestContext| wb.read_with(cx, |wb, _| wb.editor_settings.font_size);
+    let base = font(&wb, cx);
+    assert_eq!(base, 12.0);
+
+    cx.dispatch_action(crate::commands::ZoomIn);
+    cx.run_until_parked();
+    assert_eq!(vsr_settings::UserSettings::load(&f.settings).unwrap().get("window.zoomLevel"), Some(&json!(1.0)));
+    assert!((font(&wb, cx) - base * 1.2).abs() < 1e-3, "one step is 20% larger");
+
+    cx.dispatch_action(crate::commands::ZoomOut);
+    cx.dispatch_action(crate::commands::ZoomOut);
+    cx.run_until_parked();
+    assert!((font(&wb, cx) - base / 1.2).abs() < 1e-3, "two steps out");
+
+    cx.dispatch_action(crate::commands::ZoomReset);
+    cx.run_until_parked();
+    assert_eq!(font(&wb, cx), base, "reset returns to the default");
+    assert!(!vsr_settings::UserSettings::load(&f.settings).unwrap().is_modified("window.zoomLevel"));
+}
+
+// ---- window.density.editorTabHeight ----------------------------------------------------------
+
+#[gpui_kit::test]
+fn compact_editor_tabs_are_shorter_and_apply_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "tab-density", None, &[("a.txt", "a")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    assert_eq!(bounds(cx, "tab-strip").size.height, gpui_kit::px(35.), "default tab height");
+
+    set(cx, "window.density.editorTabHeight", json!("compact"));
+    assert_eq!(bounds(cx, "tab-strip").size.height, gpui_kit::px(22.), "compact tab height");
+
+    set(cx, "window.density.editorTabHeight", json!("default"));
+    assert_eq!(bounds(cx, "tab-strip").size.height, gpui_kit::px(35.));
+}
+
+// ---- window.commandCenter -------------------------------------------------------------------
+
+#[gpui_kit::test]
+fn command_center_is_a_search_box_that_opens_quick_open(cx: &mut TestAppContext) {
+    let (_wb, cx, _f) = workbench(cx, "command-center", None, &[("a.txt", "a")]);
+    let center = bounds(cx, "command-center");
+    assert!(cx.debug_bounds("quick-input-widget").is_none());
+    cx.simulate_click(center.center(), Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("quick-input-widget").is_some(), "a click opens Quick Open");
+}
+
+#[gpui_kit::test]
+fn command_center_off_leaves_the_title_text_only(cx: &mut TestAppContext) {
+    let (_wb, cx, _f) = workbench(cx, "command-center-off", Some(r#"{ "window.commandCenter": false }"#), &[("a.txt", "a")]);
+    assert!(cx.debug_bounds("command-center").is_none());
+    set(cx, "window.commandCenter", json!(true));
+    assert!(cx.debug_bounds("command-center").is_some(), "applies live");
+    set(cx, "window.commandCenter", json!(false));
+    assert!(cx.debug_bounds("command-center").is_none());
+}
+
+#[gpui_kit::test]
+fn window_title_variables_follow_the_active_editor(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "title-vars", None, &[]);
+    fs::create_dir_all(f.dir.join("src")).unwrap();
+    fs::write(f.dir.join("src/main.rs"), "fn main() {}").unwrap();
+    open_file(&wb, cx, &f.dir.join("src/main.rs"));
+    let vars = wb.read_with(cx, |wb, _| wb.window_title_variables());
+    assert_eq!(vars.active_editor_short, "main.rs");
+    assert_eq!(vars.active_editor_medium, "src/main.rs");
+    assert_eq!(vars.active_folder_medium, "src");
+    assert_eq!(vars.active_editor_language_id, "rust");
+    assert!(!vars.dirty);
+}
+

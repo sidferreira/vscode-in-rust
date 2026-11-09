@@ -182,6 +182,15 @@ const MINIMUM_LINE_HEIGHT: f64 = 8.0;
 /// Menlo's advance as a fraction of the font size (7.224px at 12px), used until real metrics exist.
 const MENLO_ADVANCE_RATIO: f32 = 0.602;
 
+/// `window.zoomLevel` bounds (the setting's minimum and maximum).
+pub const ZOOM_LEVEL_RANGE: (f64, f64) = (-8.0, 8.0);
+
+/// The zoom factor for a zoom level: each step is 20% (upstream `getZoomFactor`, 1.2^level). The
+/// level is clamped to `ZOOM_LEVEL_RANGE`.
+pub fn zoom_factor(level: f64) -> f32 {
+    1.2_f64.powf(level.clamp(ZOOM_LEVEL_RANGE.0, ZOOM_LEVEL_RANGE.1)) as f32
+}
+
 /// `editor.lineHeight` to pixels, like `BareFontInfo._create`: 0 is 1.5 x font size, values below 8
 /// are a multiple of the font size, the result is rounded and at least 8.
 pub fn compute_line_height(line_height: f64, font_size: f64) -> f32 {
@@ -395,14 +404,17 @@ impl EditorSettings {
     }
 
     pub fn from_configuration(c: &Configuration) -> Self {
-        let font_size = c.get_f64("editor.fontSize").unwrap_or(12.0);
+        // `window.zoomLevel` scales the editor text (the chrome is laid out in fixed pixels, so it
+        // does not zoom yet; see ADR-0035).
+        let zoom = zoom_factor(c.get_f64("window.zoomLevel").unwrap_or(0.0)) as f64;
+        let font_size = c.get_f64("editor.fontSize").unwrap_or(12.0) * zoom;
         let families = parse_font_families(c.get_str("editor.fontFamily").unwrap_or_default());
         Self {
             font_size: font_size as f32,
             font_family: families.first().cloned().unwrap_or_else(|| "Menlo".into()),
             font_families: families,
             font_weight: c.get_value("editor.fontWeight").map_or(400.0, parse_font_weight),
-            line_height: compute_line_height(c.get_f64("editor.lineHeight").unwrap_or(0.0), font_size),
+            line_height: compute_line_height(c.get_f64("editor.lineHeight").unwrap_or(0.0) * zoom, font_size),
             tab_size: c.get_f64("editor.tabSize").unwrap_or(4.0).round().max(1.0) as usize,
             insert_spaces: c.get_bool("editor.insertSpaces").unwrap_or(true),
             line_numbers: c.get_enum("editor.lineNumbers").unwrap_or(LineNumbers::On),
@@ -472,6 +484,38 @@ pub struct LayoutSettings {
     pub status_bar_visible: bool,
     pub show_tabs: ShowTabs,
     pub tree_indent: f32,
+    /// `window.commandCenter`: the search box in the title bar.
+    pub command_center: bool,
+    /// `window.density.editorTabHeight`: compact tabs are shorter (22px, default 35px).
+    pub compact_tabs: bool,
+}
+
+/// `workbench.startupEditor`: what opens when the app starts with no editor restored. rscode has
+/// no Welcome page, no untitled files and no terminal yet, so those values open nothing (their
+/// behaviour is listed in ADR-0035). `Readme` opens the folder's README when there is one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StartupEditor {
+    None,
+    WelcomePage,
+    Readme,
+    NewUntitledFile,
+    WelcomePageInEmptyWorkbench,
+    Terminal,
+    AgentSessionsWelcomePage,
+}
+
+/// The configured `workbench.startupEditor` (read once at startup, as upstream does).
+pub fn startup_editor(c: &Configuration) -> StartupEditor {
+    c.get_enum("workbench.startupEditor").unwrap_or(StartupEditor::WelcomePage)
+}
+
+/// `window.density.editorTabHeight`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TabHeight {
+    Default,
+    Compact,
 }
 
 impl LayoutSettings {
@@ -482,6 +526,8 @@ impl LayoutSettings {
             status_bar_visible: c.get_bool("workbench.statusBar.visible").unwrap_or(true),
             show_tabs: c.get_enum("workbench.editor.showTabs").unwrap_or(ShowTabs::Multiple),
             tree_indent: c.get_f64("workbench.tree.indent").unwrap_or(8.0) as f32,
+            command_center: c.get_bool("window.commandCenter").unwrap_or(true),
+            compact_tabs: c.get_enum::<TabHeight>("window.density.editorTabHeight") == Some(TabHeight::Compact),
         }
     }
 }
@@ -683,7 +729,30 @@ mod tests {
             status_bar_visible: true,
             show_tabs: ShowTabs::Multiple,
             tree_indent: 8.0,
+            command_center: true,
+            compact_tabs: false,
         });
+    }
+
+    #[test]
+    fn startup_editor_values() {
+        assert_eq!(startup_editor(&config("")), StartupEditor::WelcomePage, "upstream default");
+        assert_eq!(startup_editor(&config(r#"{ "workbench.startupEditor": "readme" }"#)), StartupEditor::Readme);
+        assert_eq!(startup_editor(&config(r#"{ "workbench.startupEditor": "none" }"#)), StartupEditor::None);
+        assert_eq!(startup_editor(&config(r#"{ "workbench.startupEditor": "bogus" }"#)), StartupEditor::WelcomePage);
+    }
+
+    #[test]
+    fn zoom_level_scales_the_editor_text() {
+        assert_eq!(zoom_factor(0.0), 1.0);
+        assert!((zoom_factor(1.0) - 1.2).abs() < 1e-6);
+        assert!((zoom_factor(-2.0) - 1.0 / 1.44).abs() < 1e-6);
+        assert_eq!(zoom_factor(100.0), zoom_factor(8.0), "clamped to the setting's maximum");
+        assert_eq!(zoom_factor(-100.0), zoom_factor(-8.0), "clamped to the setting's minimum");
+
+        let e = EditorSettings::from_configuration(&config(r#"{ "window.zoomLevel": 1, "editor.fontSize": 10 }"#));
+        assert!((e.font_size - 12.0).abs() < 1e-4, "{}", e.font_size);
+        assert!((e.line_height - 18.0).abs() < 1e-4, "auto line height follows the zoomed font: {}", e.line_height);
     }
 
     #[test]

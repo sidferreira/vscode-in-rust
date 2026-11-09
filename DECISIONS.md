@@ -859,3 +859,40 @@ The `files.*` group (`docs/settings-migration.md`). Wired through the ADR-0022 p
   Headless E2E: `config/e2e_files.rs` (15 scenarios, `tests/e2e-scenarios/files.md`). The window trigger
   needs the test window to be active first (`window.activate_window()`), since a trigger is an
   active-to-inactive change.
+
+## ADR-0035 — Window and workbench settings: title, command center, zoom, startup editor (2026-11-09)
+
+The `window.*` group (22 settings), `window.title` (3) and the general `workbench` group (34) were
+worked through with `docs/settings-migration.md`. Each setting is wired, n/a or blocked, with a reason
+in `upstream/settings.toml`.
+
+- **Window title (`window_title.rs`).** The template engine is a port of upstream `labels.ts`
+  `template()` with its tests (`// upstream: Labels > template`). The variables are the ones rscode
+  has (active editor, folder, root, dirty, app name). `profileName` and `remoteName` are empty.
+  The title bar and the OS window title (`set_window_title`) show the same string. The dirty dot is
+  `set_window_edited` (the macOS close-button dot), not a prefix in the title, as upstream does on macOS.
+- **Command center.** With `window.commandCenter` (default on, as upstream) the title bar holds a search
+  box with the title and a search icon. A click opens Quick Open. This is a simplification of
+  `commandCenterControl.ts` (no command dropdown).
+- **Zoom (`window.zoomLevel`).** Factor 1.2^level, clamped to [-8, 8] (upstream `getZoomFactor`).
+  `workbench.action.zoomIn/zoomOut/zoomReset` (View; Cmd+=, Cmd+-, Cmd+0) write the setting, so the
+  zoom is saved and applied through the configuration. **Partial:** only the editor text scales.
+  The chrome (title bar, side bars, tabs, status bar) is laid out in fixed pixels, and gpui-pre 0.3.11
+  has no whole-window scale (`Window::set_rem_size` changes only rem-based sizes, which rscode does not
+  use). A whole-window zoom needs the layout moved to a scaled unit first. This is a known difference.
+- **Editor tab height (`window.density.editorTabHeight`).** 22px compact, 35px default (upstream
+  `EDITOR_TAB_HEIGHT`, classic values).
+- **Startup editor (`workbench.startupEditor`).** Read once at startup, as upstream. `readme` opens
+  `README.md` (or `README`) when the folder has one. The default, `welcomePage`, opens nothing: rscode has
+  no Welcome page yet. The same goes for `newUntitledFile` (no untitled files), `terminal` and
+  `agentSessionsWelcomePage`. The old hard-coded open of `README.md` or `Cargo.toml` is gone, so a
+  fresh launch shows an empty editor until the user opens a file.
+- **Policy.** `window.doubleClickIconToClose` is n/a: upstream creates the title bar app icon on Windows
+  and Linux only. `workbench.enableExperiments` is n/a (Microsoft's experiment service). Everything else
+  left is blocked on a named feature: multi-window, session restore, a theme service, dialogs, context
+  menus, link opening, extension views, hover widgets with a delay, a native title bar or full screen.
+  `window.titleBarStyle` is blocked (window options are fixed at open).
+- **Tests.** `config/e2e.rs` drives the workbench headless: the title (live, and the OS title set), the
+  command center (present, opens Quick Open, off), the tab height, zoom through the zoom actions (saved
+  to the temp settings file and reset), startup editor (`readme` and the default). `window_title.rs`
+  ports the upstream labels `template` test. Settings are never read from the real user file.

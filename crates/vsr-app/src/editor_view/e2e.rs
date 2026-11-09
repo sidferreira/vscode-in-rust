@@ -209,13 +209,18 @@ fn editing_a_10k_line_file_stays_responsive(cx: &mut TestAppContext) {
 
     cx.simulate_keystrokes("cmd-down");
     assert_eq!(caret(&wb, cx), (10_001, 1));
-    let start = std::time::Instant::now();
-    for _ in 0..20 {
-        cx.simulate_input("ab");
-        cx.simulate_keystrokes("enter");
+    // Best of three batches: the full suite runs tests in parallel and agents may be compiling,
+    // so a single batch is noisy; the minimum still catches O(n) per-key regressions.
+    let mut per_key = std::time::Duration::MAX;
+    for _ in 0..3 {
+        let start = std::time::Instant::now();
+        for _ in 0..7 {
+            cx.simulate_input("ab");
+            cx.simulate_keystrokes("enter");
+        }
+        per_key = per_key.min(start.elapsed() / 21);
     }
-    let per_key = start.elapsed() / 60;
-    eprintln!("10k-line file: {per_key:?} per key (debug build, incl. layout and paint)");
+    eprintln!("10k-line file: {per_key:?} per key, best of 3 (debug build, incl. layout and paint)");
     assert!(value(&wb, cx).ends_with("ab\nab\n"));
     // Generous bound for an unoptimised build on a loaded machine; catches O(n^2) regressions.
     assert!(per_key < std::time::Duration::from_millis(100), "{per_key:?} per key");

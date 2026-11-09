@@ -20,6 +20,7 @@ mod settings_view; // Settings editor (ADR-0017)
 mod text_layout;
 mod theme;
 mod ui;
+mod window_title; // window.title and window.titleSeparator (the title bar and the OS window title)
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -32,6 +33,7 @@ use config::files::ReadonlyRules;
 use config::glob::ExcludeMatcher;
 use config::settings::{
     ActivityBarLocation, EditorGroupSettings, EditorSettings, LayoutSettings, OpenSource, ShowTabs, SideBarLocation,
+    StartupEditor, startup_editor,
 };
 use config::AppConfig;
 use editor_view::{EditorHost, EditorView};
@@ -146,6 +148,8 @@ struct Workbench {
     /// Installed font families, read once when first needed.
     installed_fonts: Option<HashSet<String>>,
     _config_sub: Subscription,
+    /// The window title and dirty flag last given to the window (set only when they change).
+    applied_window_title: Option<(String, bool)>,
     /// The Search view (created the first time Search is shown).
     search: Option<Entity<SearchView>>,
     /// Quick Open (Cmd+P) state.
@@ -191,6 +195,7 @@ impl Workbench {
             exclude,
             installed_fonts: None,
             _config_sub: cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)),
+            applied_window_title: None,
             search: None,
             quick: Default::default(),
             focus: None,
@@ -210,12 +215,14 @@ impl Workbench {
             }
         })
         .detach();
-        // Open a README if there is one, so the first launch shows real text.
-        for name in ["README.md", "Cargo.toml"] {
-            let p = root.join(name);
-            if p.is_file() {
-                wb.open(&p);
-                break;
+        // `workbench.startupEditor: readme` opens the folder's README (none if it has none).
+        if startup_editor(AppConfig::get(cx).configuration()) == StartupEditor::Readme {
+            for name in ["README.md", "README"] {
+                let p = root.join(name);
+                if p.is_file() {
+                    wb.open(&p);
+                    break;
+                }
             }
         }
         wb
@@ -304,6 +311,22 @@ impl Workbench {
             self.editors.set_session_read_only(i, Some(!now));
         }
         cx.notify();
+    }
+
+    // ---- zoom (window.zoomLevel) -------------------------------------------------------------
+
+    /// `workbench.action.zoomIn` / `zoomOut` (`Some(±1)`) change `window.zoomLevel`; reset (`None`)
+    /// removes the user's value. The setting is the state, as upstream, so it is saved and applied
+    /// through the configuration.
+    fn zoom(&mut self, step: Option<f64>, cx: &mut Context<Self>) {
+        let value = step.map(|step| {
+            let level = AppConfig::get(cx).configuration().get_f64("window.zoomLevel").unwrap_or(0.0);
+            let (min, max) = config::settings::ZOOM_LEVEL_RANGE;
+            serde_json::json!((level + step).clamp(min, max))
+        });
+        if let Err(e) = AppConfig::set_value(cx, "window.zoomLevel", value) {
+            self.error = Some(e);
+        }
     }
 
     // ---- Search view (ADR-0023) ------------------------------------------------------------
@@ -492,20 +515,46 @@ impl Workbench {
 
     // ---- parts --------------------------------------------------------------
 
-    fn title_bar(&self) -> impl IntoElement {
-        let t = &self.theme;
-        let title = match self.editors.active_editor() {
-            _ if self.settings_active => format!("Settings — {}", folder_name(&self.root)),
-            // Like upstream's window title: "● " marks a dirty editor.
-            Some(e) => format!(
-                "{}{} — {}",
-                if e.is_dirty() { "● " } else { "" },
-                e.title,
-                folder_name(&self.root)
-            ),
-            None => folder_name(&self.root),
+    /// The text of `window.title` for the current state (upstream `WindowTitle.getWindowTitle`).
+    fn window_title(&self, cx: &App) -> String {
+        let config = AppConfig::get(cx).configuration();
+        let template = config.get_value("window.title").and_then(|v| v.as_str());
+        let separator = config.get_value("window.titleSeparator").and_then(|v| v.as_str());
+        self.window_title_variables().expand(template, separator)
+    }
+
+    fn window_title_variables(&self) -> window_title::Variables {
+        let root = &self.root;
+        let mut vars = window_title::Variables {
+            root_name: folder_name(root),
+            root_path: root.display().to_string(),
+            folder_name: folder_name(root),
+            folder_path: root.display().to_string(),
+            app_name: "rscode".into(),
+            ..Default::default()
         };
-        div()
+        if self.settings_active {
+            vars.active_editor_short = "Settings".into();
+            vars.active_editor_medium = "Settings".into();
+            vars.active_editor_long = "Settings".into();
+        } else if let Some(e) = self.editors.active_editor() {
+            let relative = |p: &Path| p.strip_prefix(root).map_or_else(|_| p.display().to_string(), |r| r.display().to_string());
+            let folder = e.path.parent().unwrap_or(root);
+            vars.active_editor_short = e.title.clone();
+            vars.active_editor_medium = relative(&e.path);
+            vars.active_editor_long = e.path.display().to_string();
+            vars.active_editor_language_id = window_title::language_id(language_of(&e.path));
+            vars.active_folder_short = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            vars.active_folder_medium = relative(folder);
+            vars.active_folder_long = folder.display().to_string();
+            vars.dirty = e.is_dirty();
+        }
+        vars
+    }
+
+    fn title_bar(&self, title: &str, command_center: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = &self.theme;
+        let bar = div()
             .flex_none()
             .h(px(m::TITLE_BAR_HEIGHT))
             .w_full()
@@ -517,8 +566,40 @@ impl Workbench {
             .border_color(to_gpui(t.border))
             .text_size(px(13.))
             .text_color(to_gpui(t.sidebar_fg))
-            .window_control_area(WindowControlArea::Drag)
-            .child(title)
+            .window_control_area(WindowControlArea::Drag);
+        if !command_center {
+            return bar.child(title.to_string());
+        }
+        // `window.commandCenter` (upstream commandCenterControl): a search box that shows the
+        // title; a click opens Quick Open.
+        bar.child(
+            div()
+                .id("command-center")
+                .debug_selector(|| "command-center".to_string())
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(22.))
+                .w(px(m::COMMAND_CENTER_WIDTH))
+                .px(px(8.))
+                .rounded(px(5.))
+                .border_1()
+                .border_color(to_gpui(t.input_border))
+                .bg(to_gpui(t.editor_bg))
+                .cursor_pointer()
+                .child(
+                    div()
+                        .font_family(icons::FAMILY)
+                        .text_size(px(13.))
+                        .text_color(to_gpui(t.description_fg))
+                        .child(icons::glyph(icons::SEARCH)),
+                )
+                .child(div().min_w_0().overflow_hidden().whitespace_nowrap().child(title.to_string()))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| this.show_quick_open(window, cx)),
+                ),
+        )
     }
 
     fn status_bar(&self) -> impl IntoElement {
@@ -819,11 +900,12 @@ impl Workbench {
 
     fn tab_strip(&self, cx: &mut Context<Self>, show_tabs: ShowTabs) -> impl IntoElement {
         let t = &self.theme;
+        let tab_height = if self.layout(cx).compact_tabs { m::COMPACT_TAB_HEIGHT } else { m::TAB_HEIGHT };
         let mut strip = div()
             .relative()
             .debug_selector(|| "tab-strip".to_string())
             .flex_none()
-            .h(px(m::TAB_HEIGHT))
+            .h(px(tab_height))
             .w_full()
             .flex()
             .flex_row()
@@ -1025,6 +1107,14 @@ impl Render for Workbench {
         // so this runs on the frame that shows the dirty state.
         self.editors.pin_dirty_preview();
         self.auto_save_tick(window, cx);
+        // The OS window title and the dirty dot (macOS shows it in the close button).
+        let title = self.window_title(cx);
+        let dirty = self.editors.active_editor().is_some_and(|e| e.is_dirty()) && !self.settings_active;
+        if self.applied_window_title.as_ref() != Some(&(title.clone(), dirty)) {
+            window.set_window_title(&title);
+            window.set_window_edited(dirty);
+            self.applied_window_title = Some((title.clone(), dirty));
+        }
         let focus = match &self.focus {
             Some(f) => f.clone(),
             None => {
@@ -1106,6 +1196,9 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::ShowCommands, window, cx| this.show_quick_access(">", window, cx)))
             .on_action(cx.listener(|this, _: &commands::GoToLine, window, cx| this.show_quick_access(":", window, cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
+            .on_action(cx.listener(|this, _: &commands::ZoomIn, _, cx| this.zoom(Some(1.0), cx)))
+            .on_action(cx.listener(|this, _: &commands::ZoomOut, _, cx| this.zoom(Some(-1.0), cx)))
+            .on_action(cx.listener(|this, _: &commands::ZoomReset, _, cx| this.zoom(None, cx)))
             .on_action(cx.listener(|this, _: &commands::ShowExplorer, _, cx| this.show_explorer(cx)))
             .on_action(cx.listener(|this, _: &commands::ClearCommandHistory, _, cx| this.clear_command_history(cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleReadonlyInSession, _, cx| this.toggle_read_only_in_session(cx)))
@@ -1134,7 +1227,7 @@ impl Render for Workbench {
                     }
                 }),
             )
-            .child(self.title_bar())
+            .child(self.title_bar(&title, layout.command_center, cx))
             .child(middle)
             .when(layout.status_bar_visible, |d| d.child(self.status_bar()))
             .children(self.quick.view())

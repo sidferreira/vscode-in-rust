@@ -25,6 +25,7 @@ pub const GIT_BRANCH: char = '\u{EC6F}';
 pub const ERROR: char = '\u{EA87}';
 pub const WARNING: char = '\u{EA6C}';
 pub const BELL: char = '\u{EAA2}';
+pub const CIRCLE_FILLED: char = '\u{EA71}';
 
 /// Register the codicon TTF with gpui's text system.
 pub fn install(cx: &App) {

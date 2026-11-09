@@ -1,79 +1,565 @@
-//! Editor surface: a read-only, virtualised view over a `vsr-text` buffer.
+//! Editor surface: a focusable, editable, virtualised view over a `vsr-editor` `Editor`.
 //!
-//! This module owns everything about drawing a document (gutter, rows, scroll
-//! state). It reads the document through `&OpenEditor`, so when `vsr-editor`
-//! (cursor/selection/edits) lands, this is the one place that grows an editing
-//! model; the workbench only asks for `EditorView::element`.
+//! upstream: src/vs/editor/browser/viewParts/viewCursors/viewCursors.ts @ 50e1350fc78d
+//! upstream: src/vs/editor/browser/viewParts/viewCursors/viewCursor.ts @ 50e1350fc78d
+//! upstream: src/vs/editor/browser/viewParts/lineNumbers/lineNumbers.ts @ 50e1350fc78d
+//! upstream: src/vs/editor/browser/viewParts/currentLineHighlight/currentLineHighlight.ts @ 50e1350fc78d
+//! upstream: src/vs/editor/browser/viewParts/selections/selections.ts @ 50e1350fc78d
+//!
+//! This module owns everything about drawing and driving a document: gutter, rows, caret,
+//! selection, scroll state, mouse, key actions and the platform text-input handler (typing, IME,
+//! dead keys). The model (`OpenEditor` in `model.rs`) stays UI free; key bindings come from
+//! `keymap.rs` and column/pixel math from `text_layout.rs`.
+//!
+//! The view is a plain struct owned by the workbench (not a gpui entity) and reaches the
+//! documents through the `EditorHost` trait, so the workbench keeps one source of truth for tabs.
+//!
+//! Known costs (10k-line file): per keystroke we rescan line lengths for the widest line
+//! (`O(lines)`, ~0.3 ms) and `offset_at` for IME queries is `O(lines)`. Rows are virtualised
+//! (`uniform_list`), only visible rows are shaped, and text shaping is cached by gpui.
+//! Known gaps: multi-cursor, word wrap, syntax colors, horizontal reveal of the caret,
+//! drag auto-scroll, IME candidate-window placement precision.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui_kit::{
-    AnyElement, Context, IntoElement, ListHorizontalSizingBehavior, ParentElement, Styled,
-    UniformListScrollHandle, Window, div, px, uniform_list,
+    AnyElement, App, Bounds, ClipboardItem, Context, Entity, FocusHandle, InputHandler,
+    IntoElement, KeyBinding, KeyContext, ListHorizontalSizingBehavior, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, ScrollStrategy,
+    SharedString, Styled, Task, TextRun, UTF16Selection, UniformListScrollHandle, Window, canvas,
+    div, font, point, px, uniform_list,
 };
+use gpui_kit::InteractiveElement;
+use vsr_editor::Position;
 
-use crate::model::OpenEditor;
+use crate::keymap::{self, BINDINGS, Command};
+use crate::model::{Editors, OpenEditor};
+use crate::text_layout::{column_for_x, expand_tabs, expanded_byte_for_column, visual_column};
 use crate::theme::{Theme, metrics as m};
 use crate::ui::to_gpui;
 
 /// Approximate advance of one Menlo digit at 12px, used for gutter sizing.
 const CHAR_WIDTH: f32 = 7.224;
-const TAB_SIZE: usize = 4;
+const FONT_FAMILY: &str = "Menlo";
+/// Width of the line cursor (`editor.cursorWidth` default 2).
+const CURSOR_WIDTH: f32 = 2.0;
+/// Half period of the `blink` cursor style.
+const BLINK: Duration = Duration::from_millis(500);
+/// Key context the bindings are scoped to.
+const KEY_CONTEXT: &str = "Editor";
+
+/// The one gpui action: run an editor command. Bindings are generated from `keymap::BINDINGS`.
+#[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
+#[action(no_json, no_register)]
+pub struct Run(pub Command);
+
+/// Register the editor key bindings (call once at startup).
+pub fn init(cx: &mut App) {
+    cx.bind_keys(BINDINGS.iter().map(|&(keys, cmd)| KeyBinding::new(keys, Run(cmd), Some(KEY_CONTEXT))));
+}
+
+/// What the view needs from its owner: the documents and the view state.
+pub trait EditorHost: 'static {
+    fn editor_host(&mut self) -> (&mut Editors, &mut EditorView);
+}
 
 #[derive(Default)]
 pub struct EditorView {
+    focus: Option<FocusHandle>,
     /// Per-document scroll state, so switching tabs keeps your place.
     scrolls: HashMap<PathBuf, UniformListScrollHandle>,
-    /// Per-document (line_count, index of widest line), for horizontal scrolling.
-    widest: HashMap<PathBuf, (usize, usize)>,
+    /// Per-document (editor version, index of widest line), for horizontal scrolling.
+    widest: HashMap<PathBuf, (u64, usize)>,
+    /// List viewport in window coordinates, recorded at paint (for mouse hit-testing).
+    bounds: Rc<Cell<Bounds<Pixels>>>,
+    gutter: f32,
+    /// Instant of the last caret movement/edit: the caret is solid, then blinks.
+    activity: Option<Instant>,
+    blink_task: Option<Task<()>>,
+    /// Active IME composition, as a UTF-16 document range.
+    marked: Option<Range<usize>>,
+    dragging: bool,
+    /// The path the editor was last auto-focused for (focus follows tab changes).
+    focused_for: Option<PathBuf>,
 }
 
 impl EditorView {
     pub fn forget(&mut self, path: &PathBuf) {
         self.scrolls.remove(path);
         self.widest.remove(path);
+        if self.focused_for.as_ref() == Some(path) {
+            self.focused_for = None;
+        }
+        self.marked = None;
     }
 
-    /// Build the editor element for `editor`. `active` re-resolves the document
-    /// inside the row callback (rows are rendered lazily, after this returns).
-    pub fn element<T: 'static>(
+    fn focus_handle(&mut self, cx: &mut App) -> FocusHandle {
+        self.focus.get_or_insert_with(|| cx.focus_handle()).clone()
+    }
+
+    fn caret_visible(&self) -> bool {
+        let since = self.activity.map_or(Duration::ZERO, |t| t.elapsed());
+        (since.as_millis() / BLINK.as_millis()).is_multiple_of(2)
+    }
+
+    /// Caret moved or text changed: show the caret solid and bring it into view.
+    fn after_change(&mut self, e: &OpenEditor, edited: bool, window: &mut Window) {
+        self.activity = Some(Instant::now());
+        let line = e.editor.selection().active.line;
+        if let Some(s) = self.scrolls.get(&e.path) {
+            s.scroll_to_item(line - 1, ScrollStrategy::Nearest);
+        }
+        if let Some(f) = &self.focus {
+            if edited {
+                window.notify_text_input_changed(f);
+            }
+            window.notify_text_selection_changed(f);
+        }
+    }
+
+    fn rows_per_page(&self) -> usize {
+        let h = f32::from(self.bounds.get().size.height);
+        ((h / m::EDITOR_LINE_HEIGHT) as usize).max(1)
+    }
+
+    /// Build the editor element for `editor`.
+    pub fn element<T: EditorHost>(
         &mut self,
         editor: &OpenEditor,
         theme: &Theme,
         cx: &mut Context<T>,
-        active: fn(&T) -> Option<&OpenEditor>,
     ) -> impl IntoElement {
-        let lines = editor.buffer.line_count();
+        let focus = self.focus_handle(cx);
+        let lines = editor.buffer().line_count();
         let scroll = self.scrolls.entry(editor.path.clone()).or_default().clone();
+        let version = editor.editor.version();
         let widest = match self.widest.get(&editor.path) {
-            Some(&(n, i)) if n == lines => i,
+            Some(&(v, i)) if v == version => i,
             _ => {
                 let i = widest_line(editor);
-                self.widest.insert(editor.path.clone(), (lines, i));
+                self.widest.insert(editor.path.clone(), (version, i));
                 i
             }
         };
         let gutter = gutter_width(lines);
+        self.gutter = gutter;
+        if self.blink_task.is_none() {
+            self.blink_task = Some(cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(BLINK).await;
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        break;
+                    }
+                }
+            }));
+        }
         let theme = theme.clone();
-        let id: gpui_kit::SharedString = editor.path.display().to_string().into();
-        uniform_list(
+        let id: SharedString = editor.path.display().to_string().into();
+        let list_focus = focus.clone();
+        let list = uniform_list(
             id,
             lines,
-            cx.processor(move |this: &mut T, range: Range<usize>, _w: &mut Window, _cx| {
-                match active(this) {
-                    Some(e) => rows(e, &theme, gutter, range),
-                    None => Vec::new(),
+            cx.processor(move |this: &mut T, range: Range<usize>, window: &mut Window, cx| {
+                let (editors, view) = this.editor_host();
+                let Some(e) = editors.active_editor() else { return Vec::new() };
+                if view.focused_for.as_ref() != Some(&e.path) {
+                    view.focused_for = Some(e.path.clone());
+                    list_focus.focus(window, cx);
                 }
+                let focused = list_focus.is_focused(window);
+                rows(e, &theme, gutter, range, window, focused && view.caret_visible(), focused)
             }),
         )
         .track_scroll(&scroll)
         .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
         .with_width_from_item(Some(widest))
-        .size_full()
+        .size_full();
+
+        let bounds_cell = self.bounds.clone();
+        let input_focus = focus.clone();
+        let entity = cx.entity();
+        let input_surface = canvas(
+            |bounds, _, _| bounds,
+            move |_, bounds, window, cx| {
+                bounds_cell.set(bounds);
+                window.handle_input(
+                    &input_focus,
+                    EditorInput { view: entity, bounds },
+                    cx,
+                );
+            },
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full();
+
+        div()
+            .id("editor-surface")
+            .key_context(KeyContext::parse(KEY_CONTEXT).unwrap_or_default())
+            .track_focus(&focus)
+            .relative()
+            .size_full()
+            .on_action(cx.listener(|this: &mut T, a: &Run, window, cx| {
+                run_command(this, a.0, window, cx)
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this: &mut T, ev: &MouseDownEvent, window, cx| {
+                    mouse_down(this, ev, window, cx)
+                }),
+            )
+            .on_mouse_move(cx.listener(|this: &mut T, ev: &MouseMoveEvent, window, cx| {
+                mouse_move(this, ev, window, cx)
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this: &mut T, _: &MouseUpEvent, _, _| {
+                    this.editor_host().1.dragging = false;
+                }),
+            )
+            .child(list)
+            .child(input_surface)
     }
 }
+
+// ---- commands ------------------------------------------------------------------------------
+
+fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, cx: &mut Context<T>) {
+    let (editors, view) = this.editor_host();
+    let Some(i) = editors.active else { return };
+    match cmd {
+        Command::CloseTab => {
+            if let Some(path) = editors.open.get(i).map(|e| e.path.clone()) {
+                editors.close(i);
+                view.forget(&path);
+            }
+        }
+        _ => {
+            let Some(e) = editors.open.get_mut(i) else { return };
+            let page = view.rows_per_page();
+            match cmd {
+                Command::Save => {
+                    if let Err(err) = e.save() {
+                        eprintln!("rscode: save {}: {err}", e.path.display());
+                    }
+                }
+                Command::Copy => {
+                    let text = e.editor.selected_text();
+                    let text = if text.is_empty() {
+                        format!("{}\n", e.buffer().line_content(e.editor.selection().active.line))
+                    } else {
+                        text
+                    };
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+                Command::Cut => {
+                    let text = e.editor.cut();
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+                Command::Paste => {
+                    if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
+                        e.editor.paste(&text);
+                    }
+                }
+                _ => {
+                    keymap::apply(&mut e.editor, cmd, page);
+                }
+            }
+            view.marked = None;
+            view.after_change(e, keymap::is_edit(cmd), window);
+        }
+    }
+    cx.notify();
+}
+
+// ---- mouse ---------------------------------------------------------------------------------
+
+fn shape(window: &Window, text: &str) -> Option<gpui_kit::ShapedLine> {
+    if text.is_empty() {
+        return None;
+    }
+    let run = TextRun {
+        len: text.len(),
+        font: font(FONT_FAMILY),
+        color: gpui_kit::white(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    Some(window.text_system().shape_line(
+        SharedString::from(text.to_string()),
+        px(m::EDITOR_FONT_SIZE),
+        &[run],
+        None,
+    ))
+}
+
+/// Document position under window point `p`.
+fn hit_test(view: &EditorView, e: &OpenEditor, p: Point<Pixels>, window: &Window) -> Position {
+    let bounds = view.bounds.get();
+    let (offset_x, offset_y) = view.scrolls.get(&e.path).map_or((0.0, 0.0), |s| {
+        let o = s.0.borrow().base_handle.offset();
+        (f32::from(o.x), f32::from(o.y))
+    });
+    let buf = e.buffer();
+    let y = f32::from(p.y - bounds.origin.y) - offset_y;
+    let line = ((y / m::EDITOR_LINE_HEIGHT).floor().max(0.0) as usize + 1).min(buf.line_count());
+    let x = f32::from(p.x - bounds.origin.x) - view.gutter - offset_x;
+    let tab = e.editor.options().tab_size;
+    let text = buf.line_content(line);
+    let expanded = expand_tabs(text, tab);
+    let shaped = shape(window, &expanded);
+    let column = column_for_x(text, tab, x, |byte| {
+        shaped.as_ref().map_or(0.0, |s| f32::from(s.x_for_index(byte)))
+    });
+    Position::new(line, column)
+}
+
+fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<T>) {
+    let (editors, view) = this.editor_host();
+    let Some(e) = editors.active.and_then(|i| editors.open.get_mut(i)) else { return };
+    if let Some(f) = &view.focus {
+        f.focus(window, cx);
+    }
+    let pos = hit_test(view, e, ev.position, window);
+    match ev.click_count {
+        0 | 1 => e.editor.set_cursor(pos, ev.modifiers.shift),
+        2 => {
+            // Double click: select the word under the pointer.
+            e.editor.set_cursor(pos, false);
+            e.editor.move_word_left(false);
+            e.editor.move_word_right(true);
+        }
+        _ => {
+            // Triple click: select the whole line (including its break).
+            let line = pos.line;
+            e.editor.set_cursor(Position::new(line, 1), false);
+            e.editor.set_cursor(Position::new(line + 1, 1), true);
+        }
+    }
+    view.dragging = true;
+    view.marked = None;
+    view.after_change(e, false, window);
+    cx.notify();
+}
+
+fn mouse_move<T: EditorHost>(this: &mut T, ev: &MouseMoveEvent, window: &mut Window, cx: &mut Context<T>) {
+    let (editors, view) = this.editor_host();
+    if !view.dragging {
+        return;
+    }
+    if ev.pressed_button != Some(MouseButton::Left) {
+        view.dragging = false;
+        return;
+    }
+    let Some(e) = editors.active.and_then(|i| editors.open.get_mut(i)) else { return };
+    let pos = hit_test(view, e, ev.position, window);
+    if pos != e.editor.selection().active {
+        e.editor.set_cursor(pos, true);
+        view.after_change(e, false, window);
+        cx.notify();
+    }
+}
+
+// ---- platform text input (typing, IME, dead keys) -------------------------------------------
+
+struct EditorInput<T: EditorHost> {
+    view: Entity<T>,
+    bounds: Bounds<Pixels>,
+}
+
+impl<T: EditorHost> EditorInput<T> {
+    /// Run `f` on the active document and the view state.
+    fn with<R>(
+        &self,
+        cx: &mut App,
+        f: impl FnOnce(&mut OpenEditor, &mut EditorView) -> R,
+    ) -> Option<R> {
+        self.view.update(cx, |this, _| {
+            let (editors, view) = this.editor_host();
+            let e = editors.active.and_then(|i| editors.open.get_mut(i))?;
+            Some(f(e, view))
+        })
+    }
+
+    /// Replace `range` (UTF-16 document offsets) with `text`; leaves the caret after it.
+    fn replace(
+        &self,
+        range: Option<Range<usize>>,
+        text: &str,
+        mark: bool,
+        selected: Option<Range<usize>>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let changed = self.with(cx, |e, view| {
+            let buf = e.buffer();
+            let range = range
+                .or_else(|| view.marked.clone())
+                .unwrap_or_else(|| selection_offsets(e).0);
+            let start = buf.position_at(range.start);
+            let end = buf.position_at(range.end);
+            e.editor.set_cursor(start, false);
+            e.editor.set_cursor(end, true);
+            e.editor.type_text(text);
+            let len = text.encode_utf16().count();
+            view.marked = (mark && len > 0).then(|| range.start..range.start + len);
+            if let Some(sel) = selected.filter(|_| mark) {
+                let b = e.buffer();
+                let (a, z) = (b.position_at(range.start + sel.start), b.position_at(range.start + sel.end));
+                e.editor.set_cursor(a, false);
+                e.editor.set_cursor(z, true);
+            }
+            view.after_change(e, true, window);
+        });
+        if changed.is_some() {
+            self.view.update(cx, |_, cx| cx.notify());
+        }
+    }
+}
+
+/// The primary selection as a UTF-16 document range, plus whether the caret is at its start.
+fn selection_offsets(e: &OpenEditor) -> (Range<usize>, bool) {
+    let sel = e.editor.selection();
+    let buf = e.buffer();
+    let (a, b) = (buf.offset_at(sel.anchor), buf.offset_at(sel.active));
+    (a.min(b)..a.max(b), sel.is_reversed())
+}
+
+impl<T: EditorHost> InputHandler for EditorInput<T> {
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> Option<UTF16Selection> {
+        self.with(cx, |e, _| {
+            let (range, reversed) = selection_offsets(e);
+            UTF16Selection { range, reversed }
+        })
+    }
+
+    fn marked_text_range(&mut self, _window: &mut Window, cx: &mut App) -> Option<Range<usize>> {
+        self.with(cx, |_, view| view.marked.clone()).flatten()
+    }
+
+    fn text_for_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        adjusted_range: &mut Option<Range<usize>>,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> Option<String> {
+        let (text, adjusted) = self.with(cx, |e, _| {
+            let buf = e.buffer();
+            let len = buf.len_utf16();
+            let (s, z) = (range_utf16.start.min(len), range_utf16.end.min(len));
+            let r = vsr_editor::Range::new(buf.position_at(s), buf.position_at(z));
+            (buf.value_in_range(r), s..z)
+        })?;
+        *adjusted_range = Some(adjusted);
+        Some(text)
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        replacement_range: Option<Range<usize>>,
+        text: &str,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.replace(replacement_range, text, false, None, window, cx);
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        range_utf16: Option<Range<usize>>,
+        new_text: &str,
+        new_selected_range: Option<Range<usize>>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.replace(range_utf16, new_text, true, new_selected_range, window, cx);
+    }
+
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut App) {
+        self.with(cx, |_, view| view.marked = None);
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<Bounds<Pixels>> {
+        let bounds = self.bounds;
+        self.with(cx, |e, view| {
+            let buf = e.buffer();
+            let pos = buf.position_at(range_utf16.start.min(buf.len_utf16()));
+            let tab = e.editor.options().tab_size;
+            let text = buf.line_content(pos.line);
+            let shaped = shape(window, &expand_tabs(text, tab));
+            let x = shaped.map_or(0.0, |s| {
+                f32::from(s.x_for_index(expanded_byte_for_column(text, tab, pos.column)))
+            });
+            let (offset_x, offset_y) = view.scrolls.get(&e.path).map_or((0.0, 0.0), |s| {
+                let o = s.0.borrow().base_handle.offset();
+                (f32::from(o.x), f32::from(o.y))
+            });
+            let origin = point(
+                bounds.origin.x + px(view.gutter + x + offset_x),
+                bounds.origin.y + px((pos.line - 1) as f32 * m::EDITOR_LINE_HEIGHT + offset_y),
+            );
+            Bounds::new(origin, gpui_kit::size(px(CURSOR_WIDTH), px(m::EDITOR_LINE_HEIGHT)))
+        })
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        point: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<usize> {
+        self.with(cx, |e, view| {
+            let pos = hit_test(view, e, point, window);
+            e.buffer().offset_at(pos)
+        })
+    }
+
+    fn element_bounds(&mut self, _window: &mut Window, _cx: &mut App) -> Option<Bounds<Pixels>> {
+        Some(self.bounds)
+    }
+}
+
+// ---- status-bar text -------------------------------------------------------------------------
+
+/// "Ln 3, Col 5" / "Ln 3, Col 5 (12 selected)" like upstream's editor status.
+pub fn cursor_status(e: &OpenEditor) -> String {
+    let sel = e.editor.selection();
+    let tab = e.editor.options().tab_size;
+    let p = sel.active;
+    let col = visual_column(e.buffer().line_content(p.line), tab, p.column);
+    let mut s = format!("Ln {}, Col {}", p.line, col);
+    if !sel.is_empty() {
+        let (r, _) = selection_offsets(e);
+        s.push_str(&format!(" ({} selected)", r.len()));
+    }
+    s
+}
+
+/// "Spaces: 4" / "Tab Size: 4" (`editor.insertSpaces`).
+pub fn indent_status(e: &OpenEditor) -> String {
+    let o = e.editor.options();
+    format!("{}: {}", if o.insert_spaces { "Spaces" } else { "Tab Size" }, o.tab_size)
+}
+
+// ---- drawing ---------------------------------------------------------------------------------
 
 fn gutter_width(lines: usize) -> f32 {
     let digits = lines.to_string().len().max(3);
@@ -81,48 +567,127 @@ fn gutter_width(lines: usize) -> f32 {
     digits as f32 * CHAR_WIDTH + 34.0
 }
 
-fn expand_tabs(s: &str) -> String {
-    s.replace('\t', &" ".repeat(TAB_SIZE))
-}
-
 fn widest_line(e: &OpenEditor) -> usize {
-    (1..=e.buffer.line_count())
-        .max_by_key(|&l| expand_tabs(e.buffer.line_content(l)).chars().count())
-        .map_or(0, |l| l - 1)
+    let b = e.buffer();
+    (1..=b.line_count()).max_by_key(|&l| b.line_length(l)).map_or(0, |l| l - 1)
 }
 
-fn rows(e: &OpenEditor, t: &Theme, gutter: f32, range: Range<usize>) -> Vec<AnyElement> {
+/// The part of `selection` that falls on `line`, as (start col, end col, continues past the end).
+fn selection_on_line(e: &OpenEditor, line: usize) -> Option<(usize, usize, bool)> {
+    let sel = e.editor.selection();
+    if sel.is_empty() {
+        return None;
+    }
+    let r = sel.range();
+    if line < r.start.line || line > r.end.line {
+        return None;
+    }
+    let from = if line == r.start.line { r.start.column } else { 1 };
+    let (to, past) = if line == r.end.line {
+        (r.end.column, false)
+    } else {
+        (e.buffer().line_max_column(line), true)
+    };
+    Some((from, to, past))
+}
+
+fn rows(
+    e: &OpenEditor,
+    t: &Theme,
+    gutter: f32,
+    range: Range<usize>,
+    window: &Window,
+    caret_on: bool,
+    focused: bool,
+) -> Vec<AnyElement> {
+    let buf = e.buffer();
+    let sel = e.editor.selection();
+    let tab = e.editor.options().tab_size;
+    let space_w = shape(window, " ").map_or(CHAR_WIDTH, |s| f32::from(s.width));
+    let sel_bg = if focused { t.selection_bg } else { t.inactive_selection_bg };
     range
         .map(|ix| {
             let line = ix + 1;
-            div()
+            let text = buf.line_content(line);
+            let is_active = line == sel.active.line;
+            let expanded = expand_tabs(text, tab);
+            let selected = selection_on_line(e, line);
+            let has_caret = is_active && caret_on;
+            let shaped = (selected.is_some() || has_caret).then(|| shape(window, &expanded)).flatten();
+            let x_at = |col: usize| -> f32 {
+                shaped.as_ref().map_or(0.0, |s| {
+                    f32::from(s.x_for_index(expanded_byte_for_column(text, tab, col)))
+                })
+            };
+
+            let mut text_box = div().relative().flex_none().whitespace_nowrap().h_full();
+            if let Some((from, to, past)) = selected {
+                let x0 = x_at(from);
+                let x1 = x_at(to) + if past { space_w } else { 0.0 };
+                if x1 > x0 {
+                    text_box = text_box.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left(px(x0))
+                            .w(px(x1 - x0))
+                            .h(px(m::EDITOR_LINE_HEIGHT))
+                            .bg(to_gpui(sel_bg)),
+                    );
+                }
+            }
+            text_box = text_box.text_color(to_gpui(t.editor_fg)).child(expanded);
+            if has_caret {
+                text_box = text_box.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(px(x_at(sel.active.column)))
+                        .w(px(CURSOR_WIDTH))
+                        .h(px(m::EDITOR_LINE_HEIGHT))
+                        .bg(to_gpui(t.cursor)),
+                );
+            }
+
+            let mut row = div()
+                .relative()
                 .flex()
                 .flex_row()
                 .h(px(m::EDITOR_LINE_HEIGHT))
                 .line_height(px(m::EDITOR_LINE_HEIGHT))
-                .font_family("Menlo")
-                .text_size(px(m::EDITOR_FONT_SIZE))
-                .child(
+                .font_family(FONT_FAMILY)
+                .text_size(px(m::EDITOR_FONT_SIZE));
+            // `renderLineHighlight: line` draws the border box only while the selection is empty.
+            if is_active && sel.is_empty() {
+                row = row.child(
                     div()
-                        .flex_none()
-                        .w(px(gutter))
-                        .pr(px(26.))
-                        .text_right()
-                        .text_color(to_gpui(if line == 1 {
-                            t.line_number_active_fg
-                        } else {
-                            t.line_number_fg
-                        }))
-                        .child(line.to_string()),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .whitespace_nowrap()
-                        .text_color(to_gpui(t.editor_fg))
-                        .child(expand_tabs(e.buffer.line_content(line))),
-                )
-                .into_any_element()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left(px(gutter))
+                        .right_0()
+                        .border_2()
+                        .border_color(to_gpui(t.line_highlight_border)),
+                );
+            }
+            row.child(
+                div()
+                    .flex_none()
+                    .w(px(gutter))
+                    .pr(px(26.))
+                    .text_right()
+                    .text_color(to_gpui(if is_active {
+                        t.line_number_active_fg
+                    } else {
+                        t.line_number_fg
+                    }))
+                    .child(line.to_string()),
+            )
+            .child(text_box)
+            .into_any_element()
         })
         .collect()
 }
+
+#[cfg(test)]
+mod e2e;

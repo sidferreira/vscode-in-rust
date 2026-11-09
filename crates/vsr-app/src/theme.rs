@@ -54,6 +54,10 @@ pub struct Theme {
     pub list_hover_bg: Rgba8,
     pub list_active_bg: Rgba8,
     pub error_fg: Rgba8,
+    pub cursor: Rgba8,                 // editorCursor.foreground
+    pub selection_bg: Rgba8,           // editor.selectionBackground
+    pub inactive_selection_bg: Rgba8,  // editor.inactiveSelectionBackground
+    pub line_highlight_border: Rgba8,  // editor.lineHighlightBorder
 }
 
 impl Theme {
@@ -75,6 +79,12 @@ impl Theme {
             list_hover_bg: c("#2A2D2E"),
             list_active_bg: c("#37373D"),
             error_fg: c("#F14C4C"),
+            // Registry defaults for dark themes (editorColorRegistry.ts / editorColors.ts); dark_vs
+            // overrides the inactive selection.
+            cursor: c("#AEAFAD"),
+            selection_bg: c("#264F78"),
+            inactive_selection_bg: c("#3A3D41"),
+            line_highlight_border: c("#282828"),
         }
     }
 }

@@ -103,4 +103,59 @@ impl Editor {
         }
         self.move_to(Position::new(p.line, starts[i] + 1), extend, 0);
     }
+
+    /// Upstream `WordOperations.moveWordRight` with `WordNavigationType.WordEnd`: the caret
+    /// moves to the end of the next word. This is `cursorWordRight` (Option+Right on macOS).
+    pub fn move_word_end_right(&mut self, extend: bool) {
+        if !extend && !self.selection.is_empty() {
+            let p = self.selection.range().end;
+            self.move_to(p, false, 0);
+            return;
+        }
+        let p = self.selection.active;
+        if p.column >= self.buffer.line_max_column(p.line) {
+            let target = self.right_of(p);
+            self.move_to(target, extend, 0);
+            return;
+        }
+        let (chars, starts) = units_of(self.buffer.line_content(p.line));
+        let n = chars.len();
+        let mut i = starts.iter().position(|&s| s >= p.column - 1).unwrap_or(n);
+        while i < n && class_of(chars[i]) == Class::Space {
+            i += 1;
+        }
+        if i < n {
+            let class = class_of(chars[i]);
+            while i < n && class_of(chars[i]) == class {
+                i += 1;
+            }
+        }
+        self.move_to(Position::new(p.line, starts[i] + 1), extend, 0);
+    }
+}
+
+#[cfg(test)]
+mod word_end_tests {
+    use vsr_text::{DefaultEol, Position, TextBuffer};
+
+    use crate::{Editor, EditorOptions};
+
+    fn editor(text: &str) -> Editor {
+        let b = TextBuffer::new(text, DefaultEol::Lf, true);
+        Editor::new(b, EditorOptions { tab_size: 4, insert_spaces: true })
+    }
+
+    #[test]
+    fn word_end_right_stops_at_word_ends() {
+        let mut e = editor("one  two.x\nz");
+        let mut stops = Vec::new();
+        for _ in 0..6 {
+            e.move_word_end_right(false);
+            let p = e.selection().active;
+            stops.push((p.line, p.column));
+        }
+        // "one" | "two" | "." | "x" | wraps to line 2 start | "z"
+        assert_eq!(stops, [(1, 4), (1, 9), (1, 10), (1, 11), (2, 1), (2, 2)]);
+        assert_eq!(e.selection().anchor, Position::new(2, 2));
+    }
 }

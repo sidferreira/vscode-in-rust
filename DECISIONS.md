@@ -396,3 +396,14 @@ Policy (in `upstream/settings.toml`, **pending the user's review**): AI chat/age
 (314), deprecated (140), remote/tunnels, Windows- or Linux-only, web-only, telemetry,
 auto-update, settings sync and the integrated browser are n/a. Per ROADMAP.md, the migration
 starts after Search.
+
+## ADR-0026 — Verification never touches windows or focus (2026-11-09)
+
+Supersedes the "real app in background" part of ADR-0024. The user relies on dictation tools that
+break when window focus changes. All automated verification (by the main agent and every
+subagent) is headless: gpui `TestAppContext` / `VisualTestContext`, unit tests, and the real
+`AppleTextSystem` used without a window. Not allowed unless the user explicitly asks at that
+moment: launching rscode or any GUI binary (including `--background`), AppleScript / System
+Events UI scripting, screenshots, anything that opens a window or could change focus. To try a
+build, the user runs `scripts/rscode` themselves. The off-screen rendering checks planned in
+ADR-0024 are only acceptable if they render through gpui's test platform with no OS window.

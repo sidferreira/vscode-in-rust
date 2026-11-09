@@ -1,5 +1,13 @@
 # Testing strategy
 
+> **Hard rule: verification never touches windows or focus.** The user relies on dictation
+> tools that break if window focus changes. Automated checks are headless only (gpui
+> `TestAppContext` / `VisualTestContext`, plain unit tests, the real `AppleTextSystem` without a
+> window). Never launch rscode or any GUI binary (not even `--background`), never use
+> AppleScript / System Events UI scripting, never take screenshots, unless the user explicitly
+> asks at that moment. To let the user try a build, give them the command (`scripts/rscode`).
+> See ADR-0026.
+
 How we test vscode-rust, and how upstream VS Code's tests get ported. Read this before writing
 or porting a test. Background: `docs/research/e2e-and-visual-testing.md` (gpui test APIs, visual
 regression options), `UPSTREAM.md` (sync workflow), `DECISIONS.md`.

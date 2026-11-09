@@ -2,6 +2,7 @@
 //! selection and inline name input (ADR-0041).
 
 pub mod actions; // Explorer commands and key bindings (ADR-0041)
+pub mod delete; // delete with the inline confirmation bar (ADR-0041)
 pub mod names; // validation and incremental naming (explorer.incrementalNaming)
 pub mod ops; // create, rename, delete on the disk
 pub mod state; // the tree's focus, selection and scroll
@@ -12,6 +13,9 @@ pub mod workbench; // create, rename, delete in the workbench (the tree and the 
 
 #[cfg(test)]
 mod e2e;
+
+#[cfg(test)]
+mod e2e_tree; // Explorer keys, selection, delete with confirmation (ADR-0041)
 
 #[cfg(test)]
 pub mod testutil;

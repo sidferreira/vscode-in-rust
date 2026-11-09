@@ -12,10 +12,19 @@ pub struct ExplorerState {
     pub scroll: ScrollHandle,
     /// The selected row (a file or a folder), if any. The commands act on it.
     pub selected: Option<PathBuf>,
+    /// The delete waiting for the inline confirmation bar (`explorer.confirmDelete`).
+    pub confirm: Option<PendingDelete>,
+}
+
+/// A delete the user has to confirm: the path, and whether it goes to the Trash.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingDelete {
+    pub path: PathBuf,
+    pub use_trash: bool,
 }
 
 impl ExplorerState {
     pub fn new(cx: &mut App) -> Self {
-        Self { focus: cx.focus_handle(), scroll: ScrollHandle::new(), selected: None }
+        Self { focus: cx.focus_handle(), scroll: ScrollHandle::new(), selected: None, confirm: None }
     }
 }

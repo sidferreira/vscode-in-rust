@@ -17,7 +17,7 @@ use crate::config::AppConfig;
 
 /// Mount a workbench on `ws` with a fake watcher and a fake Trash. Returns the sender that pushes
 /// watcher events, the Trash folder, and the window.
-fn start<'a>(
+pub(super) fn start<'a>(
     cx: &'a mut TestAppContext,
     ws: &Path,
     bin: &Path,
@@ -30,6 +30,7 @@ fn start<'a>(
         crate::search_view::init(cx);
         crate::quick_open::init(cx);
         crate::commands::init(cx);
+        super::actions::init(cx);
         AppConfig::install(cx, None); // in memory: never the real settings file
     });
     let watcher = FakeWatcher::new();
@@ -44,7 +45,7 @@ fn start<'a>(
 }
 
 /// A workspace with `src/main.rs` and `src/lib.rs`, and an empty Trash folder beside it.
-fn workspace(tag: &str) -> (TempWorkspace, TempWorkspace) {
+pub(super) fn workspace(tag: &str) -> (TempWorkspace, TempWorkspace) {
     let ws = TempWorkspace::new(tag);
     fs::create_dir_all(ws.path().join("src")).unwrap();
     fs::write(ws.path().join("src/main.rs"), "fn main() {}\n").unwrap();
@@ -54,13 +55,13 @@ fn workspace(tag: &str) -> (TempWorkspace, TempWorkspace) {
 
 /// Change a file as another program would: new content, and a modification time that is surely
 /// later than the one the editor recorded.
-fn write_external(path: &Path, text: &str, seconds_later: u64) {
+pub(super) fn write_external(path: &Path, text: &str, seconds_later: u64) {
     fs::write(path, text).unwrap();
     let file = fs::OpenOptions::new().write(true).open(path).unwrap();
     file.set_modified(SystemTime::now() + Duration::from_secs(10 + seconds_later)).unwrap();
 }
 
-fn tree_names(wb: &Entity<Workbench>, cx: &mut VisualTestContext, dir: &Path) -> Vec<String> {
+pub(super) fn tree_names(wb: &Entity<Workbench>, cx: &mut VisualTestContext, dir: &Path) -> Vec<String> {
     wb.read_with(cx, |wb, _| {
         wb.children
             .get(dir)

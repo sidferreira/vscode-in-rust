@@ -23,6 +23,9 @@ actions!(
         CollapseOrParent,
         ExpandOrFirstChild,
         OpenOrToggle,
+        CancelDelete,
+        CollapseAll,
+        RefreshAll,
     ]
 );
 
@@ -41,5 +44,6 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-backspace", MoveFileToTrash, Some(KEY_CONTEXT)),
         KeyBinding::new("delete", MoveFileToTrash, Some(KEY_CONTEXT)),
         KeyBinding::new("cmd-alt-backspace", DeleteFile, Some(KEY_CONTEXT)),
+        KeyBinding::new("escape", CancelDelete, Some(KEY_CONTEXT)),
     ]);
 }

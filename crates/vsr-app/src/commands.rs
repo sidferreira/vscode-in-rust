@@ -204,6 +204,18 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
         r.register(d, action(Run(cmd), Editor));
     }
 
+    // Explorer (ADR-0041). Delete and Rename are keys and menu items upstream, not palette entries.
+    r.register(
+        D::new("workbench.files.action.refreshFilesExplorer", "Refresh Explorer").f1(),
+        action(crate::explorer::actions::RefreshAll, Workbench),
+    );
+    r.register(
+        D::new("workbench.files.action.collapseExplorerFolders", "Collapse Folders in Explorer").f1(),
+        action(crate::explorer::actions::CollapseAll, Workbench),
+    );
+    r.register(D::new("moveFileToTrash", "Delete"), action(crate::explorer::actions::MoveFileToTrash, Workbench));
+    r.register(D::new("deleteFile", "Delete Permanently"), action(crate::explorer::actions::DeleteFile, Workbench));
+
     // Find widget (ADR-0027).
     for (id, title, f1, a) in [
         ("actions.find", "Find", true, Box::new(fnd::Find) as Box<dyn Action>),
@@ -356,6 +368,10 @@ mod tests {
             "workbench.action.openSettings",
             "workbench.view.search",
             "workbench.view.explorer",
+            "workbench.files.action.refreshFilesExplorer",
+            "workbench.files.action.collapseExplorerFolders",
+            "moveFileToTrash",
+            "deleteFile",
             "actions.find",
             "editor.action.startFindReplaceAction",
             "workbench.action.gotoLine",

@@ -49,6 +49,11 @@ impl Workbench {
     /// `workbench.editor.closeOnFileDelete`.
     pub(crate) fn delete_entry(&mut self, path: &Path, cx: &mut Context<Self>) -> Result<(), String> {
         let use_trash = AppConfig::get(cx).configuration().get_bool("files.enableTrash").unwrap_or(true);
+        self.delete_path(path, use_trash, cx)
+    }
+
+    /// Delete `path` to the Trash (`use_trash`) or permanently, whatever `files.enableTrash` says.
+    pub(crate) fn delete_path(&mut self, path: &Path, use_trash: bool, cx: &mut Context<Self>) -> Result<(), String> {
         ops::delete(path, use_trash, self.trash.as_ref()).map_err(|e| e.to_string())?;
         self.forget_tree(path);
         if let Some(parent) = path.parent().map(Path::to_path_buf) {

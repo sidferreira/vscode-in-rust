@@ -5,12 +5,12 @@
 //! upstream: src/vs/workbench/contrib/files/browser/views/explorerView.ts @ 50e1350fc78d
 //! upstream: src/vs/workbench/contrib/files/browser/views/explorerViewer.ts @ 50e1350fc78d
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use super::actions::{self, CollapseOrParent, ExpandOrFirstChild, MoveSelectionDown, MoveSelectionUp, OpenOrToggle};
+use super::actions::{self, CancelDelete, CollapseAll, CollapseOrParent, DeleteFile, ExpandOrFirstChild, MoveFileToTrash, MoveSelectionDown, MoveSelectionUp, OpenOrToggle, RefreshAll};
 use crate::config::settings::OpenSource;
 use crate::icons;
 use crate::model::{DirEntry, list_dir};
@@ -107,6 +107,21 @@ impl Workbench {
         cx.notify();
     }
 
+    /// Refresh Explorer: re-list every folder the tree shows.
+    pub(crate) fn refresh_all(&mut self, cx: &mut Context<Self>) {
+        let dirs: Vec<PathBuf> = self.children.keys().cloned().collect();
+        for dir in dirs {
+            self.refresh_dir(&dir);
+        }
+        cx.notify();
+    }
+
+    /// Collapse Folders in Explorer: every folder closes.
+    pub(crate) fn collapse_all(&mut self, cx: &mut Context<Self>) {
+        self.expanded.clear();
+        cx.notify();
+    }
+
     fn row_index(&self, path: &Path) -> Option<usize> {
         self.visible_rows().iter().position(|(e, _)| e.path == path)
     }
@@ -118,6 +133,11 @@ impl Workbench {
             .on_action(cx.listener(|this, _: &CollapseOrParent, _, cx| this.collapse_or_parent(cx)))
             .on_action(cx.listener(|this, _: &ExpandOrFirstChild, _, cx| this.expand_or_first_child(cx)))
             .on_action(cx.listener(|this, _: &OpenOrToggle, _, cx| this.open_or_toggle(cx)))
+            .on_action(cx.listener(|this, _: &MoveFileToTrash, _, cx| this.request_delete(false, cx)))
+            .on_action(cx.listener(|this, _: &DeleteFile, _, cx| this.request_delete(true, cx)))
+            .on_action(cx.listener(|this, _: &CancelDelete, _, cx| this.cancel_delete(cx)))
+            .on_action(cx.listener(|this, _: &RefreshAll, _, cx| this.refresh_all(cx)))
+            .on_action(cx.listener(|this, _: &CollapseAll, _, cx| this.collapse_all(cx)))
     }
 
     /// The Explorer view: a header and the tree rows (ADR-0039 live refresh, ADR-0041 selection).
@@ -197,12 +217,14 @@ impl Workbench {
             .flex_col()
             .children(list);
 
+        let bar = self.delete_bar(cx);
         div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
             .child(header)
+            .children(bar)
             .child(tree)
     }
 }

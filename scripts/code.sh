@@ -10,6 +10,8 @@
 # --wait     stay attached (logs in the terminal, returns when the window closes),
 #            like `code --wait`
 # --release  build/run the optimised binary (slower first build, faster app)
+# --background  open without stealing focus or coming to the front (RSCODE_BACKGROUND=1);
+#               for automated runs while you keep working
 #
 # `scripts/rscode` is the same script. Put it on your PATH, e.g. in ~/.zshrc:
 #   alias rscode="$HOME/dev/personal/vscode-in-rust/vscode-rust/scripts/rscode"
@@ -33,7 +35,8 @@ for a in "$@"; do
   case "$a" in
     -w|--wait) wait=1 ;;
     --release) profile=release ;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --background) export RSCODE_BACKGROUND=1 ;;
+    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "code.sh: unknown option $a" >&2; exit 2 ;;
     *)
       # Resolve relative to where the user ran the command.
@@ -61,7 +64,11 @@ raw_bin="$target_dir/$profile/$bin_name"
 # icon in the Dock and app switcher (a bare executable gets the generic icon).
 app="$target_dir/$profile/rscode.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp -f "$raw_bin" "$app/Contents/MacOS/$bin_name"
+# Copy to a temp file and rename into place: overwriting the binary in place (cp -f)
+# keeps the same inode, and on Apple Silicon a running rscode using that file makes the
+# next launch die with SIGKILL "Code Signature Invalid". A rename gives a new inode.
+cp "$raw_bin" "$app/Contents/MacOS/.$bin_name.new"
+mv -f "$app/Contents/MacOS/.$bin_name.new" "$app/Contents/MacOS/$bin_name"
 icon_key=""
 if [[ -f "$REPO/resources/darwin/rscode.icns" ]]; then
   cp -f "$REPO/resources/darwin/rscode.icns" "$app/Contents/Resources/rscode.icns"
@@ -81,6 +88,9 @@ cat >"$app/Contents/Info.plist" <<PLIST
   $icon_key
 </dict></plist>
 PLIST
+# Ad-hoc sign the whole bundle (local only, no certificate). The linker signs the bare
+# executable, but inside a .app macOS validates the bundle (Info.plist, resources).
+codesign --force --sign - "$app" >/dev/null 2>&1 || echo "warning: ad-hoc codesign failed" >&2
 bin="$app/Contents/MacOS/$bin_name"
 
 if [[ $wait -eq 1 ]]; then

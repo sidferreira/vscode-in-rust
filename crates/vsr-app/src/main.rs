@@ -56,12 +56,23 @@ fn main() {
                 traffic_light_position: Some(point(px(13.), px(10.))),
             }),
             window_min_size: Some(size(px(640.), px(400.))),
+            // Background mode (RSCODE_BACKGROUND=1, `scripts/rscode --background`): open
+            // without taking focus or activating the app, so it stays behind whatever the
+            // user is working in. Used for automated runs of the real app (ADR-0024).
+            focus: !background_mode(),
             ..Default::default()
         };
         gpui_kit::open_window(options, cx, |_, cx| cx.new(|_| Workbench::new(root)))
             .expect("failed to open window");
-        cx.activate(true);
+        if !background_mode() {
+            cx.activate(true);
+        }
     });
+}
+
+/// True when launched with RSCODE_BACKGROUND=1 (no focus steal, no activation).
+fn background_mode() -> bool {
+    std::env::var_os("RSCODE_BACKGROUND").is_some_and(|v| v != "0" && !v.is_empty())
 }
 
 /// macOS app lifecycle (ADR-0019): Cmd+Q / "Quit rscode" menu, and quit when the

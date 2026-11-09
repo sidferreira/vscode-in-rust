@@ -312,3 +312,20 @@ glyph; no outlines change (CC BY 4.0 change notice in `assets/codicon-NOTICE.md`
 Regression test `icons::tests::codicon_loads_in_real_macos_text_system` uses the real
 `gpui_apple::AppleTextSystem`, because gpui's `TestAppContext` has a no-op text system that
 accepts any font (so headless E2E tests cannot catch font problems).
+
+## ADR-0024 — Background runs of the real app; safe .app bundle updates (2026-11-09)
+
+User asked that automated runs never cover their work. Two layers:
+1. **Headless E2E tests** (gpui `TestAppContext`) never open a window; they are the default way
+   to verify behaviour, including settings effects.
+2. **Real app in background:** `scripts/rscode --background` / `RSCODE_BACKGROUND=1` opens the
+   window with `focus: false` and never activates the app, so it stays behind the user's
+   frontmost app. Verified: frontmost app unchanged after launch.
+   Next: off-screen rendering checks (gpui `render_to_image` with the real `AppleTextSystem`) that
+   assert pixels numerically; any saved image stays local and is never viewed or uploaded
+   without the user's approval.
+
+Launcher bug found while doing this: `cp -f` over the bundle's executable while an rscode
+instance ran from it made the next launch die with `SIGKILL (Code Signature Invalid)` and popped
+macOS's crash reporter. Fix: copy to a temp file + `mv` (new inode), and ad-hoc sign the whole
+bundle (`codesign --force --sign -`), since macOS validates the bundle, not just the binary.

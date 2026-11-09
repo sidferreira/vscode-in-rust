@@ -176,3 +176,115 @@ fn edit_with_utf16_columns() {
     b.edit(Range::new(Position::new(1, 3), Position::new(1, 4)), "c");
     assert_eq!(b.value(), "😀c");
 }
+
+// ---- raw offset insert/delete (PieceTreeBase.insert / delete) ----------------
+// upstream: src/vs/editor/common/model/pieceTreeTextBuffer/pieceTreeBase.ts @ 50e1350fc78d
+
+#[test]
+fn insert_at_offset_between_cr_and_lf_yields_lone_breaks() {
+    // offset 2 sits between the \r and \n of "a\r\nb"
+    let mut b = TextBuffer::new("a\r\nb", DefaultEol::CrLf, true);
+    b.insert_at_offset(2, "x");
+    assert_eq!(b.value(), "a\rx\nb");
+    assert_eq!(b.line_count(), 3);
+    assert_eq!(b.line_content(1), "a");
+    assert_eq!(b.line_content(2), "x");
+    assert_eq!(b.line_content(3), "b");
+    // the buffer's EOL is fixed at construction, it is not re-detected
+    assert_eq!(b.eol(), Eol::CrLf);
+}
+
+#[test]
+fn insert_at_offset_joins_into_crlf() {
+    let mut b = buf("ab");
+    b.insert_at_offset(1, "\r\n");
+    assert_eq!(b.value(), "a\r\nb");
+    assert_eq!(b.line_count(), 2);
+    assert_eq!(b.line_content(2), "b");
+}
+
+#[test]
+fn insert_at_offset_does_not_normalize_inserted_text() {
+    // the piece tree stores raw text; TextModel normalizes before calling it
+    let mut b = buf("ab");
+    b.insert_at_offset(0, "x\r\ny");
+    assert_eq!(b.value(), "x\r\nyab");
+    assert_eq!(b.line_count(), 2);
+}
+
+#[test]
+fn insert_at_offset_past_end_appends() {
+    let mut b = buf("ab");
+    b.insert_at_offset(99, "c");
+    assert_eq!(b.value(), "abc");
+}
+
+#[test]
+fn insert_at_offset_counts_utf16_units() {
+    // "😀" is two units, so offset 2 is after it
+    let mut b = buf("😀b");
+    b.insert_at_offset(2, "c");
+    assert_eq!(b.value(), "😀cb");
+}
+
+#[test]
+fn delete_at_offset_removes_lone_cr_and_joins_lines() {
+    let mut b = TextBuffer::new("a\r\nb", DefaultEol::CrLf, true);
+    b.delete_at_offset(1, 1); // the \r
+    assert_eq!(b.value(), "a\nb");
+    assert_eq!(b.line_count(), 2);
+    assert_eq!(b.line_content(1), "a");
+}
+
+#[test]
+fn delete_at_offset_between_cr_and_lf_creates_lone_cr() {
+    let mut b = TextBuffer::new("a\r\nb", DefaultEol::CrLf, true);
+    b.delete_at_offset(0, 2); // "a\r" removed would leave "\nb"
+    assert_eq!(b.value(), "\nb");
+    b.delete_at_offset(0, 1); // remove the \n -> "b"
+    assert_eq!(b.value(), "b");
+
+    let mut c = TextBuffer::new("ab\r\ncd", DefaultEol::CrLf, true);
+    c.delete_at_offset(3, 1); // deletes the \n, leaving "ab\rcd" with a lone CR
+    assert_eq!(c.value(), "ab\rcd");
+    assert_eq!(c.line_count(), 2);
+    assert_eq!(c.line_content(1), "ab");
+    assert_eq!(c.line_content(2), "cd");
+}
+
+#[test]
+fn delete_at_offset_clamps_to_end() {
+    let mut b = buf("abc");
+    b.delete_at_offset(1, 100);
+    assert_eq!(b.value(), "a");
+    b.delete_at_offset(50, 3);
+    assert_eq!(b.value(), "a");
+}
+
+#[test]
+fn delete_at_offset_zero_length_is_noop() {
+    let mut b = buf("a\nb");
+    b.delete_at_offset(1, 0);
+    assert_eq!(b.value(), "a\nb");
+    assert_eq!(b.line_count(), 2);
+}
+
+#[test]
+fn insert_then_delete_restores_original() {
+    let mut b = buf("one\ntwo");
+    b.insert_at_offset(4, "xx\r\n");
+    assert_eq!(b.line_count(), 3);
+    b.delete_at_offset(4, 4);
+    assert_eq!(b.value(), "one\ntwo");
+    assert_eq!(b.line_count(), 2);
+}
+
+#[test]
+fn position_at_inside_crlf_inverts_offset_at() {
+    // like upstream getPositionAt, the \n of a CRLF is column past the line's end, and
+    // offset_at maps it back (the test helpers rely on this round trip)
+    let b = TextBuffer::new("a\r\nb", DefaultEol::CrLf, true);
+    assert_eq!(b.position_at(1), Position::new(1, 2));
+    assert_eq!(b.position_at(2), Position::new(1, 3));
+    assert_eq!(b.offset_at(b.position_at(2)), 2);
+}

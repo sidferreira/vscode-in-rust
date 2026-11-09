@@ -210,6 +210,28 @@ match = ["workbench.editor.dragToOpenWindow"]
 # rscode component map for `next` briefs (first match wins; match is against the group id).
 # ---------------------------------------------------------------------------------------------
 
+[[rule]]
+status = "blocked"
+reason = "needs language features (completion provider + suggest widget, via the extension host)"
+comment = "Suggest/autocomplete: providers come from language extensions on the Node extension host (ADR-0020). Word-based suggestions also need the suggest widget."
+match = ["editor.suggest*", "editor.quickSuggestions*", "editor.acceptSuggestionOnEnter", "editor.acceptSuggestionOnCommitCharacter",
+         "editor.snippetSuggestions", "editor.wordBasedSuggestions*", "editor.tabCompletion", "editor.inlineSuggest*",
+         "editor.parameterHints*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs language features (definition / hover / code lens / inlay hint providers, via the extension host)"
+comment = "Go to Definition / peek, hover, code lens, inlay hints, light bulb, semantic highlighting: all provider-driven (ADR-0020)."
+match = ["editor.gotoLocation*", "editor.hover*", "editor.codeLens*", "editor.inlayHints*", "editor.lightbulb*",
+         "editor.semanticHighlighting*", "editor.definitionLinkOpensInPeek"]
+
+[[rule]]
+status = "blocked"
+reason = "needs folding regions and section markers"
+comment = "Minimap section headers read `#region` / MARK comments; needs folding ranges and comment tokens."
+match = ["editor.minimap.showRegionSectionHeaders", "editor.minimap.showMarkSectionHeaders", "editor.minimap.markSectionHeaderRegex",
+         "editor.minimap.sectionHeaderFontSize", "editor.minimap.sectionHeaderLetterSpacing"]
+
 [[component]]
 match = ["editor", "editor.*", "diffEditor*", "multiDiffEditor*"]
 path = "crates/vsr-app/src/editor_view.rs (and crates/vsr-editor / vsr-text for behaviour)"

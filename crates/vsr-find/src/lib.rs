@@ -9,10 +9,13 @@
 //! upstream: src/vs/editor/contrib/find/browser/findController.ts @ 50e1350fc78d
 //! upstream: src/vs/editor/common/model/textModelSearch.ts @ 50e1350fc78d
 //! upstream: src/vs/base/common/search.ts @ 50e1350fc78d
+//! upstream: src/vs/workbench/services/search/common/replace.ts @ 50e1350fc78d
 //!
 //! * [`search`]: compile a search string (query semantics shared with the Search view through
 //!   `vsr_search::query`) and collect matches with capture groups;
 //! * [`replace_pattern`]: `$1`, `\u`, Preserve Case and friends;
+//! * [`search_replace`]: the Search view's replace string for one match (`ReplacePattern` of
+//!   `services/search/common/replace.ts`);
 //! * [`model`]: the model ([`FindModel`]) and the seeding / scope helpers of `FindController`.
 //!
 //! Depends on `vsr-text` and `vsr-editor` only for the data it works on; no UI.
@@ -20,7 +23,9 @@
 pub mod model;
 pub mod replace_pattern;
 pub mod search;
+pub mod search_replace;
 
 pub use model::{FindModel, FindState, MATCHES_LIMIT, MatchInfo, SeedMode, scope_from_selection, seed_search_string};
 pub use replace_pattern::{ReplacePattern, ReplacePiece, build_replace_string_with_case_preserved, parse_replace_string};
+pub use search_replace::SearchReplacePattern;
 pub use search::{CompileError, FindMatch, SearchParams, compile};

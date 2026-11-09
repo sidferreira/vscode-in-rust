@@ -347,7 +347,13 @@ fn shape(window: &Window, cfg: &EditorSettings, text: &str) -> Option<gpui_kit::
 fn editor_font(cfg: &EditorSettings) -> gpui_kit::Font {
     let mut f = font(SharedString::from(cfg.font_family.clone()));
     f.weight = gpui_kit::FontWeight(cfg.font_weight);
+    f.features = font_features(cfg);
     f
+}
+
+/// `editor.fontLigatures` as gpui font features (shaping and painting use the same ones).
+fn font_features(cfg: &EditorSettings) -> gpui_kit::FontFeatures {
+    gpui_kit::FontFeatures(std::sync::Arc::new(cfg.font_features.clone()))
 }
 
 /// Document position under window point `p`.
@@ -728,8 +734,10 @@ fn rows(
     let hl = cfg.render_line_highlight;
     // The border box of the current line: content only (`line`, empty selection), gutter only
     // (`gutter`), or the whole row (`all`).
-    let hl_content = matches!(hl, LineHighlight::Line | LineHighlight::All) && sel.is_empty();
-    let hl_gutter = matches!(hl, LineHighlight::Gutter | LineHighlight::All);
+    // `editor.renderLineHighlightOnlyWhenFocus`: the current line is marked only in a focused editor.
+    let hl_shown = focused || !cfg.line_highlight_only_when_focus;
+    let hl_content = matches!(hl, LineHighlight::Line | LineHighlight::All) && sel.is_empty() && hl_shown;
+    let hl_gutter = matches!(hl, LineHighlight::Gutter | LineHighlight::All) && hl_shown;
     let occurrences = occurrence_source(e, cfg);
     // The active indent guide is found once per paint, not per row (it may scan the block).
     let active_guide = (cfg.guides_indentation && cfg.guides_highlight_active)
@@ -773,15 +781,10 @@ fn rows(
                 let x0 = x_at(from);
                 let x1 = x_at(to) + if past { space_w } else { 0.0 };
                 if x1 > x0 {
-                    text_box = text_box.child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left(px(x0))
-                            .w(px(x1 - x0))
-                            .h(px(lh))
-                            .bg(to_gpui(sel_bg)),
-                    );
+                    let mut sel_box = div().absolute().top_0().left(px(x0)).w(px(x1 - x0)).h(px(lh)).bg(to_gpui(sel_bg));
+                    // `editor.roundedSelection`: 3px corners on the selection (upstream `border-radius`).
+                    sel_box = if cfg.rounded_selection { sel_box.rounded(px(3.)) } else { sel_box };
+                    text_box = text_box.child(sel_box.debug_selector(|| format!("selection:{line}")));
                 }
             }
             // Find matches over the selection: the current one in its own color.
@@ -870,6 +873,7 @@ fn rows(
                 .line_height(px(lh))
                 .font_family(SharedString::from(cfg.font_family.clone()))
                 .font_weight(gpui_kit::FontWeight(cfg.font_weight))
+                .font_features(font_features(cfg))
                 .text_size(px(cfg.font_size));
             if let Some(f) = find.filter(|f| f.line_in_scope(line)) {
                 // "Find in Selection": the lines of the scope get the range highlight.

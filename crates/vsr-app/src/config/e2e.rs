@@ -418,3 +418,19 @@ fn occurrences_and_selection_highlights_follow_the_settings(cx: &mut TestAppCont
     set(cx, "editor.selectionHighlight", json!(false));
     assert!(cx.debug_bounds("occurrence:1:9").is_none(), "selectionHighlight off");
 }
+
+#[gpui_kit::test]
+fn selection_and_ligature_settings_apply_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "typography", None, &[("a.txt", "foo bar")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    cx.simulate_keystrokes("shift-right shift-right");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("selection:1").is_some(), "the selection is drawn");
+    // Rounded corners and font features are read from the settings and the editor keeps rendering.
+    set(cx, "editor.roundedSelection", json!(false));
+    set(cx, "editor.fontLigatures", json!(true));
+    set(cx, "editor.renderLineHighlightOnlyWhenFocus", json!(true));
+    assert!(cx.debug_bounds("selection:1").is_some(), "the focused editor still draws its selection");
+    let features = wb.read_with(cx, |wb, _| wb.editor_settings.font_features.clone());
+    assert_eq!(features, [("liga".to_string(), 1), ("calt".to_string(), 1)]);
+}

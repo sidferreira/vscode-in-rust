@@ -44,6 +44,9 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.selectionHighlight",
             "editor.selectionHighlightMaxLength",
             "editor.occurrencesHighlight",
+            "editor.roundedSelection",
+            "editor.renderLineHighlightOnlyWhenFocus",
+            "editor.fontLigatures",
         ],
     ),
     (

@@ -24,7 +24,8 @@ scripts/cargo-firewall-fetch     # fetch deps through the package firewall
 |---|---|---|
 | `vsr-text` | text buffer, Position/Range | `src/vs/editor/common/{core,model}` |
 | `vsr-editor` | cursor, selection, typing, undo/redo (UI-free) | `src/vs/editor/common/cursor/*` |
-| `vsr-app` | native workbench window (gpui via gpui-kit) | `src/vs/workbench/browser/layout.ts`, `dark_modern.json` |
+| `vsr-settings` | settings registry, `settings.json`, effective configuration (defaults + user, change events) | `src/vs/platform/configuration/common/*`, `workbench/contrib/preferences` |
+| `vsr-app` | native workbench window (gpui via gpui-kit); `RSCODE_USER_DATA_DIR=<dir>` redirects settings.json to `<dir>/User/` | `src/vs/workbench/browser/layout.ts`, `dark_modern.json` |
 
 ## Third-party assets
 - **Codicons** (`crates/vsr-app/assets/codicon.ttf`) by Microsoft, from

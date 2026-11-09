@@ -133,8 +133,7 @@ impl Workbench {
         let configuration = AppConfig::get(cx).configuration();
         let exclude = ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null));
         let editor_settings = EditorSettings::from_configuration(configuration);
-        let mut editors = Editors::default();
-        editors.options = editor_settings.editor_options();
+        let editors = Editors { options: editor_settings.editor_options(), ..Editors::default() };
         let mut wb = Self {
             theme: Theme::dark_modern(),
             root: root.clone(),

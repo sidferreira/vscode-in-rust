@@ -193,6 +193,9 @@ on this setup: no window, no GPU, whole run under 1 s.
   clicks carry `.debug_selector(|| ...)` and are found with `cx.debug_bounds("...")` (the selector
   must be a literal; it is recorded in debug builds only).
 - Key bindings only reach handlers on the focus path, so the workbench root owns a focus handle.
-- Settings go to a temp file: `Workbench::settings_path` / `SettingsView::new(path, ..)` take the path.
+- Settings go to a temp file: install `config::AppConfig::install(cx, Some(path))` before creating the
+  workbench (a workbench without it runs on an in-memory configuration). Never point a test at the real
+  user settings. The settings-file watcher polls every `config::POLL_INTERVAL`; tests drive it with
+  `cx.executor().advance_clock(..)` + `run_until_parked()` (see `config/e2e.rs`, `ticks`).
 - `#[test]` inside a module that does `use gpui_kit::*` resolves to gpui's `test` macro; use
   `#[core::prelude::v1::test]` there.

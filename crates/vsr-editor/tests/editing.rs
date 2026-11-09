@@ -190,7 +190,8 @@ fn backspace_removes_whitespace_up_to_tab_stops() {
 }
 
 #[test]
-// upstream: Editor Controller > issue #99629: Emoji modifiers in text treated separately when using backspace (simplified: a surrogate pair is one unit)
+// upstream: Editor Controller > issue #99629: Emoji modifiers in text treated separately when using backspace
+// note: simplified: a surrogate pair is one unit
 fn backspace_removes_a_surrogate_pair_as_one_unit() {
     let mut ed = editor("ab🐶", 4, true);
     set(&mut ed, 1, 5);

@@ -211,7 +211,8 @@ fn move_up_and_down_with_end_of_lines_starting_from_a_long_one() {
 }
 
 #[test]
-// upstream: Editor Controller - Cursor > move to beginning of line (case: from within line)
+// upstream: Editor Controller - Cursor > move to beginning of line from within line
+// note: table-driven case of "move to beginning of line"
 fn move_to_beginning_of_line_from_within_line() {
     let mut ed = fixture();
     move_to(&mut ed, 1, 8);
@@ -222,7 +223,8 @@ fn move_to_beginning_of_line_from_within_line() {
 }
 
 #[test]
-// upstream: Editor Controller - Cursor > move to beginning of line (case: from whitespace at beginning of line)
+// upstream: Editor Controller - Cursor > move to beginning of line from whitespace at beginning of line
+// note: table-driven case of "move to beginning of line"
 fn move_to_beginning_of_line_from_whitespace_at_beginning_of_line() {
     let mut ed = fixture();
     move_to(&mut ed, 1, 2);
@@ -233,7 +235,8 @@ fn move_to_beginning_of_line_from_whitespace_at_beginning_of_line() {
 }
 
 #[test]
-// upstream: Editor Controller - Cursor > move to beginning of line (case: within line selection)
+// upstream: Editor Controller - Cursor > move to beginning of line from within line selection
+// note: table-driven case of "move to beginning of line"
 fn move_to_beginning_of_line_within_line_selection() {
     let mut ed = fixture();
     move_to(&mut ed, 1, 8);

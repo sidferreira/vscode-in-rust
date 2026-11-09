@@ -10,6 +10,7 @@ mod editor_view;
 mod icons;
 mod keymap;
 mod model;
+mod search_view; // Search view (ADR-0023)
 mod settings_view; // Settings editor (ADR-0017)
 mod text_layout;
 mod theme;
@@ -28,6 +29,7 @@ use config::AppConfig;
 use editor_view::{EditorHost, EditorView};
 use model::{DirEntry, Editors, list_dir};
 use theme::{Theme, metrics as m};
+use search_view::{FocusSearch, SearchEvent, SearchView};
 use settings_view::{OpenSettings, SettingsEvent, SettingsView};
 use ui::to_gpui;
 
@@ -47,6 +49,7 @@ fn main() {
         AppConfig::install(cx, Some(settings_path())); // defaults + settings.json, live reload
         settings_view::install(cx); // Cmd+, binding + component theme
         editor_view::init(cx); // editor key bindings
+        search_view::init(cx); // Shift+Cmd+F and Search view bindings
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -130,6 +133,8 @@ struct Workbench {
     /// Installed font families, read once when first needed.
     installed_fonts: Option<HashSet<String>>,
     _config_sub: Subscription,
+    /// The Search view (created the first time Search is shown).
+    search: Option<Entity<SearchView>>,
     /// Root focus handle so workbench-level actions (Cmd+,) dispatch even before anything is focused.
     focus: Option<FocusHandle>,
     branch: Option<String>,
@@ -162,6 +167,7 @@ impl Workbench {
             exclude,
             installed_fonts: None,
             _config_sub: cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)),
+            search: None,
             focus: None,
             branch: git_branch(&root),
             error: None,
@@ -238,6 +244,45 @@ impl Workbench {
         if let Err(e) = self.editors.open_file(path) {
             self.error = Some(format!("{}: {e}", path.display()));
         }
+    }
+
+    // ---- Search view (ADR-0023) ------------------------------------------------------------
+
+    fn ensure_search(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Entity<SearchView> {
+        if let Some(v) = &self.search {
+            return v.clone();
+        }
+        let root = self.root.clone();
+        let settings = search_view::current_settings(cx);
+        let view = cx.new(|cx| SearchView::new(root, settings, window, cx));
+        cx.subscribe_in(&view, window, |this, _, ev: &SearchEvent, window, cx| match ev {
+            SearchEvent::Open { path, range } => this.open_at(path, *range, window, cx),
+            SearchEvent::OpenSettings => this.open_settings(window, cx),
+        })
+        .detach();
+        self.search = Some(view.clone());
+        view
+    }
+
+    /// Shift+Cmd+F: show the Search view and focus its query box.
+    fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.view = ActivityView::Search;
+        self.sidebar_visible = true;
+        let view = self.ensure_search(window, cx);
+        view.update(cx, |v, cx| v.focus_query(window, cx));
+        cx.notify();
+    }
+
+    /// Open `path` with `range` selected and scrolled into view (a Search result was activated).
+    fn open_at(&mut self, path: &Path, range: vsr_search::SearchRange, _window: &mut Window, cx: &mut Context<Self>) {
+        use vsr_editor::Position;
+        self.open(path);
+        if let Some(e) = self.editors.active.and_then(|i| self.editors.open.get_mut(i)).filter(|e| e.path == path) {
+            e.editor.set_cursor(Position::new(range.start_line, range.start_column), false);
+            e.editor.set_cursor(Position::new(range.end_line, range.end_column), true);
+            self.editor_view.reveal(e);
+        }
+        cx.notify();
     }
 
     // ---- Settings editor tab (grouped: open / close / tab / surface) ---------
@@ -504,13 +549,16 @@ impl Workbench {
         {
             let active = self.sidebar_visible && self.view == view;
             top = top.child(cell("activity", i, glyph, tip, active).on_click(cx.listener(
-                move |this, _, _, cx| {
+                move |this, _, window, cx| {
                     // Clicking the active view toggles the side bar, like VS Code.
                     if this.sidebar_visible && this.view == view {
                         this.sidebar_visible = false;
                     } else {
                         this.view = view;
                         this.sidebar_visible = true;
+                        if view == ActivityView::Search {
+                            this.ensure_search(window, cx);
+                        }
                     }
                     cx.notify();
                 },
@@ -547,7 +595,7 @@ impl Workbench {
         .child(bottom)
     }
 
-    fn side_bar(&self, cx: &mut Context<Self>, activity: ActivityBarLocation) -> impl IntoElement {
+    fn side_bar(&self, cx: &mut Context<Self>, activity: ActivityBarLocation) -> AnyElement {
         let t = &self.theme;
         let heading = match self.view {
             ActivityView::Explorer => "EXPLORER",
@@ -555,6 +603,17 @@ impl Workbench {
             ActivityView::Scm => "SOURCE CONTROL",
             ActivityView::Extensions => "EXTENSIONS",
         };
+        if let (ActivityView::Search, Some(search)) = (self.view, &self.search) {
+            // The Search view draws its own title row (it carries the view actions).
+            return div()
+                .flex_none()
+                .w(px(self.sidebar_width))
+                .h_full()
+                .bg(to_gpui(t.chrome_bg))
+                .text_color(to_gpui(t.sidebar_fg))
+                .child(search.clone())
+                .into_any_element();
+        }
         let body = match self.view {
             ActivityView::Explorer => self.explorer(cx).into_any_element(),
             _ => div()
@@ -591,6 +650,7 @@ impl Workbench {
             )
             .child(body)
             .children(strip_bottom)
+            .into_any_element()
     }
 
     fn explorer(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -915,6 +975,7 @@ impl Render for Workbench {
             .key_context("Workbench")
             .track_focus(&focus)
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)))
+            .on_action(cx.listener(|this, _: &FocusSearch, window, cx| this.focus_search(window, cx)))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {

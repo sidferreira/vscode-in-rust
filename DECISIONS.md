@@ -365,6 +365,67 @@ Testing: `config/e2e.rs` (headless, see `docs/testing.md`) covers the side bar a
 layout through the Settings UI, the status bar, tabs, tab size and insert spaces, live reload,
 own-write echo and invalid files, save transforms, `files.exclude` and the "not yet supported" marker.
 
+## ADR-0023 — Search (find in files) on the ripgrep libraries (2026-11-09)
+
+**Engine** (`crates/vsr-search`, UI-free). Upstream spawns the `rg` binary and parses `--json`.
+We call the same libraries in-process: `ignore` (parallel `WalkBuilder`; `.gitignore`, `.ignore`,
+`.rgignore`, `.git/info/exclude`, global and parent ignore files), `grep-searcher`, `grep-regex`
+and `globset`. No rg binary to ship, no JSON hop, cancellation is an `AtomicBool`.
+
+**Option mapping** (upstream `getRgArgs` -> here): `--hidden` -> `hidden(false)`;
+`--no-require-git` -> `require_git(false)`; `--ignore-case/--case-sensitive` -> matcher
+`case_insensitive` (smart case per `QueryBuilder.isCaseSensitive`: uppercase outside escapes);
+`--no-ignore`/`--no-ignore-parent`/`--no-ignore-global` -> `search.useIgnoreFiles/useParentIgnoreFiles/useGlobalIgnoreFiles`;
+`--follow` -> `follow_links`; `--max-filesize` -> `max_filesize`; `--crlf` -> matcher `crlf` + CRLF line
+terminator; `--multiline` -> `Searcher::multi_line` (automatic when the pattern has `\n`, `\r`, `\W`; `\n` is
+rewritten to `\r?\n` by a port of `fixRegexNewline`); `--fixed-strings` -> escaped literal;
+whole word -> `createRegExp`'s rule (`\b` only next to a word character); `-g` globs -> our own
+`FileFilter` (VS Code glob syntax via `globset` with `literal_separator`, brace expansion ported from
+`performBraceExpansionForRipgrep`, `./folder` search paths and the `**/x`, `**/x/**` expansion of
+`parseSearchPaths`, `!pattern` exclude exceptions from settings). Binary files stop at the first NUL
+(ripgrep default). Encoding: UTF-8 (lossy); BOM-marked UTF-16 is transcoded by `grep-searcher`.
+Results stream per file; columns are UTF-16 (1-based, like `vsr-text`); previews use the ported
+`TextSearchMatch` (one-line preview, elision "⟪ N characters skipped ⟫"); `search.maxResults`
+counts ranges and sets `limit_hit`.
+
+**Settings.** `SearchSettings` is a plain struct with upstream defaults (verified in
+`search.common.contribution.ts` / `files.contribution.ts`): `search.exclude`
+(`**/node_modules`, `**/bower_components`, `**/*.code-search`), `files.exclude` (`.git .svn .hg .jj
+.DS_Store Thumbs.db`), `useIgnoreFiles` true, `useGlobalIgnoreFiles` false, `useParentIgnoreFiles`
+false, `followSymlinks` true, `smartCase` false, `maxResults` 20000, `searchOnType` true, debounce 300 ms.
+`search_view::current_settings` is the single TODO hook for the configuration service.
+
+**View** (`vsr-app/src/search_view.rs`, state in `search/model.rs`). Query box with Match Case,
+Whole Word and Regex toggles inside it (Alt+Cmd+C/W/R), "files to include/exclude" behind the
+"..." toggle (Ctrl+Shift+J) with the "Use Exclude Settings and Ignore Files" toggle, results
+message ("N results in M files", no-results text with Open Settings / Search again in all files,
+limit-hit warning), flat list of files (`search.defaultViewMode` default) with name, folder, count
+badge, fold and dismiss, match rows with the highlight (`Match.preview()` / `lcut`), virtualised
+(`uniform_list`). Search runs on the background executor, results are batched to the UI every 100 ms,
+a new search or Esc cancels the old one. Clicking a match opens the file, selects the range and
+scrolls it to the centre. Shift+Cmd+F switches to Search and focuses the query. Title actions:
+Refresh / Cancel, Clear Search Results, Collapse / Expand All. New theme fields: `inputOption.*`,
+`list.activeSelection*`, `editor.findMatchHighlightBackground`, `search.resultsInfoForeground`,
+`badge.*`, `toolbar.hoverBackground`.
+
+**Not implemented:** replace (the chevron is shown disabled), the search editor / "Open in editor",
+tree layout, open-editors and changed-files scopes, search history, keyboard navigation of the
+result list, context menus, file icon themes, notebook search, AI / semantic search, PCRE2-only regex
+features (look-around, backreferences: Rust `regex` syntax; invalid patterns show the engine's error),
+`files.exclude` entries with `when`, encodings other than UTF-8 and BOM-marked UTF-16.
+
+**Testing.** Ported upstream tests (ripgrepTextSearchEngineUtils, search, queryBuilder common and
+browser; see `upstream/ports.toml`), engine tests over temp trees, 8 headless gpui E2E tests
+(`search/e2e_tests.rs`). gpui lesson: the test scheduler panics if a foreground task is woken from a
+foreign thread, so worker threads must not send per file; results are flushed from the background
+task (and at most every 100 ms), which also keeps the tests deterministic.
+
+**Performance** (release, `crates/vsr-search/tests/perf.rs`, ignored by default, vscode-original/src:
+13,719 files; other agents were building concurrently): `function` 40,530 results in 6,269 files in
+1.65 s; `registerSingleton` 1,200 in 413 files 1.75 s; regex `\bclass\s+\w+Service\b` 1,866 in 1,315
+files 1.76 s. Excludes and CRLF mode were ruled out as the cost; the time is nearly constant across
+queries, so it is walk/IO bound. Room to improve: skip glob matching when no globs are set, tune threads.
+
 ## ADR-0024 — Background runs of the real app; safe .app bundle updates (2026-11-09)
 
 User asked that automated runs never cover their work. Two layers:

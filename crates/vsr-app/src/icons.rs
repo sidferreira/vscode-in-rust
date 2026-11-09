@@ -30,6 +30,16 @@ pub const BELL: char = '\u{EAA2}';
 pub const CHECK: char = '\u{EAB2}';
 pub const GEAR: char = '\u{EAF8}';
 pub const CIRCLE_FILLED: char = '\u{EA71}';
+pub const CASE_SENSITIVE: char = '\u{EAB1}';
+pub const WHOLE_WORD: char = '\u{EB7E}';
+pub const REGEX: char = '\u{EB38}';
+pub const ELLIPSIS: char = '\u{EA7C}';
+pub const COLLAPSE_ALL: char = '\u{EAC5}';
+pub const CLEAR_ALL: char = '\u{EABF}';
+pub const REFRESH: char = '\u{EB37}';
+pub const EXCLUDE: char = '\u{EAE5}';
+pub const FILE: char = '\u{EA7B}';
+pub const STOP_CIRCLE: char = '\u{EBA5}';
 
 /// Register the codicon TTF with gpui's text system.
 pub fn install(cx: &App) {

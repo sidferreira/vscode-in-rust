@@ -1,0 +1,18 @@
+[package]
+name = "vsr-search"
+description = "Find-in-files engine (ripgrep libraries) mirroring vs/workbench/services/search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+grep-searcher = "0.1"
+grep-regex = "0.1"
+grep-matcher = "0.1"
+ignore = "0.4"
+globset = "0.4"
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"

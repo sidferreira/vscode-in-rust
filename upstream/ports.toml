@@ -189,3 +189,50 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "files.trimTrailingWhitespace and files.insertFinalNewline as undoable edits. Not ported: trimFinalNewlines, trimTrailingWhitespaceInRegexAndStrings, snippet/auto-save cursor rules in the app. Own tests, none ported 1:1."
+
+[[port]]
+id = "search-engine"
+status = "partial"
+upstream = [
+  "src/vs/workbench/services/search/common/queryBuilder.ts",
+  "src/vs/workbench/services/search/common/search.ts",
+  "src/vs/workbench/services/search/node/ripgrepTextSearchEngine.ts",
+  "src/vs/workbench/services/search/node/ripgrepSearchUtils.ts",
+  "src/vs/workbench/services/search/test/node/ripgrepTextSearchEngineUtils.test.ts",
+  "src/vs/workbench/services/search/test/common/search.test.ts",
+  "src/vs/workbench/services/search/test/common/queryBuilder.test.ts",
+  "src/vs/workbench/services/search/test/browser/queryBuilder.test.ts",
+  "src/vs/base/common/glob.ts",
+  "src/vs/editor/common/model/textModelSearch.ts",
+  "src/vs/workbench/contrib/search/browser/search.common.contribution.ts",
+  "src/vs/workbench/contrib/files/browser/files.contribution.ts",
+]
+rust = [
+  "crates/vsr-search/src/engine.rs",
+  "crates/vsr-search/src/glob.rs",
+  "crates/vsr-search/src/patterns.rs",
+  "crates/vsr-search/src/preview.rs",
+  "crates/vsr-search/src/query.rs",
+  "crates/vsr-search/src/settings.rs",
+  "crates/vsr-search/tests/upstream_ripgrep_text_search_engine_utils.rs",
+  "crates/vsr-search/tests/upstream_search.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Text search on the ripgrep libraries (ADR-0023) instead of spawning rg: option mapping, smart case, whole word, CRLF/multiline fix-ups, include/exclude parsing, preview elision. Not ported: file search, AI/notebook search, RipgrepParser and getRgArgs tests (no command line), exclude-exception glob tests, multi-root queryBuilder cases, PCRE2 features (look-around, backrefs)."
+
+[[port]]
+id = "search-view"
+status = "partial"
+upstream = [
+  "src/vs/workbench/contrib/search/browser/searchView.ts",
+  "src/vs/workbench/contrib/search/browser/searchWidget.ts",
+  "src/vs/workbench/contrib/search/browser/searchResultsView.ts",
+  "src/vs/workbench/contrib/search/browser/patternInputWidget.ts",
+  "src/vs/workbench/contrib/search/browser/media/searchview.css",
+  "src/vs/workbench/contrib/search/browser/searchActionsTopBar.ts",
+  "src/vs/workbench/contrib/search/browser/searchActionsNav.ts",
+  "src/vs/workbench/contrib/search/browser/searchTreeModel/match.ts",
+]
+rust = ["crates/vsr-app/src/search_view.rs", "crates/vsr-app/src/search/model.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Search view on gpui (ADR-0023): query box with toggles, files to include/exclude, streaming virtualised list view, collapse/clear/refresh actions. Not ported: replace, search editor, tree layout, open-editors/changed-files scope, history, keyboard navigation of results, context menus, file icon theme. search/e2e_tests.rs is ours."

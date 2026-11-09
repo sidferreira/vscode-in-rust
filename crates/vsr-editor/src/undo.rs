@@ -146,6 +146,23 @@ impl Editor {
         self.history.future.clear();
     }
 
+    /// Records several already-applied changes (in application order) as one undo step.
+    pub(crate) fn record_group(&mut self, changes: Vec<Change>, before: Selection, after: Selection) {
+        let version = self.history.next_version;
+        self.history.next_version += 1;
+        self.history.group_break = false;
+        self.history.past.push(Step {
+            changes,
+            kind: Kind::Other,
+            before,
+            after,
+            before_version: self.history.version,
+            after_version: version,
+        });
+        self.history.version = version;
+        self.history.future.clear();
+    }
+
     /// Replaces `units` UTF-16 code units at `offset` with `text`, without recording.
     fn replace_units(&mut self, offset: usize, units: usize, text: &str) {
         let start = self.buffer.position_at(offset);

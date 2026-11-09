@@ -36,6 +36,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.cursorStyle",
             "editor.cursorBlinking",
             "editor.cursorWidth",
+            "editor.renderWhitespace",
         ],
     ),
     (

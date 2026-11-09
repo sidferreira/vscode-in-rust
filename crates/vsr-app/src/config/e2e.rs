@@ -329,3 +329,23 @@ fn settings_editor_marks_unwired_settings_only(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(cx.debug_bounds("unsupported:search:editor.fontSize").is_none(), "wired setting is not");
 }
+
+// ---- editor rendering --------------------------------------------------------------------------
+
+#[gpui_kit::test]
+fn render_whitespace_marks_follow_the_setting_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "whitespace", None, &[("a.txt", "a b\n\tc")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    // The default is `selection`: nothing is marked while the caret is alone.
+    assert!(cx.debug_bounds("ws:1:2").is_none());
+    cx.simulate_keystrokes("cmd-a");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("ws:1:2").is_some(), "the selected space is marked");
+    assert!(cx.debug_bounds("ws:2:1").is_some(), "and the selected tab");
+    set(cx, "editor.renderWhitespace", json!("all"));
+    assert!(cx.debug_bounds("ws:1:2").is_some());
+    assert!(cx.debug_bounds("ws:2:1").is_some());
+    set(cx, "editor.renderWhitespace", json!("none"));
+    assert!(cx.debug_bounds("ws:1:2").is_none(), "none marks nothing, even when selected");
+    assert!(cx.debug_bounds("ws:2:1").is_none());
+}

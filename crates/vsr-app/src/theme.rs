@@ -89,6 +89,7 @@ pub struct Theme {
     pub selection_bg: Rgba8,           // editor.selectionBackground
     pub inactive_selection_bg: Rgba8,  // editor.inactiveSelectionBackground
     pub line_highlight_border: Rgba8,  // editor.lineHighlightBorder
+    pub whitespace_fg: Rgba8,          // editorWhitespace.foreground (registry dark)
     // ---- Search view (searchview.css, inputOption.*, badge.*) ----
     pub input_option_active_bg: Rgba8,        // inputOption.activeBackground (dark_modern)
     pub input_option_active_border: Rgba8,    // inputOption.activeBorder (dark_modern)
@@ -179,6 +180,7 @@ impl Theme {
             selection_bg: c("#264F78"),
             inactive_selection_bg: c("#3A3D41"),
             line_highlight_border: c("#282828"),
+            whitespace_fg: c("#E3E4E229"),
             input_option_active_bg: c("#2489DB82"),
             input_option_active_border: c("#2488DB"),
             input_option_active_fg: c("#FFFFFF"),

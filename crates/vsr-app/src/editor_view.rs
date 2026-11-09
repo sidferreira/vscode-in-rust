@@ -20,6 +20,7 @@
 //! Known gaps: multi-cursor, word wrap, syntax colors, horizontal reveal of the caret,
 //! drag auto-scroll, IME candidate-window placement precision.
 
+mod decorations;
 mod find;
 
 use std::cell::Cell;
@@ -718,7 +719,8 @@ fn rows(
             let selected = selection_on_line(e, line);
             let has_caret = is_active && caret_on;
             let found = find.map_or_else(Vec::new, |f| f.matches_on_line(line, buf.line_max_column(line)));
-            let shaped = (selected.is_some() || has_caret || !found.is_empty())
+            let markers = decorations::whitespace_marks(text, cfg.render_whitespace, selected.map(|(from, to, _)| (from, to)));
+            let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty())
                 .then(|| shape(window, cfg, &expanded))
                 .flatten();
             let x_at = |col: usize| -> f32 {
@@ -754,6 +756,28 @@ fn rows(
                         );
                     }
                 }
+            }
+            // Whitespace markers (`editor.renderWhitespace`): a middle dot in a space's cell, an arrow
+            // at the start of a tab's cells (the tab itself is shown as spaces).
+            for m in markers {
+                let (x0, x1) = (x_at(m.column), x_at(m.column + 1));
+                let glyph = match m.kind {
+                    decorations::MarkKind::Space => "\u{b7}",
+                    decorations::MarkKind::Tab => "\u{2192}",
+                };
+                let mark = div()
+                    .absolute()
+                    .top_0()
+                    .left(px(x0))
+                    .w(px((x1 - x0).max(0.0)))
+                    .h(px(lh))
+                    .text_color(to_gpui(t.whitespace_fg))
+                    .debug_selector(|| format!("ws:{line}:{}", m.column))
+                    .child(glyph);
+                text_box = text_box.child(match m.kind {
+                    decorations::MarkKind::Space => mark.text_center(),
+                    decorations::MarkKind::Tab => mark.text_left(),
+                });
             }
             text_box = text_box.text_color(to_gpui(t.editor_fg)).child(expanded);
             if has_caret {

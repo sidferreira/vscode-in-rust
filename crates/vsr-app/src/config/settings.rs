@@ -51,6 +51,17 @@ pub enum CursorBlinking {
     Solid,
 }
 
+/// `editor.renderWhitespace`: which spaces and tabs get a marker (middle dot, arrow).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RenderWhitespace {
+    None,
+    Boundary,
+    Selection,
+    Trailing,
+    All,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActivityBarLocation {
@@ -198,6 +209,7 @@ pub struct EditorSettings {
     pub cursor_style: CursorStyle,
     pub cursor_blinking: CursorBlinking,
     pub cursor_width: f32,
+    pub render_whitespace: RenderWhitespace,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
     pub find: FindSettings,
@@ -219,6 +231,7 @@ impl Default for EditorSettings {
             cursor_style: CursorStyle::Line,
             cursor_blinking: CursorBlinking::Blink,
             cursor_width: 0.0,
+            render_whitespace: RenderWhitespace::Selection,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             find: FindSettings::default(),
@@ -243,6 +256,7 @@ impl EditorSettings {
             cursor_style: c.get_enum("editor.cursorStyle").unwrap_or(CursorStyle::Line),
             cursor_blinking: c.get_enum("editor.cursorBlinking").unwrap_or(CursorBlinking::Blink),
             cursor_width: c.get_f64("editor.cursorWidth").unwrap_or(0.0) as f32,
+            render_whitespace: c.get_enum("editor.renderWhitespace").unwrap_or(RenderWhitespace::Selection),
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             find: FindSettings::from_configuration(c),
@@ -359,6 +373,7 @@ mod tests {
         assert_eq!(e.render_line_highlight, LineHighlight::Line);
         assert_eq!((e.cursor_style, e.cursor_blinking), (CursorStyle::Line, CursorBlinking::Blink));
         assert_eq!(e.line_cursor_width(), 2.0);
+        assert_eq!(e.render_whitespace, RenderWhitespace::Selection);
         let l = LayoutSettings::from_configuration(&config(""));
         assert_eq!(l, LayoutSettings {
             side_bar: SideBarLocation::Left,
@@ -385,8 +400,9 @@ mod tests {
             r#"{ "editor.fontSize": 16, "editor.lineNumbers": "relative", "editor.cursorStyle": "block-outline",
                  "editor.renderLineHighlight": "all", "editor.cursorBlinking": "solid", "editor.cursorWidth": 4,
                  "editor.tabSize": 2, "editor.insertSpaces": false, "editor.fontWeight": "bold",
-                 "files.insertFinalNewline": true }"#,
+                 "files.insertFinalNewline": true, "editor.renderWhitespace": "boundary" }"#,
         ));
+        assert_eq!(e.render_whitespace, RenderWhitespace::Boundary);
         assert_eq!(e.font_size, 16.0);
         assert_eq!(e.line_height, 24.0);
         assert_eq!(e.line_numbers, LineNumbers::Relative);

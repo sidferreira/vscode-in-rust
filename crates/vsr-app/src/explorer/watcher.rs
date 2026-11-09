@@ -230,7 +230,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut seen = false;
         while Instant::now() < deadline && !seen {
-            if let Ok(Some(batch)) = rx.try_next() {
+            if let Ok(batch) = rx.try_recv() {
                 seen = batch.iter().any(|p| p.ends_with("created.txt"));
             }
             std::thread::sleep(Duration::from_millis(20));

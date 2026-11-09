@@ -162,6 +162,7 @@ struct Workbench {
     /// Keeps the file watcher running (dropping it stops the events).
     _watcher: Box<dyn FileWatcher>,
     /// Where `files.enableTrash` deletes go (ADR-0039).
+    #[allow(dead_code)] // read by the explorer's delete, which the explorer UI calls next
     trash: Box<dyn Trash>,
     /// Installed font families, read once when first needed.
     installed_fonts: Option<HashSet<String>>,
@@ -183,6 +184,7 @@ struct Workbench {
 impl Workbench {
     /// A workbench without a file watcher or Trash (tests and embedders). The app uses
     /// `with_services`.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn new(root: PathBuf, cx: &mut Context<Self>) -> Self {
         Self::with_services(root, cx, Box::new(explorer::watcher::NoWatcher), Box::new(explorer::trash::NoTrash))
     }

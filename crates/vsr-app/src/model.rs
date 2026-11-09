@@ -122,6 +122,7 @@ impl OpenEditor {
     }
 
     /// The file moved or was renamed to `path`: the editor follows it.
+    #[allow(dead_code)] // called by `Editors::follow_rename`, which the explorer's rename uses (ADR-0039)
     pub fn follow(&mut self, path: PathBuf) {
         self.title = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
         self.path = path;
@@ -382,6 +383,7 @@ impl Editors {
 
     /// A file or folder was renamed from `from` to `to`: the open editors, the MRU list, the history
     /// and the preview that name it, or something inside it, follow the new path.
+    #[allow(dead_code)] // the explorer's rename calls this once its UI does (ADR-0039)
     pub fn follow_rename(&mut self, from: &Path, to: &Path) {
         let moved = |p: &Path| -> Option<PathBuf> {
             if p == from {

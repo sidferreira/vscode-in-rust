@@ -232,7 +232,7 @@ search is not restored. Not implemented: `settingsSearchTocBehavior: hide`.
 `OpenEditor` holds a `vsr_editor::Editor` (tab size 4, insert spaces). Save (Cmd+S) writes
 `buffer().value()` (the file's EOL is preserved) and calls `mark_saved()`; dirty is the core's
 version-vs-saved check, so undoing back to the saved text is clean again. Closing a dirty tab
-just closes it for now (no confirm dialog).
+asks first (ADR-0040, `session/close.rs`).
 
 **Input.** Two paths, like VS Code. (1) Commands: one gpui action, `Run(Command)`, bound from a data
 table (`keymap.rs`, macOS defaults) in key context `Editor`; the table is also what unit tests
@@ -269,7 +269,7 @@ Option+Right on macOS moves to the end of a word; the existing `move_word_right`
 **Known gaps.** Multi-cursor; word wrap; syntax colouring; horizontal scroll-to-caret and drag
 auto-scroll; word/line delete (Option/Cmd+Backspace), outdent (Shift+Tab), line moves, find; IME
 candidate-window placement is approximate and composition edits are separate undo steps; grapheme
-clusters; no confirm on closing a dirty tab; Cmd+W/S only act while the editor has focus; other cursor
+clusters; Cmd+W/S only act while the editor has focus; other cursor
 styles and `cursorSmoothCaretAnimation`.
 
 ## ADR-0019 — Platform scope: macOS desktop only; quit on last window (2026-11-09)
@@ -992,6 +992,17 @@ serialization, `gettingStarted`.
 - **Backups while editing.** A dirty editor is backed up once its text version has been the same for a tick (about a
   second after the last edit, as upstream), with hot exit off too (crash recovery). At startup every backup is
   restored, whatever the restore settings say: unsaved text is never skipped.
+- **Closing a dirty tab** (`session/close.rs`; Cmd+W, the tab's close button, a middle click and Close Editor): the
+  tab stays open until the bar asks "Do you want to save the changes you made to <file>?" with Save / Don't Save /
+  Cancel (upstream `showSaveConfirm`, the same bar as the quit). **Save** writes the file, then closes the tab; a
+  save refused because the file changed on disk (ADR-0039) or a failed save keeps the tab open and shows the
+  conflict bar or the error. **Don't Save** closes it and moves its backup to `discarded/` (a backup not written yet
+  is simply absent). **Cancel** keeps the tab, dirty. Clean tabs close at once. `files.autoSave: onFocusChange` saves
+  and closes without asking (a failed save asks); `afterDelay` asks while its delay has not passed, as upstream; on
+  macOS `onWindowChange` asks, as upstream. A close of several tabs asks once (no command closes several yet). After
+  an answer the editor has the keyboard again: the bar's buttons must not move focus to the workbench root, which
+  takes focus on any click that no focusable element above it takes (the bar sets `prevent_default`, as gpui does for
+  the editor). The quit bar (Cmd+Q, window close) is the same bar (`PromptKind`).
 - **Data safety rules** (the full list is in `backup.rs`): writes are atomic (temp file, fsync, rename); a backup is
   deleted only when the buffer is saved or is back at the saved text, or equals the file at restore; a tab closed
   with unsaved changes and Don't Save **move** the backup to `discarded/`, they never delete it; a state or backup

@@ -73,12 +73,12 @@ pub fn init(cx: &mut App) {
 }
 
 /// What the view needs from its owner: the documents and the view state.
-pub trait EditorHost: 'static {
+pub trait EditorHost: Sized + 'static {
     fn editor_host(&mut self) -> (&mut Editors, &mut EditorView);
 
-    /// An editor was closed by a command (Cmd+W); `dirty` says it had unsaved changes. The owner
-    /// keeps what its session needs (the backup of unsaved text, ADR-0040).
-    fn editor_closed(&mut self, _path: &std::path::Path, _dirty: bool) {}
+    /// Cmd+W (Close Editor) on the tab of `path`. The owner closes it, asking first when it has
+    /// unsaved changes (ADR-0040).
+    fn close_requested(&mut self, path: &std::path::Path, cx: &mut Context<Self>);
 }
 
 #[derive(Default)]
@@ -378,20 +378,20 @@ impl EditorView {
 // ---- commands ------------------------------------------------------------------------------
 
 fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, cx: &mut Context<T>) {
+    if matches!(cmd, Command::CloseTab) {
+        let path = this.editor_host().0.active_editor().map(|e| e.path.clone());
+        if let Some(path) = path {
+            this.close_requested(&path, cx);
+        }
+        return;
+    }
     let (editors, view) = this.editor_host();
     let Some(i) = editors.active else { return };
     if let Some(e) = editors.open.get_mut(i) {
         e.editor.set_word_separators(&view.cfg.word_separators);
     }
     match cmd {
-        Command::CloseTab => {
-            if let Some((path, dirty)) = editors.open.get(i).map(|e| (e.path.clone(), e.is_dirty())) {
-                view.remember(&editors.open[i]);
-                editors.close(i);
-                view.forget(&path);
-                this.editor_closed(&path, dirty);
-            }
-        }
+        Command::CloseTab => {} // handled above: the owner closes the tab
         _ => {
             let Some(e) = editors.open.get_mut(i) else { return };
             if e.is_read_only() && keymap::is_edit(cmd) {

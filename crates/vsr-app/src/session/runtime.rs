@@ -88,6 +88,13 @@ pub struct OpenWorkbenches(pub Vec<WeakEntity<Workbench>>);
 
 impl Global for OpenWorkbenches {}
 
+/// Which action the save bar answers for: the quit (Cmd+Q, window close) or the close of a dirty tab.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PromptKind {
+    Quit,
+    Close,
+}
+
 /// Cmd+Q: every workbench gets to keep or ask about its unsaved text; the app quits when none asks.
 pub fn quit_app(cx: &mut App) {
     let all = cx.try_global::<OpenWorkbenches>().map(|o| o.0.clone()).unwrap_or_default();
@@ -118,8 +125,11 @@ pub struct Runtime {
     pub recent_folders: Vec<PathBuf>,
     /// Search state read from disk, applied when the Search view exists.
     pub pending_search: Option<SearchState>,
-    /// The "save the changes?" bar is showing.
+    /// The "save the changes?" bar of the quit is showing.
     pub prompt: bool,
+    /// The tabs the user is closing while the "save the changes?" bar of a close is showing
+    /// (ADR-0040), in tab order. Set by `request_close` (close.rs).
+    pub close_prompt: Option<Vec<PathBuf>>,
     /// The user chose at the prompt: the next quit goes through.
     pub confirmed: bool,
     /// Don't Save: no backups are written from now on.
@@ -345,6 +355,11 @@ impl Workbench {
     /// The timer: backups of dirty editors, the workspace state and the recent files, each written
     /// once its change has been stable for a tick.
     fn session_tick(&mut self, cx: &mut Context<Self>) {
+        // A close waiting for an answer whose tabs are no longer dirty (auto save saved them) asks nothing more.
+        if self.session.close_prompt.as_ref().is_some_and(|paths| !self.any_dirty_in(paths)) {
+            self.session.close_prompt = None;
+            cx.notify();
+        }
         self.session_sync(false, cx);
     }
 
@@ -533,11 +548,33 @@ impl Workbench {
         if !self.session.prompt {
             return None;
         }
+        let dirty = self.editors.open.iter().filter(|e| e.is_dirty()).map(|e| e.title.clone()).collect();
+        Some(self.save_prompt_bar(PromptKind::Quit, dirty, cx))
+    }
+
+    /// The bar above the status bar while a close of a dirty tab waits for an answer (close.rs).
+    pub(crate) fn close_prompt_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let paths = self.session.close_prompt.as_ref()?;
+        let dirty: Vec<String> = paths
+            .iter()
+            .filter_map(|p| self.editors.index_of(p).map(|i| &self.editors.open[i]))
+            .filter(|e| e.is_dirty())
+            .map(|e| e.title.clone())
+            .collect();
+        if dirty.is_empty() {
+            return None;
+        }
+        Some(self.save_prompt_bar(PromptKind::Close, dirty, cx))
+    }
+
+    /// The "Do you want to save the changes?" bar (upstream `showSaveConfirm`), shared by the quit and
+    /// the close of a dirty tab. `dirty` are the titles of the files that would be lost.
+    fn save_prompt_bar(&self, kind: PromptKind, dirty: Vec<String>, cx: &mut Context<Self>) -> AnyElement {
         let t: &Theme = &self.theme;
-        let dirty: Vec<String> = self.editors.open.iter().filter(|e| e.is_dirty()).map(|e| e.title.clone()).collect();
-        let message = match dirty.as_slice() {
-            [one] => format!("Do you want to save the changes you made to {one}?"),
-            many => format!("Do you want to save the changes you made to {} files?", many.len()),
+        let message = save_prompt_message(&dirty);
+        let (bar, save, discard, cancel) = match kind {
+            PromptKind::Quit => ("quit-prompt", "quit-prompt:save", "quit-prompt:discard", "quit-prompt:cancel"),
+            PromptKind::Close => ("close-prompt", "close-prompt:save", "close-prompt:discard", "close-prompt:cancel"),
         };
         let button = |id: &'static str, label: &'static str, primary: bool| {
             div()
@@ -556,38 +593,51 @@ impl Workbench {
                 .hover(|s| s.bg(to_gpui(if primary { t.button_hover_bg } else { t.button_secondary_hover_bg })))
                 .child(label)
         };
-        Some(
-            div()
-                .id("quit-prompt")
-                .debug_selector(|| "quit-prompt".to_string())
-                .flex_none()
-                .w_full()
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .px(px(12.))
-                .py(px(6.))
-                .bg(to_gpui(t.menu_bg))
-                .border_t_1()
-                .border_color(to_gpui(t.panel_border))
-                .text_size(px(13.))
-                .text_color(to_gpui(t.foreground))
-                .child(div().flex_1().child(message))
-                .child(div().text_color(to_gpui(t.description_fg)).child("Your changes will be lost if you don't save them."))
-                .child(
-                    button("quit-prompt:save", if dirty.len() > 1 { "Save All" } else { "Save" }, true)
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.quit_prompt_save_all(cx))),
-                )
-                .child(
-                    button("quit-prompt:discard", "Don't Save", false)
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.quit_prompt_dont_save(cx))),
-                )
-                .child(
-                    button("quit-prompt:cancel", "Cancel", false)
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.quit_prompt_cancel(cx))),
-                )
-                .into_any_element(),
-        )
+        div()
+            .id(bar)
+            .debug_selector(|| bar.to_string())
+            // A click on the bar must not move the keyboard to the workbench root (its focus handle
+            // is the ancestor that takes focus on a click): the editor keeps it, as gpui does for the
+            // editor's own clicks.
+            .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+            .flex_none()
+            .w_full()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .px(px(12.))
+            .py(px(6.))
+            .bg(to_gpui(t.menu_bg))
+            .border_t_1()
+            .border_color(to_gpui(t.panel_border))
+            .text_size(px(13.))
+            .text_color(to_gpui(t.foreground))
+            .child(div().flex_1().child(message))
+            .child(div().text_color(to_gpui(t.description_fg)).child("Your changes will be lost if you don't save them."))
+            .child(
+                button(save, if dirty.len() > 1 { "Save All" } else { "Save" }, true).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, window, cx| match kind {
+                        PromptKind::Quit => this.quit_prompt_save_all(cx),
+                        PromptKind::Close => this.close_prompt_save(window, cx),
+                    }),
+                ),
+            )
+            .child(button(discard, "Don't Save", false).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, window, cx| match kind {
+                    PromptKind::Quit => this.quit_prompt_dont_save(cx),
+                    PromptKind::Close => this.close_prompt_dont_save(window, cx),
+                }),
+            ))
+            .child(button(cancel, "Cancel", false).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, window, cx| match kind {
+                    PromptKind::Quit => this.quit_prompt_cancel(cx),
+                    PromptKind::Close => this.close_prompt_cancel(window, cx),
+                }),
+            ))
+            .into_any_element()
     }
 
     // ---- startup and render hooks ---------------------------------------------------------------
@@ -627,6 +677,14 @@ impl Workbench {
     }
 }
 
+/// The question of the save bar (upstream `showSaveConfirm`, with the names of the files).
+pub(crate) fn save_prompt_message(dirty: &[String]) -> String {
+    match dirty {
+        [one] => format!("Do you want to save the changes you made to {one}?"),
+        many => format!("Do you want to save the changes you made to {} files?", many.len()),
+    }
+}
+
 fn shown(path: Option<PathBuf>) -> String {
     path.map_or_else(|| "(could not be moved)".to_string(), |p| p.display().to_string())
 }
@@ -646,6 +704,13 @@ mod tests {
         assert!(d.offer("c", false));
         assert!(d.offer("d", true), "a flush writes at once");
         assert!(!d.offer("d", true));
+    }
+
+    #[test]
+    fn save_prompt_names_the_file_or_counts_the_files() {
+        use super::save_prompt_message;
+        assert_eq!(save_prompt_message(&["a.txt".to_string()]), "Do you want to save the changes you made to a.txt?");
+        assert_eq!(save_prompt_message(&["a.txt".to_string(), "b.txt".to_string()]), "Do you want to save the changes you made to 2 files?");
     }
 
     #[test]

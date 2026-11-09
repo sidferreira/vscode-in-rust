@@ -559,10 +559,12 @@ upstream = [
   "src/vs/workbench/services/workingCopy/common/workingCopyBackupTracker.ts",
   "src/vs/workbench/services/workingCopy/electron-browser/workingCopyBackupTracker.ts",
   "src/vs/workbench/contrib/files/browser/files.contribution.ts",
+  "src/vs/workbench/browser/parts/editor/editorGroupView.ts",
+  "src/vs/workbench/services/dialogs/browser/abstractFileDialogService.ts",
 ]
-rust = ["crates/vsr-app/src/session/backup.rs", "crates/vsr-app/src/session/runtime.rs"]
+rust = ["crates/vsr-app/src/session/backup.rs", "crates/vsr-app/src/session/runtime.rs", "crates/vsr-app/src/session/close.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "Hot exit (ADR-0040): one JSON backup per dirty file written atomically after a quiet second (crash safety) and on quit, restored as a dirty buffer, removed on save, moved to discarded/ when the tab is closed, damaged files kept aside; files.hotExit off / onExit / onExitAndWindowClose with a Save All / Don't Save / Cancel bar. Not ported: untitled and non-file working copies, backup meta (etag, orphaned), the shutdown veto dialogs of other working copy types, files.restoreUndoStack."
+notes = "Hot exit (ADR-0040): one JSON backup per dirty file written atomically after a quiet second (crash safety) and on quit, restored as a dirty buffer, removed on save, moved to discarded/ when the tab is closed, damaged files kept aside; files.hotExit off / onExit / onExitAndWindowClose with a Save All / Don't Save / Cancel bar. Closing a dirty tab asks the same bar first (session/close.rs: Save writes then closes, Don't Save moves the backup aside, Cancel keeps the tab; onFocusChange saves without asking). Not ported: untitled and non-file working copies, backup meta (etag, orphaned), the shutdown veto dialogs of other working copy types, files.restoreUndoStack."
 
 [[port]]
 id = "welcome-page"

@@ -114,7 +114,7 @@ impl Workbench {
     }
 
     /// Saves the editor at `index` if it is dirty and writable. Returns whether it was saved.
-    fn auto_save_editor(&mut self, index: usize) -> bool {
+    pub(crate) fn auto_save_editor(&mut self, index: usize) -> bool {
         let transforms = self.editor_settings.save_transforms(true);
         let save_conflict_ask = self.editor_settings.save_conflict_ask;
         let Some(e) = self.editors.open.get_mut(index) else {

@@ -9,8 +9,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
-use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+use gpui_kit::{Entity, MouseButton, TestAppContext, VisualTestContext};
 use vsr_editor::{Position, Selection};
 
 use super::backup::BackupStore;
@@ -291,6 +292,8 @@ fn cmd_w_remembers_the_view_state_and_a_reopen_before_the_next_tick_does_not_del
     tick(vcx);
     assert!(env.backups().exists(&env.root.join("a.txt")));
     vcx.simulate_keystrokes("cmd-w"); // the keyboard path, not the tab strip's close button
+    assert_eq!(titles(&wb, vcx), ["a.txt"], "a dirty tab asks first and stays open");
+    click(vcx, "close-prompt:discard"); // Don't Save: the backup is moved aside
     assert!(titles(&wb, vcx).is_empty());
     open(&wb, vcx, &env.root.join("a.txt")); // reopened before the next tick: clean, from disk
     assert!(!dirty_of(&wb, vcx, "a.txt"));
@@ -413,7 +416,9 @@ fn a_tab_closed_with_unsaved_changes_moves_its_backup_aside_instead_of_deleting_
     type_in_active(&wb, vcx, "KEEPME ");
     tick(vcx);
     tick(vcx);
-    wb.update(vcx, |wb, _| wb.close_tab(0));
+    wb.update(vcx, |wb, cx| wb.request_close_tab(0, cx));
+    vcx.run_until_parked();
+    click(vcx, "close-prompt:discard");
     tick(vcx);
     assert!(!env.backups().exists(&env.root.join("a.txt")), "it does not come back as a tab");
     let discarded: Vec<_> = fs::read_dir(env.data.join(format!("Backups/{}/discarded", path_key(&env.root)))).unwrap().collect();
@@ -634,4 +639,195 @@ fn a_workbench_without_an_installed_store_writes_nothing(cx: &mut TestAppContext
         assert!(wb.session.store.is_none() && wb.session.backups.is_none());
     });
     assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+}
+
+// ---- closing a tab with unsaved changes (ADR-0040, session/close.rs) ----------------------------
+
+fn bar_up(vcx: &mut VisualTestContext) -> bool {
+    vcx.run_until_parked();
+    vcx.debug_bounds("close-prompt").is_some()
+}
+
+fn discarded_count(env: &Env) -> usize {
+    fs::read_dir(env.data.join(format!("Backups/{}/discarded", path_key(&env.root)))).map(|d| d.count()).unwrap_or(0)
+}
+
+/// Writes `text` to `path` as another program would, with a modification time after the editor's.
+fn write_elsewhere(path: &Path, text: &str) {
+    fs::write(path, text).unwrap();
+    let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+    file.set_modified(SystemTime::now() + Duration::from_secs(20)).unwrap();
+}
+
+#[gpui_kit::test]
+fn cmd_w_on_a_clean_tab_closes_it_without_asking(cx: &mut TestAppContext) {
+    let env = env("close-clean", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    vcx.simulate_keystrokes("cmd-w");
+    assert!(titles(&wb, vcx).is_empty());
+    assert!(!bar_up(vcx));
+}
+
+#[gpui_kit::test]
+fn cmd_w_at_once_after_typing_asks_and_save_writes_the_file_then_closes(cx: &mut TestAppContext) {
+    let env = env("close-save", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "SAVE ");
+    vcx.simulate_keystrokes("cmd-w"); // before any backup was written
+    assert_eq!(titles(&wb, vcx), ["a.txt"], "still open");
+    assert!(dirty_of(&wb, vcx, "a.txt"));
+    assert!(bar_up(vcx), "the save bar asks");
+    click(vcx, "close-prompt:save");
+    assert!(titles(&wb, vcx).is_empty(), "saved, then closed");
+    assert!(!bar_up(vcx));
+    assert!(fs::read_to_string(env.root.join("a.txt")).unwrap().starts_with("SAVE line 1"), "the file on disk is updated");
+    tick(vcx);
+    tick(vcx);
+    assert!(!env.backups().exists(&env.root.join("a.txt")), "saved: no backup left");
+}
+
+#[gpui_kit::test]
+fn dont_save_closes_the_tab_leaves_the_disk_alone_and_moves_the_backup_aside(cx: &mut TestAppContext) {
+    let env = env("close-discard", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "DROP ");
+    tick(vcx);
+    tick(vcx);
+    assert!(env.backups().exists(&env.root.join("a.txt")), "a backup was written");
+    vcx.simulate_keystrokes("cmd-w");
+    assert!(bar_up(vcx));
+    click(vcx, "close-prompt:discard");
+    assert!(titles(&wb, vcx).is_empty(), "closed");
+    assert_eq!(fs::read_to_string(env.root.join("a.txt")).unwrap().lines().next(), Some("line 1"), "disk untouched");
+    tick(vcx);
+    tick(vcx);
+    assert!(!env.backups().exists(&env.root.join("a.txt")), "no backup left in place");
+    assert_eq!(discarded_count(&env), 1, "the text is kept aside, not deleted");
+    let (wb, vcx) = start(cx, &env);
+    assert!(titles(&wb, vcx).is_empty(), "and its tab does not come back on restart");
+}
+
+#[gpui_kit::test]
+fn dont_save_before_any_backup_leaves_nothing_behind(cx: &mut TestAppContext) {
+    let env = env("close-discard-early", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "EARLY ");
+    vcx.simulate_keystrokes("cmd-w");
+    click(vcx, "close-prompt:discard");
+    assert!(titles(&wb, vcx).is_empty());
+    tick(vcx);
+    tick(vcx);
+    assert!(!env.backups().exists(&env.root.join("a.txt")));
+    assert_eq!(discarded_count(&env), 0);
+    assert_eq!(fs::read_to_string(env.root.join("a.txt")).unwrap().lines().next(), Some("line 1"));
+}
+
+#[gpui_kit::test]
+fn cancel_keeps_the_dirty_tab_open_with_its_text(cx: &mut TestAppContext) {
+    let env = env("close-cancel", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "KEEP ");
+    vcx.simulate_keystrokes("cmd-w");
+    assert!(bar_up(vcx));
+    click(vcx, "close-prompt:cancel");
+    assert!(!bar_up(vcx));
+    assert_eq!(titles(&wb, vcx), ["a.txt"]);
+    assert!(dirty_of(&wb, vcx, "a.txt"));
+    assert!(value_of(&wb, vcx, "a.txt").starts_with("KEEP line 1"));
+    assert_eq!(fs::read_to_string(env.root.join("a.txt")).unwrap().lines().next(), Some("line 1"));
+}
+
+#[gpui_kit::test]
+fn the_tab_close_button_and_a_middle_click_ask_too(cx: &mut TestAppContext) {
+    let env = env("close-tab-button", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    open(&wb, vcx, &env.root.join("b.txt"));
+    type_in_active(&wb, vcx, "B ");
+    click(vcx, "tab-close:1");
+    assert_eq!(titles(&wb, vcx), ["a.txt", "b.txt"], "the close button asks: b.txt stays");
+    assert!(bar_up(vcx));
+    click(vcx, "close-prompt:cancel");
+
+    let b = vcx.debug_bounds("tab:1").expect("tab 1 is rendered").center();
+    vcx.simulate_mouse_down(b, MouseButton::Middle, Default::default());
+    vcx.simulate_mouse_up(b, MouseButton::Middle, Default::default());
+    vcx.run_until_parked();
+    assert_eq!(titles(&wb, vcx), ["a.txt", "b.txt"], "a middle click asks too");
+    assert!(bar_up(vcx));
+    click(vcx, "close-prompt:discard");
+    assert_eq!(titles(&wb, vcx), ["a.txt"]);
+
+    // A clean tab's close button closes at once.
+    click(vcx, "tab-close:0");
+    assert!(titles(&wb, vcx).is_empty());
+    assert!(!bar_up(vcx));
+}
+
+#[gpui_kit::test]
+fn a_dirty_tab_whose_file_changed_on_disk_stays_open_with_the_conflict_bar(cx: &mut TestAppContext) {
+    let env = env("close-conflict", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "MINE ");
+    write_elsewhere(&env.root.join("a.txt"), "theirs\n");
+    vcx.simulate_keystrokes("cmd-w");
+    assert!(bar_up(vcx));
+    click(vcx, "close-prompt:save");
+    assert_eq!(titles(&wb, vcx), ["a.txt"], "the save was refused: the tab stays");
+    assert_eq!(wb.read_with(vcx, |wb, _| wb.editor_view.save_conflict.clone()), Some(env.root.join("a.txt")), "and the conflict bar shows");
+    assert!(!bar_up(vcx));
+    assert_eq!(fs::read_to_string(env.root.join("a.txt")).unwrap(), "theirs\n", "nothing overwritten");
+    assert!(dirty_of(&wb, vcx, "a.txt"), "the text is still there");
+}
+
+#[gpui_kit::test]
+fn auto_save_after_delay_saves_before_a_later_close_so_no_prompt_shows(cx: &mut TestAppContext) {
+    let env = env("close-autosave", Some(r#"{ "files.autoSave": "afterDelay", "files.autoSaveDelay": 500 }"#));
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "AUTO ");
+    vcx.simulate_keystrokes("cmd-w"); // within the delay: upstream asks
+    assert!(bar_up(vcx));
+    click(vcx, "close-prompt:cancel");
+    vcx.executor().advance_clock(Duration::from_millis(600));
+    vcx.run_until_parked();
+    assert!(!dirty_of(&wb, vcx, "a.txt"), "auto save ran");
+    vcx.simulate_keystrokes("cmd-w");
+    assert!(titles(&wb, vcx).is_empty(), "saved: closes without a prompt");
+    assert!(!bar_up(vcx));
+    assert!(fs::read_to_string(env.root.join("a.txt")).unwrap().starts_with("AUTO line 1"));
+}
+
+#[gpui_kit::test]
+fn after_cancel_the_keyboard_stays_in_the_editor(cx: &mut TestAppContext) {
+    // A click on the bar's Cancel must not hand the keyboard to the workbench root.
+    let env = env("close-refocus", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "X ");
+    vcx.simulate_keystrokes("cmd-w");
+    click(vcx, "close-prompt:cancel");
+    vcx.simulate_keystrokes("x");
+    assert!(value_of(&wb, vcx, "a.txt").starts_with("X xline 1"), "typed keys reach the editor after Cancel");
+    vcx.simulate_keystrokes("cmd-w");
+    assert!(bar_up(vcx), "Cmd+W after Cancel asks again");
+    click(vcx, "close-prompt:cancel");
+}
+
+#[gpui_kit::test]
+fn on_focus_change_saves_a_dirty_tab_on_close_without_asking(cx: &mut TestAppContext) {
+    let env = env("close-focus", Some(r#"{ "files.autoSave": "onFocusChange" }"#));
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "FOCUS ");
+    vcx.simulate_keystrokes("cmd-w");
+    assert!(titles(&wb, vcx).is_empty(), "upstream saves on focus change instead of asking");
+    assert!(!bar_up(vcx));
+    assert!(fs::read_to_string(env.root.join("a.txt")).unwrap().starts_with("FOCUS line 1"));
 }

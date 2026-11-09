@@ -12,6 +12,8 @@ use vsr_search::SearchSettings;
 use vsr_search::settings::{CollapseResults, ExcludeMap};
 use vsr_settings::Configuration;
 
+use crate::theme::{Rgba8, hex};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LineNumbers {
@@ -193,6 +195,34 @@ pub fn parse_font_weight(value: &Value) -> f32 {
     n.filter(|n| (1.0..=1000.0).contains(n)).map_or(400.0, |n| n.round() as f32)
 }
 
+/// One entry of `editor.rulers`: a column, optionally with its own colour (`#rrggbb[aa]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ruler {
+    pub column: usize,
+    pub color: Option<Rgba8>,
+}
+
+/// `editor.rulers`: numbers and `{ column, color }` objects. Entries of any other shape, negative
+/// or fractional columns and unparsable colours are dropped (the ruler keeps the default colour
+/// when only the colour is wrong). Sorted by column, as upstream does.
+pub fn parse_rulers(value: Option<&Value>) -> Vec<Ruler> {
+    let Some(Value::Array(items)) = value else { return Vec::new() };
+    let mut rulers: Vec<Ruler> = items
+        .iter()
+        .filter_map(|item| match item {
+            Value::Number(_) => item.as_u64().map(|column| Ruler { column: column as usize, color: None }),
+            Value::Object(o) => {
+                let column = o.get("column")?.as_u64()? as usize;
+                let color = o.get("color").and_then(Value::as_str).and_then(hex);
+                Some(Ruler { column, color })
+            }
+            _ => None,
+        })
+        .collect();
+    rulers.sort_by_key(|r| r.column);
+    rulers
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct EditorSettings {
     pub font_size: f32,
@@ -210,6 +240,7 @@ pub struct EditorSettings {
     pub cursor_blinking: CursorBlinking,
     pub cursor_width: f32,
     pub render_whitespace: RenderWhitespace,
+    pub rulers: Vec<Ruler>,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
     pub find: FindSettings,
@@ -232,6 +263,7 @@ impl Default for EditorSettings {
             cursor_blinking: CursorBlinking::Blink,
             cursor_width: 0.0,
             render_whitespace: RenderWhitespace::Selection,
+            rulers: Vec::new(),
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             find: FindSettings::default(),
@@ -257,6 +289,7 @@ impl EditorSettings {
             cursor_blinking: c.get_enum("editor.cursorBlinking").unwrap_or(CursorBlinking::Blink),
             cursor_width: c.get_f64("editor.cursorWidth").unwrap_or(0.0) as f32,
             render_whitespace: c.get_enum("editor.renderWhitespace").unwrap_or(RenderWhitespace::Selection),
+            rulers: parse_rulers(c.get_value("editor.rulers")),
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             find: FindSettings::from_configuration(c),
@@ -374,6 +407,7 @@ mod tests {
         assert_eq!((e.cursor_style, e.cursor_blinking), (CursorStyle::Line, CursorBlinking::Blink));
         assert_eq!(e.line_cursor_width(), 2.0);
         assert_eq!(e.render_whitespace, RenderWhitespace::Selection);
+        assert!(e.rulers.is_empty());
         let l = LayoutSettings::from_configuration(&config(""));
         assert_eq!(l, LayoutSettings {
             side_bar: SideBarLocation::Left,
@@ -403,6 +437,7 @@ mod tests {
                  "files.insertFinalNewline": true, "editor.renderWhitespace": "boundary" }"#,
         ));
         assert_eq!(e.render_whitespace, RenderWhitespace::Boundary);
+        assert!(e.rulers.is_empty(), "no rulers unless configured");
         assert_eq!(e.font_size, 16.0);
         assert_eq!(e.line_height, 24.0);
         assert_eq!(e.line_numbers, LineNumbers::Relative);
@@ -440,6 +475,21 @@ mod tests {
         assert_eq!(e.font_family, "Menlo", "monospace maps to Menlo");
         e.resolve_font(|_| false);
         assert_eq!(e.font_family, "Fira Code", "nothing installed: first listed");
+    }
+
+    #[test]
+    fn rulers_accept_numbers_and_objects_and_drop_bad_entries() {
+        let e = EditorSettings::from_configuration(&config(
+            r##"{ "editor.rulers": [120, 80, { "column": 100, "color": "#ff000080" }, { "column": 4, "color": "red" },
+                 "x", -1, 10.5, { "color": "#000000" }] }"##,
+        ));
+        assert_eq!(e.rulers, [
+            Ruler { column: 4, color: None },
+            Ruler { column: 80, color: None },
+            Ruler { column: 100, color: Some(Rgba8(255, 0, 0, 0x80)) },
+            Ruler { column: 120, color: None },
+        ]);
+        assert!(parse_rulers(Some(&json!("80"))).is_empty(), "not an array");
     }
 
     #[test]

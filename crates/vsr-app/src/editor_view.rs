@@ -804,6 +804,19 @@ fn rows(
                     div().absolute().top_0().bottom_0().left(px(gutter)).right_0().bg(to_gpui(f.colors.range_highlight_bg)),
                 );
             }
+            // Rulers (`editor.rulers`): a 1px line after `column` characters, in every row.
+            for ruler in &cfg.rulers {
+                row = row.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left(px(gutter + ruler.column as f32 * space_w))
+                        .w(px(1.))
+                        .bg(to_gpui(ruler.color.unwrap_or(t.ruler_fg)))
+                        .debug_selector(|| format!("ruler:{}", ruler.column)),
+                );
+            }
             if is_active && (hl_content || hl_gutter) {
                 let left = if hl_content && !hl_gutter { gutter } else { 0.0 };
                 let mut highlight = div().absolute().top_0().bottom_0().left(px(left)).border_2().border_color(to_gpui(t.line_highlight_border));

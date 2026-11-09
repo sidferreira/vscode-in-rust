@@ -349,3 +349,15 @@ fn render_whitespace_marks_follow_the_setting_live(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("ws:1:2").is_none(), "none marks nothing, even when selected");
     assert!(cx.debug_bounds("ws:2:1").is_none());
 }
+
+#[gpui_kit::test]
+fn rulers_follow_the_setting_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "rulers", None, &[("a.txt", "x")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    assert!(cx.debug_bounds("ruler:5").is_none(), "no rulers by default");
+    set(cx, "editor.rulers", json!([5, { "column": 9, "color": "#ff0000" }]));
+    assert!(cx.debug_bounds("ruler:5").is_some());
+    assert!(cx.debug_bounds("ruler:9").is_some());
+    set(cx, "editor.rulers", json!([]));
+    assert!(cx.debug_bounds("ruler:5").is_none() && cx.debug_bounds("ruler:9").is_none());
+}

@@ -90,6 +90,8 @@ pub struct EditorView {
     cfg: EditorSettings,
     /// The Find widget (Cmd+F): state, model and text boxes.
     find: find::FindUi,
+    /// The bracket pair highlighted at the caret (`editor.matchBrackets`).
+    brackets: decorations::BracketCache,
 }
 
 impl EditorView {
@@ -196,7 +198,8 @@ impl EditorView {
                 }
                 let focused = list_focus.is_focused(window);
                 let find = view.find.highlights(e);
-                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref())
+                let pair = view.brackets.get(&e.path, e.buffer(), e.editor.version(), e.editor.selection().active, cfg.match_brackets);
+                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair)
             }),
         )
         .track_scroll(&scroll)
@@ -697,6 +700,7 @@ fn rows(
     caret_on: bool,
     focused: bool,
     find: Option<&find::Highlights<'_>>,
+    brackets: Option<(Position, Position)>,
 ) -> Vec<AnyElement> {
     let buf = e.buffer();
     let sel = e.editor.selection();
@@ -724,7 +728,14 @@ fn rows(
             let has_caret = is_active && caret_on;
             let found = find.map_or_else(Vec::new, |f| f.matches_on_line(line, buf.line_max_column(line)));
             let markers = decorations::whitespace_marks(text, cfg.render_whitespace, selected.map(|(from, to, _)| (from, to)));
-            let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty())
+            // The bracket boxes of this line (the pair's two brackets, when they are on it).
+            let bracket_cols: Vec<usize> = brackets
+                .into_iter()
+                .flat_map(|(a, b)| [a, b])
+                .filter(|p| p.line == line)
+                .map(|p| p.column)
+                .collect();
+            let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty() || !bracket_cols.is_empty())
                 .then(|| shape(window, cfg, &expanded))
                 .flatten();
             let x_at = |col: usize| -> f32 {
@@ -782,6 +793,21 @@ fn rows(
                     decorations::MarkKind::Space => mark.text_center(),
                     decorations::MarkKind::Tab => mark.text_left(),
                 });
+            }
+            for col in bracket_cols {
+                let (x0, x1) = (x_at(col), x_at(col + 1));
+                text_box = text_box.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(px(x0))
+                        .w(px((x1 - x0).max(0.0)))
+                        .h(px(lh))
+                        .bg(to_gpui(t.bracket_match_bg))
+                        .border_1()
+                        .border_color(to_gpui(t.bracket_match_border))
+                        .debug_selector(|| format!("bracket:{line}:{col}")),
+                );
             }
             text_box = text_box.text_color(to_gpui(t.editor_fg)).child(expanded);
             if has_caret {

@@ -382,3 +382,21 @@ fn indent_guides_follow_the_settings_live(cx: &mut TestAppContext) {
     set(cx, "editor.guides.indentation", json!(false));
     assert!(cx.debug_bounds("guide:2:0").is_none() && cx.debug_bounds("guide:3:1").is_none());
 }
+
+#[gpui_kit::test]
+fn match_brackets_follows_the_setting_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "brackets", None, &[("a.txt", "f(ab)")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    // The caret between `a` and `b`: `always` highlights the enclosing pair.
+    cx.simulate_keystrokes("right right right");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("bracket:1:2").is_some() && cx.debug_bounds("bracket:1:5").is_some());
+    set(cx, "editor.matchBrackets", json!("near"));
+    assert!(cx.debug_bounds("bracket:1:2").is_none(), "near: only a bracket next to the caret");
+    // Moving left puts the caret after `(`, so that bracket and its partner are highlighted.
+    cx.simulate_keystrokes("left");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("bracket:1:2").is_some() && cx.debug_bounds("bracket:1:5").is_some());
+    set(cx, "editor.matchBrackets", json!("never"));
+    assert!(cx.debug_bounds("bracket:1:2").is_none() && cx.debug_bounds("bracket:1:5").is_none());
+}

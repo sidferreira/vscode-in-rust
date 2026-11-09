@@ -10,9 +10,42 @@
 
 use std::ops::RangeInclusive;
 
+use std::path::{Path, PathBuf};
+
+use vsr_editor::{Position, matching_brackets};
 use vsr_text::TextBuffer;
 
-use crate::config::settings::RenderWhitespace;
+use crate::config::settings::{MatchBrackets, RenderWhitespace};
+
+/// The bracket pair to highlight, cached per document state and caret: the scan can cover the
+/// whole document (`editor.matchBrackets: always` searches for the enclosing pair), and the view
+/// paints on every caret blink.
+#[derive(Default)]
+pub struct BracketCache {
+    key: Option<(PathBuf, u64, Position, MatchBrackets)>,
+    pair: Option<(Position, Position)>,
+}
+
+impl BracketCache {
+    pub fn get(
+        &mut self,
+        path: &Path,
+        buf: &TextBuffer,
+        version: u64,
+        caret: Position,
+        mode: MatchBrackets,
+    ) -> Option<(Position, Position)> {
+        if mode == MatchBrackets::Never {
+            return None;
+        }
+        let key = (path.to_path_buf(), version, caret, mode);
+        if self.key.as_ref() != Some(&key) {
+            self.pair = matching_brackets(buf, caret, mode == MatchBrackets::Always);
+            self.key = Some(key);
+        }
+        self.pair
+    }
+}
 
 /// What a whitespace marker draws: a middle dot for a space, an arrow for a tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

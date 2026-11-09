@@ -8,6 +8,7 @@
 //! Positions are 1-based lines and UTF-16 columns (`vsr_text::Position`). Upstream
 //! port notes and simplifications are in each module's header.
 
+mod brackets;
 mod cursor_columns;
 mod edit_ops;
 mod editor;
@@ -18,6 +19,7 @@ mod selection;
 mod undo;
 mod word_ops;
 
+pub use brackets::matching_brackets;
 pub use editor::{Editor, EditorOptions};
 pub use selection::Selection;
 pub use vsr_text::{Position, Range};

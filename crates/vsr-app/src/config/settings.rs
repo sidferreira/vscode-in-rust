@@ -53,6 +53,16 @@ pub enum CursorBlinking {
     Solid,
 }
 
+/// `editor.matchBrackets`: `always` also highlights the enclosing pair, `near` only the bracket
+/// next to the caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MatchBrackets {
+    Always,
+    Near,
+    Never,
+}
+
 /// `editor.renderWhitespace`: which spaces and tabs get a marker (middle dot, arrow).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -255,6 +265,7 @@ pub struct EditorSettings {
     pub guides_indentation: bool,
     /// `editor.guides.highlightActiveIndentation` (`true` and `"always"` both highlight).
     pub guides_highlight_active: bool,
+    pub match_brackets: MatchBrackets,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
     pub find: FindSettings,
@@ -280,6 +291,7 @@ impl Default for EditorSettings {
             rulers: Vec::new(),
             guides_indentation: true,
             guides_highlight_active: true,
+            match_brackets: MatchBrackets::Always,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             find: FindSettings::default(),
@@ -308,6 +320,7 @@ impl EditorSettings {
             rulers: parse_rulers(c.get_value("editor.rulers")),
             guides_indentation: c.get_bool("editor.guides.indentation").unwrap_or(true),
             guides_highlight_active: parse_highlight_active(c.get_value("editor.guides.highlightActiveIndentation")),
+            match_brackets: c.get_enum("editor.matchBrackets").unwrap_or(MatchBrackets::Always),
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             find: FindSettings::from_configuration(c),
@@ -427,6 +440,7 @@ mod tests {
         assert_eq!(e.render_whitespace, RenderWhitespace::Selection);
         assert!(e.rulers.is_empty());
         assert!(e.guides_indentation && e.guides_highlight_active);
+        assert_eq!(e.match_brackets, MatchBrackets::Always);
         let l = LayoutSettings::from_configuration(&config(""));
         assert_eq!(l, LayoutSettings {
             side_bar: SideBarLocation::Left,

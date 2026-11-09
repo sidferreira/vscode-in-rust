@@ -12,8 +12,9 @@ use std::path::PathBuf;
 
 use gpui_kit::{Entity, TestAppContext, VisualTestContext};
 
-use super::{SettingsView, install};
+use super::{SettingsView, install, model};
 use crate::Workbench;
+use vsr_settings::{SettingsRegistry, TocNode};
 
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("rscode-e2e-{name}-{}", std::process::id()));
@@ -168,4 +169,59 @@ fn enum_dropdown_selects_a_value(cx: &mut TestAppContext) {
         vsr_settings::UserSettings::load(&settings).unwrap().get("editor.lineNumbers"),
         Some(&serde_json::json!("off"))
     );
+}
+
+/// The TOC node that lists `key` directly, skipping "Commonly Used" (which repeats settings).
+fn group_of<'a>(toc: &'a [TocNode], key: &str) -> Option<&'a TocNode> {
+    toc.iter().find_map(|n| {
+        if n.id != "commonlyUsed" && n.settings.iter().any(|k| k == key) {
+            Some(n)
+        } else {
+            group_of(&n.children, key)
+        }
+    })
+}
+
+#[gpui_kit::test]
+fn search_filters_the_toc_to_matching_groups_and_esc_restores_it(cx: &mut TestAppContext) {
+    let (wb, cx, _settings) = workbench(cx, "toc-search");
+    cx.simulate_keystrokes("cmd-,");
+    let view = view_of(&wb, cx);
+    let full = view.read_with(cx, |v, _| v.visible_toc());
+    assert!(full.iter().any(|(label, _)| label == "Commonly Used"));
+    assert!(full.iter().all(|(_, count)| count.is_none()), "no counts outside search");
+
+    cx.simulate_input("font size");
+    cx.run_until_parked();
+    let toc = view.read_with(cx, |v, _| v.visible_toc());
+    let registry = SettingsRegistry::load_default();
+    fn node_count(toc: &[TocNode]) -> usize {
+        toc.iter().map(|n| 1 + node_count(&n.children)).sum()
+    }
+    assert!(toc.len() < node_count(registry.toc()), "the TOC narrows while searching");
+    assert!(toc.iter().all(|(_, count)| count.is_some_and(|n| n > 0)), "only nodes with matches: {toc:?}");
+
+    // The group that holds editor.fontSize is listed, with the matches inside it.
+    let group = group_of(registry.toc(), "editor.fontSize").expect("editor.fontSize is in a group");
+    let listed = toc.iter().find(|(label, _)| *label == group.label).expect("its group is listed");
+    assert!(listed.1.is_some_and(|n| n >= 1));
+
+    let result_count = view.read_with(cx, |v, _| v.result_count());
+    assert_eq!(result_count, view.read_with(cx, |v, _| v.visible_keys()).len());
+
+    // Clicking a group filters the list to its settings; the header count is unchanged.
+    // debug_bounds takes a 'static selector; the leak is one short string in a test.
+    let row: &'static str = Box::leak(format!("toc:{}", group.id).into_boxed_str());
+    let bounds = cx.debug_bounds(row).expect("the group is listed in the TOC");
+    cx.simulate_click(bounds.center(), Default::default());
+    cx.run_until_parked();
+    let members = model::subtree_keys(registry.toc(), &group.id);
+    let filtered = view.read_with(cx, |v, _| v.visible_keys());
+    assert!(!filtered.is_empty() && filtered.iter().all(|k| members.contains(k)), "{filtered:?}");
+    assert_eq!(view.read_with(cx, |v, _| v.result_count()), result_count);
+
+    // Esc clears the search: the full TOC is back, collapsed and without counts.
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert_eq!(view.read_with(cx, |v, _| v.visible_toc()), full);
 }

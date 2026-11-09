@@ -84,6 +84,12 @@ pub struct SettingsView {
     scope: Scope,
     search: Entity<InputState>,
     query: String,
+    /// Setting keys matching the query, in rank order (unfiltered by the TOC category).
+    search_keys: Vec<String>,
+    /// The TOC node clicked while searching: the list shows only its settings (upstream `categoryFilter`).
+    category: Option<String>,
+    /// The TOC while searching: matching nodes with their counts.
+    search_toc: Vec<TocEntry>,
     rows: Vec<Row>,
     header_ix: HashMap<String, usize>,
     list: ListState,
@@ -135,6 +141,9 @@ impl SettingsView {
             scope: Scope::User,
             search,
             query: String::new(),
+            search_keys: Vec::new(),
+            category: None,
+            search_toc: Vec::new(),
             rows,
             header_ix,
             list,
@@ -169,6 +178,18 @@ impl SettingsView {
         &self.user
     }
 
+    /// Visible TOC lines as (label, count). Counts are `Some` only while searching.
+    #[cfg(test)]
+    pub fn visible_toc(&self) -> Vec<(String, Option<usize>)> {
+        self.toc_entries().into_iter().map(|e| (e.label, e.count)).collect()
+    }
+
+    /// Number of settings the current search found (the header's "N Settings Found").
+    #[cfg(test)]
+    pub fn result_count(&self) -> usize {
+        self.search_keys.len()
+    }
+
     /// Keys of the setting rows currently listed, in order.
     #[cfg(test)]
     pub fn visible_keys(&self) -> Vec<String> {
@@ -189,21 +210,57 @@ impl SettingsView {
         self.query = query;
         self.dropdown = None;
         self.menu = None;
-        self.rows = if self.searching() {
+        // A new query clears the TOC category (upstream: `categoryFilter = undefined`).
+        self.category = None;
+        self.search_keys = if self.searching() {
             // `@id:<key>` shows exactly that setting (upstream's id filter).
             match self.query.trim().strip_prefix("@id:") {
-                Some(id) => model::search_rows(self.registry.get(id.trim()).map(|s| s.key.as_str())),
-                None => model::search_rows(self.registry.search(&self.query).into_iter().map(|s| s.key.as_str())),
+                Some(id) => self.registry.get(id.trim()).map(|s| s.key.clone()).into_iter().collect(),
+                None => self.registry.search(&self.query).into_iter().map(|s| s.key.clone()).collect(),
             }
+        } else {
+            Vec::new()
+        };
+        self.search_toc = if self.searching() {
+            let matches: HashSet<&str> = self.search_keys.iter().map(String::as_str).collect();
+            model::flatten_search_toc(self.registry.toc(), &matches)
+        } else {
+            Vec::new()
+        };
+        self.refresh_rows();
+        if !self.searching() {
+            // Leaving search collapses the TOC and selects Commonly Used (upstream `collapseAll`).
+            self.toc_expanded.clear();
+            self.selected_toc = Some("commonlyUsed".into());
+        }
+        cx.notify();
+    }
+
+    /// Rebuild the list from the search results (narrowed to the TOC category, if any) or the full TOC.
+    fn refresh_rows(&mut self) {
+        self.rows = if self.searching() {
+            let keys: Vec<&str> = match &self.category {
+                Some(id) => {
+                    let group = model::subtree_keys(self.registry.toc(), id);
+                    self.search_keys.iter().filter(|k| group.contains(k.as_str())).map(String::as_str).collect()
+                }
+                None => self.search_keys.iter().map(String::as_str).collect(),
+            };
+            model::search_rows(keys)
         } else {
             model::build_rows(self.registry.toc())
         };
         self.header_ix = model::header_indices(&self.rows);
         self.list.reset(self.rows.len());
-        if !self.searching() {
-            self.selected_toc = Some("commonlyUsed".into());
+    }
+
+    /// The TOC lines to show: the matching nodes while searching, else the expandable full TOC.
+    fn toc_entries(&self) -> Vec<TocEntry> {
+        if self.searching() {
+            self.search_toc.clone()
+        } else {
+            model::flatten_toc(self.registry.toc(), &self.toc_expanded)
         }
-        cx.notify();
     }
 
     /// Replace the search text (for `#setting.id#` links and tests).
@@ -233,6 +290,14 @@ impl SettingsView {
 
     fn select_toc(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.searching() {
+            // Upstream `onDidChangeFocus`: the list is filtered to the node's settings and scrolled
+            // to the top (there are no group headers in search results to scroll to).
+            if self.category.as_deref() != Some(id) {
+                self.category = Some(id.to_string());
+                self.refresh_rows();
+            }
+            self.list.scroll_to(ListOffset { item_ix: 0, offset_in_item: px(0.) });
+            cx.notify();
             return;
         }
         self.selected_toc = Some(id.to_string());
@@ -808,7 +873,7 @@ impl SettingsView {
 
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = &self.theme;
-        let count = self.searching().then(|| match self.rows.len() {
+        let count = self.searching().then(|| match self.search_keys.len() {
             0 => "No Settings Found".to_string(),
             1 => "1 Setting Found".to_string(),
             n => format!("{n} Settings Found"),
@@ -875,11 +940,18 @@ impl SettingsView {
 
     fn toc(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = &self.theme;
-        let entries: Vec<TocEntry> = model::flatten_toc(self.registry.toc(), &self.toc_expanded);
+        let searching = self.searching();
+        let entries = self.toc_entries();
         let rows = entries.into_iter().enumerate().map(|(i, e)| {
-            let selected = self.selected_toc.as_deref() == Some(e.id.as_str()) && !self.searching();
+            // While searching, the selection is the clicked category; the TOC stays fully expanded.
+            let selected = if searching {
+                self.category.as_deref() == Some(e.id.as_str())
+            } else {
+                self.selected_toc.as_deref() == Some(e.id.as_str())
+            };
             let id_select = e.id.clone();
             let id_toggle = e.id.clone();
+            let debug_id = format!("toc:{}", e.id);
             let chevron = div()
                 .id(("toc-twistie", i))
                 .flex_none()
@@ -891,18 +963,22 @@ impl SettingsView {
                 .font_family(icons::FAMILY)
                 .text_size(px(16.))
                 .when(e.expandable, |d| {
-                    d.cursor_pointer()
-                        .child(icons::glyph(if e.expanded { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
+                    let d = d.cursor_pointer().child(icons::glyph(if e.expanded { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }));
+                    if searching {
+                        d
+                    } else {
+                        d.on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                             cx.stop_propagation();
                             if !this.toc_expanded.remove(&id_toggle) {
                                 this.toc_expanded.insert(id_toggle.clone());
                             }
                             cx.notify();
                         }))
+                    }
                 });
             div()
                 .id(format!("toc:{}", e.id))
+                .debug_selector(move || debug_id.clone())
                 .flex_none()
                 .h(px(22.))
                 .w_full()
@@ -917,6 +993,18 @@ impl SettingsView {
                 .when(!selected, |d| d.hover(|s| s.bg(to_gpui(t.list_hover_bg))))
                 .child(chevron)
                 .child(div().overflow_hidden().whitespace_nowrap().child(e.label.clone()))
+                // upstream `.settings-toc-count`: " (N)", opacity 0.8 of the row, margin-left 3px, not bold.
+                .when_some(e.count, |d, n| {
+                    let alpha = if selected { 0.8 } else { 0.72 };
+                    d.child(
+                        div()
+                            .flex_none()
+                            .ml(px(3.))
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(to_gpui(t.foreground).opacity(alpha))
+                            .child(format!("({n})")),
+                    )
+                })
                 .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                     if let Some(true) = this.registry.toc().iter().find(|n| n.id == id_select).map(|n| !n.children.is_empty()) {
                         this.toc_expanded.insert(id_select.clone());
@@ -948,7 +1036,7 @@ impl SettingsView {
                 .child("Workspace settings are not supported yet.")
                 .into_any_element();
         }
-        if self.searching() && self.rows.is_empty() {
+        if self.searching() && self.search_keys.is_empty() {
             return div()
                 .id("settings-no-results")
                 .flex_1()

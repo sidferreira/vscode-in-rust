@@ -20,7 +20,7 @@
 //! Known gaps: multi-cursor, word wrap, syntax colors, horizontal reveal of the caret,
 //! drag auto-scroll, IME candidate-window placement precision.
 
-mod find;
+pub(crate) mod find;
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -99,6 +99,18 @@ impl EditorView {
             self.focused_for = None;
         }
         self.marked = None;
+    }
+
+    /// Give the editor surface focus (editor commands run from the palette act on it).
+    pub fn focus(&self, window: &mut Window, cx: &mut App) {
+        if let Some(f) = &self.focus {
+            f.focus(window, cx);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn find_is_open(&self) -> bool {
+        self.find.is_open()
     }
 
     /// Bring the caret of `e` into view (centred) and make the editor take focus on the next

@@ -15,3 +15,4 @@ vsr-settings = { path = "crates/vsr-settings" }
 vsr-search = { path = "crates/vsr-search" }
 vsr-quickinput = { path = "crates/vsr-quickinput" }
 vsr-find = { path = "crates/vsr-find" }
+vsr-commands = { path = "crates/vsr-commands" }

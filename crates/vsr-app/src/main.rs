@@ -5,11 +5,13 @@
 //!
 //! upstream: src/vs/workbench/browser/layout.ts @ 50e1350fc78d
 
+mod commands; // command registry + Command Palette (ADR-0030)
 mod config;
 mod editor_view;
 mod icons;
 mod keymap;
 mod model;
+mod quick_access; // Command Palette, Go to Line, help on the Quick Pick (ADR-0030)
 mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
 mod search_view; // Search view (ADR-0023)
@@ -53,6 +55,7 @@ fn main() {
         editor_view::init(cx); // editor key bindings
         search_view::init(cx); // Shift+Cmd+F and Search view bindings
         quick_open::init(cx); // Cmd+P
+        commands::init(cx); // command registry; Shift+Cmd+P, F1, Cmd+B, Shift+Cmd+E, Ctrl+G
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -151,6 +154,7 @@ impl Workbench {
         if !cx.has_global::<AppConfig>() {
             AppConfig::install(cx, None); // in memory: tests and embedders that set no file
         }
+        commands::ensure_installed(cx);
         let configuration = AppConfig::get(cx).configuration();
         let exclude = ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null));
         let editor_settings = EditorSettings::from_configuration(configuration);
@@ -985,6 +989,11 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &quick_open::GoToFile, window, cx| this.show_quick_open(window, cx)))
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)))
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| this.focus_search(window, cx)))
+            .on_action(cx.listener(|this, _: &commands::ShowCommands, window, cx| this.show_quick_access(">", window, cx)))
+            .on_action(cx.listener(|this, _: &commands::GoToLine, window, cx| this.show_quick_access(":", window, cx)))
+            .on_action(cx.listener(|this, _: &commands::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
+            .on_action(cx.listener(|this, _: &commands::ShowExplorer, _, cx| this.show_explorer(cx)))
+            .on_action(cx.listener(|this, _: &commands::ClearCommandHistory, _, cx| this.clear_command_history(cx)))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {

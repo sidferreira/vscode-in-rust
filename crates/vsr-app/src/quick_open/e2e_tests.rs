@@ -37,6 +37,7 @@ fn start<'a>(cx: &'a mut TestAppContext, name: &str) -> (Entity<Workbench>, &'a 
         crate::editor_view::init(cx);
         crate::search_view::init(cx);
         crate::quick_open::init(cx);
+        crate::commands::init(cx);
         AppConfig::install(cx, None); // in memory: never the real settings file
     });
     let dir = workspace(name);

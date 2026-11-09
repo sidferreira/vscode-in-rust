@@ -122,6 +122,11 @@ pub struct Theme {
     pub widget_border: Rgba8,                 // widget.border (dark_modern)
     pub list_highlight_fg: Rgba8,             // list.highlightForeground (registry dark)
     pub list_focus_highlight_fg: Rgba8,       // list.focusHighlightForeground (= list.highlightForeground)
+    // ---- Key binding labels (keybindingLabel.css, inputColors.ts) ----
+    pub keybinding_label_bg: Rgba8,           // keybindingLabel.background (registry dark: #808080 @ 17%)
+    pub keybinding_label_fg: Rgba8,           // keybindingLabel.foreground (dark_modern)
+    pub keybinding_label_border: Rgba8,       // keybindingLabel.border (registry dark: #333333 @ 60%)
+    pub keybinding_label_bottom_border: Rgba8, // keybindingLabel.bottomBorder (registry dark: #444444 @ 60%)
 }
 
 impl Theme {
@@ -209,6 +214,10 @@ impl Theme {
             widget_border: c("#313131"),
             list_highlight_fg: c("#2AAAFF"),
             list_focus_highlight_fg: c("#2AAAFF"),
+            keybinding_label_bg: c("#8080802B"),
+            keybinding_label_fg: c("#CCCCCC"),
+            keybinding_label_border: c("#33333399"),
+            keybinding_label_bottom_border: c("#44444499"),
         }
     }
 }

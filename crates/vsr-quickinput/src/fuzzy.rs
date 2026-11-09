@@ -927,7 +927,7 @@ fn fallback_compare<T>(a: &T, b: &T, query: &PreparedQuery, accessor: &dyn ItemA
 
 /// Natural comparison (digit runs by value), ignoring case: stands in for the numeric,
 /// base-sensitivity `Intl.Collator` of comparers.ts.
-fn collate(a: &str, b: &str) -> Ordering {
+pub fn collate(a: &str, b: &str) -> Ordering {
     let (a, b) = (lower_chars(&chars(a)), lower_chars(&chars(b)));
     let (mut i, mut j) = (0, 0);
     while i < a.len() && j < b.len() {

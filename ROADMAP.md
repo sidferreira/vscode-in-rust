@@ -3,16 +3,17 @@
 Priority order set by the user (2026-11-09). Work top to bottom; details and rationale in
 `DECISIONS.md`, research in `docs/research/`.
 
-1. **Search** (in progress)
+1. **Search** (done)
    - [x] Search view / find in files on the ripgrep libraries, search.* settings wired (ADR-0023)
    - [x] In-editor Find widget: Cmd+F / Alt+Cmd+F, replace, find in selection (ADR-0027)
-   - [x] Quick Open files (Cmd+P), on a reusable Quick Pick (ADR-0028); the Command Palette (Shift+Cmd+P) reuses it
+   - [x] Quick Open files (Cmd+P), on a reusable Quick Pick (ADR-0028)
    - [x] Replace in the Search view: replace input, Preserve Case, Replace All with confirmation, inline preview, per-match / per-file replace (ADR-0029)
-   - Next: Command Palette (Shift+Cmd+P)
-2. **Settings migration**
+   - [x] Command Palette (Shift+Cmd+P, F1) on a shared command registry, Go to Line (Ctrl+G), Cmd+B, `>` `:` `?` prefixes (ADR-0030)
+2. **Settings migration** (in progress)
    - [x] Configuration service + live reload: settings take effect (ADR-0022)
-   - Map all ~2062 settings (`scripts/settings-port`), then migrate feature group by group,
-     each with a headless test proving the effect
+   - [x] Map all 2062 settings with a status per setting (`scripts/settings-port`, ADR-0025)
+   - In progress: migrate feature group by group, each with a headless test proving the effect
+     (minimap, editor rendering basics; next: workbench.editor tab behaviour)
 3. **Extensions** (ADR-0020)
    - P0 Node extension-host handshake → P1 ErrorLens → oxc (LSP) → TS / XML / Kotlin →
      GitLens → Claude Code → GitHub Pull Requests

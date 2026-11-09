@@ -1,0 +1,9 @@
+[package]
+name = "vsr-commands"
+description = "UI-free command registry (CommandsRegistry + command palette metadata), context-key expressions and command history"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

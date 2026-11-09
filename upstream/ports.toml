@@ -340,3 +340,69 @@ upstream = [
 rust = ["crates/vsr-app/src/quick_open.rs", "crates/vsr-quickinput/src/open.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Quick Open / Go to File (Cmd+P): recently opened first, file results by fuzzy score (top 512), history matched contiguously, path:line:column suffix, settings closeOnFocusLost/preserveInput/includeHistory/history.filterSortOrder. File list from the ignore walker + vsr-search FileFilter (files.exclude, search.exclude, ignore files), rebuilt in the background on open. Not ported: symbols (@, #), open to the side, remove from history, absolute path results, links, persisted history, file icons, preview/pinned editors."
+
+[[port]]
+id = "commands-registry"
+status = "partial"
+upstream = [
+  "src/vs/platform/commands/common/commands.ts",
+  "src/vs/platform/commands/test/common/commands.test.ts",
+  "src/vs/platform/actions/common/actions.ts",
+  "src/vs/platform/contextkey/common/contextkey.ts",
+  "src/vs/base/common/keybindingLabels.ts",
+  "src/vs/platform/keybinding/common/usLayoutResolvedKeybinding.ts",
+  "src/vs/workbench/browser/actions/layoutActions.ts",
+  "src/vs/workbench/browser/actions/quickAccessActions.ts",
+]
+rust = [
+  "crates/vsr-commands/src/registry.rs",
+  "crates/vsr-commands/src/when.rs",
+  "crates/vsr-commands/src/history.rs",
+  "crates/vsr-commands/src/keybinding.rs",
+  "crates/vsr-app/src/commands.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Command registry (ADR-0030): CommandsRegistry (ids, override stack with dispose, handler generic), the palette metadata of Action2 (title, category, f1, precondition, description), a small context-key expression language (key, !, ==, !=, &&, ||), CommandsHistory (LRU with counter, workbench.commandPalette.history), UILabelProvider for macOS (⌃⇧⌥⌘ + key). vsr-app registers every action the app has under its VS Code id (editor motions and edits from keymap.rs, Find, Search view, Quit, Cmd+B toggle side bar, Show Explorer/Search, Settings, Go to File/Line); handlers dispatch the gpui action, key bindings are read from gpui's keymap. 2 of 4 commands.test.ts tests ported (no-handler and argument-validation tests are not applicable). Not ported: onDidRegisterCommand, command aliases, argument metadata/validation, MenuRegistry/menus, keybinding weights and user keybindings.json, regexp/in/< > context key operators."
+
+[[port]]
+id = "command-palette"
+status = "partial"
+upstream = [
+  "src/vs/platform/quickinput/browser/commandsQuickAccess.ts",
+  "src/vs/workbench/contrib/quickaccess/browser/commandsQuickAccess.ts",
+  "src/vs/platform/quickinput/browser/helpQuickAccess.ts",
+  "src/vs/platform/quickinput/common/quickAccess.ts",
+  "src/vs/workbench/test/browser/quickAccess.test.ts",
+  "src/vs/base/browser/ui/keybindingLabel/keybindingLabel.css",
+]
+rust = [
+  "crates/vsr-quickinput/src/commands.rs",
+  "crates/vsr-quickinput/src/quick_access.rs",
+  "crates/vsr-app/src/quick_access.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Command Palette (Shift+Cmd+P, F1) and Quick Access prefix routing (ADR-0030): '>' commands, '' files, ':' go to line, '?' help, longest-prefix provider registry with when, one Quick Pick switching provider as the text changes. Labels Category: Title, key binding boxes on the right (keybindingLabel colors), recently used first with separators, or(matchesBaseContiguousSubString, matchesWords) filter, exact command id match, duplicate labels show the id, Developer category last, localeCompare order, workbench.commandPalette.history / preserveInput. Ports the registry and registry-when tests of quickAccess.test.ts (the provider life-cycle tests need picker disposal semantics we do not have). Not ported: tf-idf similar commands, suggested/commonly used, alias line (localized builds), remove-from-history button, AI picks, persisted history, confirmation dialog of Clear Command History, view/symbol/text-search providers."
+
+[[port]]
+id = "goto-line"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/quickAccess/browser/gotoLineQuickAccess.ts",
+  "src/vs/editor/contrib/quickAccess/test/browser/gotoLineQuickAccess.test.ts",
+  "src/vs/workbench/contrib/codeEditor/browser/quickaccess/gotoLineQuickAccess.ts",
+]
+rust = ["crates/vsr-quickinput/src/goto_line.rs", "crates/vsr-quickinput/tests/upstream_goto_line.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Go to Line/Column (Ctrl+G, ':'): parsePosition with line, line:col / line,col / line#col, negative values, visible columns with tabs, ::offset (1-based; the zero-based toggle is only a parameter), same prompt texts. Both gotoLineQuickAccess tests ported. Not ported: live reveal and decoration while typing, the zero-based offset button and its storage, accepting in the background, relative line numbers handling, open to the side."
+
+[[port]]
+id = "quickinput-filters"
+status = "partial"
+upstream = [
+  "src/vs/base/common/filters.ts",
+  "src/vs/base/test/common/filters.test.ts",
+  "src/vs/base/common/normalization.ts",
+]
+rust = ["crates/vsr-quickinput/src/filters.rs", "crates/vsr-quickinput/tests/upstream_filters.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "matchesContiguousSubString, matchesBaseContiguousSubString, matchesWords (memoised, as upstream), or, with tryNormalizeToBase as an accent table for Latin-1 and Latin Extended-A instead of full NFD. 6 of the filters.test.ts tests ported (or, PrefixFilter ignore case, matchesContiguousSubString, matchesBaseContiguousSubString, WordFilter, matchesWords performance). Not ported: camel case, strict prefix, matchesSubString, matchesFuzzy, fuzzyScore* suites (fuzzyScore itself lives in fuzzy.rs), Korean alternate characters."

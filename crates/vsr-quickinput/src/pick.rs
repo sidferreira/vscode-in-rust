@@ -23,6 +23,11 @@ pub struct PickItem {
     pub label_highlights: Vec<Match>,
     /// Char ranges of `description` to highlight.
     pub description_highlights: Vec<Match>,
+    /// The caller's own payload (the id of a command, the prefix of a help entry).
+    pub value: Option<String>,
+    /// The key binding shown on the right (`IQuickPickItem.keybinding`): one entry per chord, one
+    /// string per key of the chord (`["⇧", "⌘", "P"]`), each drawn as its own box.
+    pub keybinding: Vec<Vec<String>>,
 }
 
 impl PickItem {

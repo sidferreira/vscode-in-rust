@@ -25,7 +25,8 @@ scripts/cargo-firewall-fetch     # fetch deps through the package firewall
 | `vsr-text` | text buffer, Position/Range | `src/vs/editor/common/{core,model}` |
 | `vsr-editor` | cursor, selection, typing, undo/redo (UI-free) | `src/vs/editor/common/cursor/*` |
 | `vsr-search` | find-in-files engine on the ripgrep libraries (UI-free) | `src/vs/workbench/services/search/{common,node}` |
-| `vsr-quickinput` | fuzzy scorer, quick pick model and quick open picks (UI-free) | `src/vs/base/common/fuzzyScorer.ts`, `src/vs/platform/quickinput`, `anythingQuickAccess.ts` |
+| `vsr-quickinput` | fuzzy scorer, word filters, quick pick model, quick open / command palette / go to line picks, quick access registry (UI-free) | `src/vs/base/common/fuzzyScorer.ts`, `src/vs/platform/quickinput`, `anythingQuickAccess.ts` |
+| `vsr-commands` | command registry (`CommandsRegistry`, palette metadata, preconditions, history, key binding labels) (UI-free) | `src/vs/platform/commands`, `src/vs/platform/actions`, `src/vs/platform/contextkey` |
 | `vsr-find` | editor Find / Replace model: matches, N of M, next/prev, replace one/all (UI-free) | `src/vs/editor/contrib/find/browser/{findModel,findState,replacePattern}.ts` |
 | `vsr-settings` | settings registry, `settings.json`, effective configuration (defaults + user, change events) | `src/vs/platform/configuration/common/*`, `workbench/contrib/preferences` |
 | `vsr-app` | native workbench window (gpui via gpui-kit); `RSCODE_USER_DATA_DIR=<dir>` redirects settings.json to `<dir>/User/` | `src/vs/workbench/browser/layout.ts`, `dark_modern.json` |

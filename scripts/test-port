@@ -21,6 +21,7 @@ counted once.
 import argparse
 import bisect
 import collections
+import json
 import os
 import re
 import subprocess
@@ -660,7 +661,8 @@ def cmd_inventory(args, inv):
                 f["path"], f["area"], f["layer"], len(f["suites"]), len(f["tests"])))
 
 
-def cmd_status(args, inv, root):
+def status_data(inv, root):
+    """Compute everything `status` reports; text and --json are both rendered from this."""
     headers, refs = scan_rust(root)
     index, matched, orphans, mismatched = match_refs(inv, headers, refs)
     pf = ported_per_file(inv, index, matched)
@@ -668,14 +670,6 @@ def cmd_status(args, inv, root):
     total = sum(t for _, t in pf.values())
     ported = sum(p for p, _ in pf.values())
     touched = sum(1 for p, _ in pf.values() if p)
-    print("upstream %s (ref %s): %d files, %d tests (dynamic excluded from ported %%)"
-          % (short(inv["commit"]), inv["ref"], len(files), total))
-    print("rust: %d `// upstream:` refs in %d files, %d header lines in %d files"
-          % (len(refs), len({r[0] for r in refs}), sum(len(v) for v in headers.values()),
-             len(headers)))
-    print("ported: %d / %d tests (%s); upstream files touched: %d"
-          % (ported, total, pct(ported, total).strip(), touched))
-    print()
     agg = collections.OrderedDict()
     for f in files:
         a = agg.setdefault(f["area"], [0, 0, 0, set()])
@@ -684,6 +678,55 @@ def cmd_status(args, inv, root):
         a[1] += t
         a[2] += p
         a[3].add(f["layer"])
+    stale = stale_headers(inv["clone"], inv, headers) if "clone" in inv else []
+    changed = [r for r in stale if r[2] != "unchanged"]
+    return {
+        "headers": headers, "refs": refs, "orphans": orphans, "mismatched": mismatched,
+        "pf": pf, "files": files, "total": total, "ported": ported, "touched": touched,
+        "agg": agg, "stale": stale, "changed": changed,
+    }
+
+
+def status_json(inv, d):
+    layers = collections.OrderedDict()
+    for f in d["files"]:
+        p, t = d["pf"][f["path"]]
+        row = layers.setdefault(f["layer"], {"tests": 0, "ported": 0})
+        row["tests"] += t
+        row["ported"] += p
+    areas = [{"area": area, "layers": sorted(a[3]), "files": a[0], "tests": a[1], "ported": a[2]}
+             for area, a in d["agg"].items()]
+    return {
+        "upstream": {"commit": inv["commit"], "ref": inv["ref"], "files": len(d["files"]),
+                     "tests": d["total"]},
+        "rust": {"refs": len(d["refs"]), "refFiles": len({r[0] for r in d["refs"]}),
+                 "headerLines": sum(len(v) for v in d["headers"].values()),
+                 "headerFiles": len(d["headers"])},
+        "ported": d["ported"], "total": d["total"], "touched": d["touched"],
+        "areas": areas,
+        "layers": [dict(layer=k, **v) for k, v in layers.items()],
+        "orphans": len(d["orphans"]),
+        "mismatched": len(d["mismatched"]),
+        "staleHeaders": len(d["stale"]),
+        "changedHeaders": len(d["changed"]),
+    }
+
+
+def cmd_status(args, inv, root):
+    d = status_data(inv, root)
+    if getattr(args, "json", False):
+        print(json.dumps(status_json(inv, d), indent=2))
+        return
+    headers, refs, pf, files = d["headers"], d["refs"], d["pf"], d["files"]
+    total, ported, touched, agg = d["total"], d["ported"], d["touched"], d["agg"]
+    print("upstream %s (ref %s): %d files, %d tests (dynamic excluded from ported %%)"
+          % (short(inv["commit"]), inv["ref"], len(files), total))
+    print("rust: %d `// upstream:` refs in %d files, %d header lines in %d files"
+          % (len(refs), len({r[0] for r in refs}), sum(len(v) for v in headers.values()),
+             len(headers)))
+    print("ported: %d / %d tests (%s); upstream files touched: %d"
+          % (ported, total, pct(ported, total).strip(), touched))
+    print()
     rows = [(area, ",".join(sorted(a[3])), a[0], a[1], a[2], pct(a[2], a[1]))
             for area, a in sorted(agg.items(), key=lambda kv: -kv[1][2])
             if a[2] or args.all_files]
@@ -695,15 +738,15 @@ def cmd_status(args, inv, root):
         if p or args.all_files:
             print("  %-100s %4d / %-4d %s" % (f["path"], p, t, pct(p, t).strip()))
     print()
-    print("orphans (refs that match no upstream test): %d" % len(orphans))
-    for rel, line, key, hp in orphans:
+    print("orphans (refs that match no upstream test): %d" % len(d["orphans"]))
+    for rel, line, key, hp in d["orphans"]:
         print("  %s:%d  %s  [header: %s]" % (rel, line, key, ", ".join(hp) or "none"))
-    print("refs whose title is in an upstream file not named in their header: %d" % len(mismatched))
-    for rel, line, key, where in mismatched:
+    print("refs whose title is in an upstream file not named in their header: %d"
+          % len(d["mismatched"]))
+    for rel, line, key, where in d["mismatched"]:
         print("  %s:%d  %s  (upstream: %s)" % (rel, line, key, ", ".join(where)))
     print()
-    stale = stale_headers(inv["clone"], inv, headers) if "clone" in inv else []
-    changed = [r for r in stale if r[2] != "unchanged"]
+    stale, changed = d["stale"], d["changed"]
     print("header files: %d; changed or missing upstream since their sha: %d"
           % (len(stale), len(changed)))
     for p, sha, state, rels in changed:
@@ -854,6 +897,8 @@ def main(argv=None):
     s.add_argument("--files", action="store_true", help="list every file")
     s = sub.add_parser("status")
     s.add_argument("--all-files", action="store_true")
+    s.add_argument("--json", action="store_true",
+                   help="print the status as JSON (totals, per area and layer, orphans)")
     s = sub.add_parser("next")
     s.add_argument("--area")
     s.add_argument("--n", type=int, default=20)

@@ -5,7 +5,7 @@ A for-fun re-implementation of VS Code in Rust with a native UI, built by LLM ag
 Not affiliated with Microsoft; not for sale.
 
 - Upstream reference: `../vscode-original` (pinned in `UPSTREAM.md`)
-- Decisions: [`DECISIONS.md`](DECISIONS.md) · Research: [`docs/research/`](docs/research)
+- Decisions: [`DECISIONS.md`](DECISIONS.md) · Research: [`docs/research/`](docs/research) · Progress: [`docs/progress.html`](docs/progress.html)
 
 Homebrew's rustup keeps `cargo` outside the default PATH; prefix commands with
 `PATH=/opt/homebrew/opt/rustup/bin:$PATH` (or add that to your shell profile).

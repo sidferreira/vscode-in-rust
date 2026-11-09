@@ -92,6 +92,9 @@ fn model_builder_t1() { ... }
   `// upstream:` comment as the link.
 - E2E scenario ids are `<area>/<n>` in the markdown table, where `n` is the row number.
 
+Progress page (`docs/progress.html`, history in `docs/progress-history.json`): regenerate with
+`python3 -I scripts/progress-report --clone <upstream clone> --with-tests` (the `--with-tests` run is slow).
+
 ## Using scripts/test-port
 
 Run from the repo root. Needs the upstream clone (`../vscode-original`, or `--clone PATH` or

@@ -1,0 +1,718 @@
+#!/usr/bin/env python3
+"""progress-report: generate docs/progress.html, a self-contained progress page for rscode.
+
+Stdlib-only, Python >= 3.8. Run from the repo root: python3 -I scripts/progress-report
+[--clone PATH] [--with-tests]. It reads ROADMAP.md, DECISIONS.md, upstream/ports.toml,
+tests/e2e-scenarios/*.md, git, and the --json output of scripts/settings-port and
+scripts/test-port (upstream clone read-only). It appends a snapshot to
+docs/progress-history.json (one per commit sha) and rewrites docs/progress.html.
+It never opens a browser or any window.
+"""
+
+import argparse
+import collections
+import datetime
+import glob
+import html
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+ROADMAP = os.path.join(REPO_ROOT, "ROADMAP.md")
+DECISIONS = os.path.join(REPO_ROOT, "DECISIONS.md")
+PORTS = os.path.join(REPO_ROOT, "upstream", "ports.toml")
+SCENARIOS_DIR = os.path.join(REPO_ROOT, "tests", "e2e-scenarios")
+HTML_OUT = os.path.join(REPO_ROOT, "docs", "progress.html")
+HISTORY = os.path.join(REPO_ROOT, "docs", "progress-history.json")
+SETTINGS_PORT = os.path.join(SCRIPT_DIR, "settings-port")
+TEST_PORT = os.path.join(SCRIPT_DIR, "test-port")
+UPSTREAM_SYNC = os.path.join(SCRIPT_DIR, "upstream-sync")
+RUSTUP_BIN = "/opt/homebrew/opt/rustup/bin"
+COMMAND = "python3 -I scripts/progress-report --clone <upstream clone> --with-tests"
+
+
+def load_module(name, path):
+    """Load an extensionless stdlib-only script as a module (the same way the tests do)."""
+    loader = importlib.machinery.SourceFileLoader(name, path)
+    spec = importlib.util.spec_from_loader(name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+# ---------------------------------------------------------------- parsers (pure)
+
+ROADMAP_SECTION = re.compile(r"^(\d+)\.\s+\*\*(.+?)\*\*\s*(.*)$")
+ROADMAP_ITEM = re.compile(r"^\s+-\s+(\[( |x|X)\]\s+)?(.*)$")
+
+
+def parse_roadmap(text):
+    """Numbered `**Section**` entries; indented `- [x]` (done) / `- ` (open) items."""
+    sections, cur, item = [], None, None
+    for line in text.splitlines():
+        m = ROADMAP_SECTION.match(line)
+        if m:
+            trailer = m.group(3).strip()
+            cur = {"num": int(m.group(1)), "title": m.group(2).strip(), "trailer": trailer,
+                   "current": "in progress" in trailer.lower(), "items": []}
+            sections.append(cur)
+            item = None
+            continue
+        if cur is None:
+            continue
+        if not line.strip():
+            item = None
+            continue
+        if not line[:1].isspace():  # column-0 prose ends the section
+            cur, item = None, None
+            continue
+        m = ROADMAP_ITEM.match(line)
+        if m:
+            item = {"text": m.group(3).strip(), "done": (m.group(2) or "").lower() == "x"}
+            cur["items"].append(item)
+        elif item is not None:  # wrapped continuation line
+            item["text"] += " " + line.strip()
+    return sections
+
+
+def split_row(line):
+    cells = re.split(r"(?<!\\)\|", line.strip())
+    if cells and cells[0] == "":
+        cells = cells[1:]
+    if cells and cells[-1] == "":
+        cells = cells[:-1]
+    return [c.strip() for c in cells]
+
+
+def scenario_bucket(status):
+    word = (status.split() or [""])[0].lower()
+    for key in ("ready", "pending", "blocked"):
+        if word.startswith(key):
+            return key
+    return "other"
+
+
+def parse_scenario_text(name, text):
+    """One e2e scenario file: the table whose header has a `status` column."""
+    heading = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), name)
+    title = re.sub(r"\s+e2e scenarios\s*$", "", heading, flags=re.I)
+    counts = collections.Counter()
+    status_idx = None
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = split_row(line)
+        if status_idx is None:
+            lowered = [c.lower() for c in cells]
+            if "status" in lowered:
+                status_idx = lowered.index("status")
+            continue
+        if cells and cells[0].isdigit() and len(cells) > status_idx:
+            counts[scenario_bucket(cells[status_idx])] += 1
+    row = {"area": name, "title": title}
+    for key in ("ready", "pending", "blocked", "other"):
+        row[key] = counts[key]
+    row["total"] = sum(counts.values())
+    return row
+
+
+def parse_scenarios(paths):
+    rows = []
+    for path in paths:
+        name = os.path.splitext(os.path.basename(path))[0]
+        with open(path, encoding="utf-8") as fh:
+            rows.append(parse_scenario_text(name, fh.read()))
+    return rows
+
+
+ADR_RE = re.compile(r"^## ADR-(\d+)\s+—\s+(.+?)\s*(?:\((\d{4}-\d{2}-\d{2})\))?\s*$")
+
+
+def parse_decisions(text):
+    adrs = []
+    for line in text.splitlines():
+        m = ADR_RE.match(line)
+        if m:
+            adrs.append({"num": int(m.group(1)), "title": m.group(2), "date": m.group(3) or ""})
+    return sorted(adrs, key=lambda a: a["num"], reverse=True)
+
+
+def parse_ports(data):
+    """`data` is the dict from upstream-sync's parse_toml(ports.toml)[0]."""
+    rows = []
+    for p in data.get("port", []):
+        rows.append({"id": p.get("id", ""), "status": p.get("status", "planned"),
+                     "upstream": len(p.get("upstream", [])), "rust": len(p.get("rust", []))})
+    counts = {"planned": 0, "partial": 0, "ported": 0}
+    for r in rows:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    return {"rows": rows, "counts": counts}
+
+
+def parse_rust_results(text):
+    """Sum the `test result:` lines of every cargo test binary."""
+    passed = failed = suites = 0
+    for m in re.finditer(r"^test result: \w+\. (\d+) passed; (\d+) failed", text, re.M):
+        passed += int(m.group(1))
+        failed += int(m.group(2))
+        suites += 1
+    return {"passed": passed, "failed": failed, "suites": suites}
+
+
+# ---------------------------------------------------------------- history
+
+def load_history(path):
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, list):
+        raise SystemExit("progress-report: %s is not a JSON list" % path)
+    return data
+
+
+def append_history(history, snap):
+    """One entry per sha: a snapshot for an already-recorded sha replaces that entry in place."""
+    out = list(history)
+    for i, entry in enumerate(out):
+        if entry.get("sha") == snap["sha"]:
+            out[i] = snap
+            return out
+    out.append(snap)
+    return out
+
+
+def last_known(history, key):
+    for entry in reversed(history):
+        if entry.get(key) is not None:
+            return entry[key]
+    return None
+
+
+# ---------------------------------------------------------------- collectors
+
+def git(*args):
+    proc = subprocess.run(["git"] + list(args), cwd=REPO_ROOT, capture_output=True, text=True)
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def collect_git(today):
+    sha_full = git("rev-parse", "HEAD")
+    recent = []
+    for line in git("log", "-15", "--format=%h%x09%cs%x09%s").splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3:
+            recent.append({"sha": parts[0], "date": parts[1], "subject": parts[2]})
+    per_day = collections.Counter(git("log", "--since=30 days ago", "--format=%cs").split())
+    since = datetime.date.fromisoformat(today) - datetime.timedelta(days=13)
+    days = [(since + datetime.timedelta(days=i)).isoformat() for i in range(14)]
+    return {
+        "sha": git("rev-parse", "--short", "HEAD") or "unknown",
+        "full": sha_full,
+        "branch": git("rev-parse", "--abbrev-ref", "HEAD") or "unknown",
+        "date": git("log", "-1", "--format=%cs") or "unknown",
+        "recent": recent,
+        "per_day": [(d, per_day.get(d, 0)) for d in days],
+    }
+
+
+def run_tool_json(script, clone):
+    """Run `<tool> --clone X status --json`; returns (data, error)."""
+    cmd = [sys.executable, "-I", script, "--clone", clone, "status", "--json"]
+    proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout).strip().splitlines()
+        return None, "%s: %s" % (os.path.basename(script), msg[-1] if msg else "exit %d" % proc.returncode)
+    try:
+        return json.loads(proc.stdout), None
+    except ValueError as e:
+        return None, "%s: bad JSON (%s)" % (os.path.basename(script), e)
+
+
+def run_rust_tests():
+    env = dict(os.environ)
+    env["PATH"] = RUSTUP_BIN + os.pathsep + env.get("PATH", "")
+    proc = subprocess.run(["cargo", "test", "--workspace"], cwd=REPO_ROOT, env=env,
+                          capture_output=True, text=True, timeout=3600)
+    res = parse_rust_results(proc.stdout + proc.stderr)
+    res["exit"] = proc.returncode
+    res["error"] = None if res["suites"] else "no `test result:` lines (build failed?)"
+    return res
+
+
+def default_clone():
+    with open(PORTS, encoding="utf-8") as fh:
+        data, _ = load_module("upstream_sync", UPSTREAM_SYNC).parse_toml(fh.read())
+    return os.path.normpath(os.path.join(REPO_ROOT, data.get("upstream", {}).get("clone", "../vscode-original")))
+
+
+def collect(args, today=None):
+    today = today or datetime.date.today().isoformat()
+    history = load_history(HISTORY)
+    notices = []
+    clone = args.clone or default_clone()
+
+    git_info = collect_git(today)
+
+    with open(ROADMAP, encoding="utf-8") as fh:
+        roadmap = parse_roadmap(fh.read())
+    with open(DECISIONS, encoding="utf-8") as fh:
+        adrs = parse_decisions(fh.read())
+    scenarios = parse_scenarios(sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.md"))))
+    with open(PORTS, encoding="utf-8") as fh:
+        ports = parse_ports(load_module("upstream_sync", UPSTREAM_SYNC).parse_toml(fh.read())[0])
+
+    last = history[-1] if history else {}
+
+    settings, err = run_tool_json(SETTINGS_PORT, clone)
+    if err:
+        notices.append("settings figures unavailable this run (%s); showing the last snapshot." % err)
+    tests, err = run_tool_json(TEST_PORT, clone)
+    if err:
+        notices.append("test figures unavailable this run (%s); showing the last snapshot." % err)
+
+    rust = None
+    if args.with_tests:
+        rust = run_rust_tests()
+        if rust["error"]:
+            notices.append("cargo test: %s; rust test count kept from the last snapshot." % rust["error"])
+            rust = None
+
+    if settings:
+        t = settings["totals"]
+        settings_counts = {k: t.get(k, 0) for k in ("wired", "exthost", "n/a", "todo")}
+        settings_wired = settings_counts["wired"]
+    else:
+        settings_counts = last.get("settings_counts")
+        settings_wired = last.get("settings_wired")
+    if tests:
+        tests_ported, tests_total = tests["ported"], tests["total"]
+    else:
+        tests_ported, tests_total = last.get("tests_ported"), last.get("tests_total")
+
+    rust_passing = rust["passed"] if rust else last_known(history, "rust_tests_passing")
+    rust_failed = rust["failed"] if rust else last_known(history, "rust_tests_failed")
+    rust_source = "run" if rust else ("history" if rust_passing is not None else None)
+
+    snap = {
+        "date": today,
+        "sha": git_info["sha"],
+        "settings_wired": settings_wired,
+        "settings_counts": settings_counts,
+        "tests_ported": tests_ported,
+        "tests_total": tests_total,
+        "scenarios_ready": sum(s["ready"] for s in scenarios),
+        "scenarios_total": sum(s["total"] for s in scenarios),
+        "ports_by_status": ports["counts"],
+        "rust_tests_passing": rust_passing,
+        "rust_tests_failed": rust_failed,
+    }
+    return {
+        "snapshot": snap, "history": append_history(history, snap), "notices": notices,
+        "rust_source": rust_source, "git": git_info, "settings": settings, "tests": tests,
+        "roadmap": roadmap, "scenarios": scenarios, "ports": ports, "adrs": adrs,
+        "generated": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+    }
+
+
+# ---------------------------------------------------------------- rendering
+
+def esc(s):
+    return html.escape(str(s), quote=True)
+
+
+def pct(a, b):
+    if not b:
+        return "n/a"
+    return "%.1f%%" % (100.0 * a / b)
+
+
+def num(v):
+    return "—" if v is None else "{:,}".format(v)
+
+
+def width(a, b):
+    return "0" if not b else "%.2f" % (100.0 * a / b)
+
+
+def bar(a, b, cls="bar-fill"):
+    return ('<div class="bar" aria-hidden="true"><span class="%s" style="width:%s%%"></span></div>'
+            % (cls, width(a, b)))
+
+
+def sparkline(points, label, unit=""):
+    """points: [(date, value or None)] oldest first. Inline SVG line chart with a hover title per point."""
+    vals = [v for _, v in points if v is not None]
+    if len(vals) < 2:
+        return '<p class="muted">trend appears after the next run</p>'
+    w, h, pad = 320, 110, 10
+    n = len(points)
+    ymax = max(vals) or 1
+    xs = [pad + (w - 2 * pad) * (i / (n - 1) if n > 1 else 0.5) for i in range(n)]
+    ys = [h - pad - (h - 2 * pad) * (v / ymax) for _, v in points]
+    coords = [(xs[i], ys[i], d, v) for i, (d, v) in enumerate(points) if v is not None]
+    poly = " ".join("%.1f,%.1f" % (x, y) for x, y, _, _ in coords)
+    dots = "".join('<circle cx="%.1f" cy="%.1f" r="3.5"><title>%s: %s%s</title></circle>'
+                   % (x, y, esc(d), num(v), esc(unit)) for x, y, d, v in coords)
+    first, last = coords[0], coords[-1]
+    summary = "%s on %s, %s on %s" % (num(first[3]), first[2], num(last[3]), last[2])
+    return ('<svg viewBox="0 0 %d %d" role="img" aria-label="%s: %s">'
+            '<polyline class="line" points="%s" fill="none"/>%s</svg>'
+            '<p class="muted small">%s</p>' % (w, h, esc(label), esc(summary), poly, dots, esc(summary)))
+
+
+def render_kpis(d):
+    s = d["snapshot"]
+    counts = s["settings_counts"] or {}
+    settings_total = sum(counts.values()) if counts else None
+    ports = s["ports_by_status"] or {}
+    n_ports = sum(ports.values()) if ports else 0
+    scen_total = s["scenarios_total"]
+    tiles = [
+        ("Settings wired", num(s["settings_wired"]),
+         "of %s (%s)" % (num(settings_total), pct(s["settings_wired"] or 0, settings_total or 0))),
+        ("Upstream tests ported", num(s["tests_ported"]),
+         "of %s (%s)" % (num(s["tests_total"]), pct(s["tests_ported"] or 0, s["tests_total"] or 0))),
+        ("Smoke scenarios ready", num(s["scenarios_ready"]),
+         "of %s (%s)" % (num(scen_total), pct(s["scenarios_ready"] or 0, scen_total or 0))),
+        ("Upstream modules", "%d ported" % ports.get("ported", 0),
+         "%d partial, %d planned (of %d)" % (ports.get("partial", 0), ports.get("planned", 0), n_ports)),
+        ("Rust tests passing", num(s["rust_tests_passing"]),
+         {"run": "from cargo test just now", "history": "from the last run with --with-tests",
+          None: "not run yet (use --with-tests)"}[d["rust_source"]]),
+        ("ADRs", num(len(d["adrs"])), "latest ADR-%04d" % d["adrs"][0]["num"] if d["adrs"] else ""),
+    ]
+    return '<div class="kpis">' + "".join(
+        '<div class="tile"><p class="tile-label">%s</p><p class="tile-value">%s</p>'
+        '<p class="tile-sub">%s</p></div>' % (esc(a), esc(b), esc(c)) for a, b, c in tiles) + "</div>"
+
+
+def render_settings(d):
+    st = d["settings"]
+    if not st:
+        return '<p class="muted">Settings data unavailable in this run.</p>'
+    t = st["totals"]
+    keys = [("wired", "Wired in rscode", "seg-wired"), ("exthost", "Via extension host", "seg-exthost"),
+            ("n/a", "Not applicable", "seg-na"), ("todo", "To do", "seg-todo")]
+    total = sum(t.get(k, 0) for k, _, _ in keys)
+    segs = "".join('<span class="%s" style="width:%s%%"></span>' % (cls, width(t.get(k, 0), total))
+                   for k, _, cls in keys)
+    legend = "".join('<li><span class="sw %s" aria-hidden="true"></span>%s: <strong>%s</strong> (%s)</li>'
+                     % (cls, esc(label), num(t.get(k, 0)), pct(t.get(k, 0), total))
+                     for k, label, cls in keys)
+    out = ['<div class="stack" role="img" aria-label="Settings: %s of %s wired, %s via extension host, %s not applicable, %s to do">%s</div>'
+           % (num(t.get("wired", 0)), num(total), num(t.get("exthost", 0)), num(t.get("n/a", 0)),
+              num(t.get("todo", 0)), segs),
+           '<ul class="legend">%s</ul>' % legend,
+           "<h3>Not applicable, by reason</h3>",
+           '<div class="scroll"><table><thead><tr><th scope="col">Reason</th><th scope="col">Settings</th>'
+           '</tr></thead><tbody>']
+    for reason, n in sorted(st["naReasons"].items(), key=lambda kv: -kv[1]):
+        out.append("<tr><td>%s</td><td class=\"num\">%s</td></tr>" % (esc(reason), num(n)))
+    out.append("</tbody></table></div>")
+    out.append("<h3>To do, by priority</h3>")
+    out.append('<div class="scroll"><table><thead><tr><th scope="col">Priority</th>'
+               '<th scope="col">Settings</th><th scope="col">Share of to do</th></tr></thead><tbody>')
+    todo_total = sum(st["todoPriorities"].values())
+    for pr in sorted(st["todoPriorities"]):
+        n = st["todoPriorities"][pr]
+        out.append('<tr><td>%s</td><td class="num">%s</td><td>%s %s</td></tr>'
+                   % (esc(pr), num(n), bar(n, todo_total), pct(n, todo_total)))
+    out.append("</tbody></table></div>")
+    return "".join(out)
+
+
+def render_roadmap(d):
+    if not d["roadmap"]:
+        return '<p class="muted">No roadmap sections found.</p>'
+    out = []
+    for sec in d["roadmap"]:
+        done = sum(1 for i in sec["items"] if i["done"])
+        cls = "card focus" if sec["current"] else "card"
+        badge = '<span class="pill pill-focus">current focus</span>' if sec["current"] else ""
+        items = "".join(
+            '<li class="%s"><span class="mark" aria-hidden="true">%s</span><span class="sr-only">%s: </span>%s</li>'
+            % ("done" if i["done"] else "open", "✓" if i["done"] else "○",
+               "done" if i["done"] else "open", esc(i["text"]))
+            for i in sec["items"])
+        out.append('<section class="%s"><h3>%d. %s %s</h3><p class="muted small">%s · %d of %d done</p>'
+                   '<ul class="roadmap">%s</ul></section>'
+                   % (cls, sec["num"], esc(sec["title"]), badge, esc(sec["trailer"]) or "&nbsp;",
+                      done, len(sec["items"]), items))
+    return '<div class="roadmap-grid">' + "".join(out) + "</div>"
+
+
+def render_tests(d):
+    t = d["tests"]
+    if not t:
+        return '<p class="muted">Test data unavailable in this run.</p>'
+    out = ['<p>Ported: <strong>%s</strong> of <strong>%s</strong> upstream unit tests (%s), in <strong>%d</strong> upstream files.</p>'
+           % (num(t["ported"]), num(t["total"]), pct(t["ported"], t["total"]), t["touched"]),
+           '<div class="scroll"><table><thead><tr><th scope="col">Area</th><th scope="col">Layer</th>'
+           '<th scope="col">Files</th><th scope="col">Tests</th><th scope="col">Ported</th>'
+           '<th scope="col">Progress</th></tr></thead><tbody>']
+    for a in t["areas"]:
+        out.append('<tr><td>%s</td><td>%s</td><td class="num">%s</td><td class="num">%s</td>'
+                   '<td class="num">%s</td><td><div class="bar-cell">%s<span>%s</span></div></td></tr>'
+                   % (esc(a["area"]), esc(", ".join(a["layers"])), num(a["files"]), num(a["tests"]),
+                      num(a["ported"]), bar(a["ported"], a["tests"]), pct(a["ported"], a["tests"])))
+    out.append("</tbody></table></div>")
+    out.append("<h3>By layer</h3>")
+    out.append('<div class="scroll"><table><thead><tr><th scope="col">Layer</th><th scope="col">Tests</th>'
+               '<th scope="col">Ported</th><th scope="col">%</th></tr></thead><tbody>')
+    for row in t["layers"]:
+        out.append('<tr><td>%s</td><td class="num">%s</td><td class="num">%s</td><td>%s</td></tr>'
+                   % (esc(row["layer"]), num(row["tests"]), num(row["ported"]),
+                      pct(row["ported"], row["tests"])))
+    out.append("</tbody></table></div>")
+    out.append('<p>Orphans (Rust refs that match no upstream test): <strong>%d</strong>. '
+               'Refs in the wrong header file: <strong>%d</strong>. Header files changed upstream since their sha: '
+               '<strong>%d</strong>.</p>' % (t["orphans"], t["mismatched"], t["changedHeaders"]))
+    return "".join(out)
+
+
+def render_scenarios(d):
+    rows = d["scenarios"]
+    if not rows:
+        return '<p class="muted">No scenario files found.</p>'
+    tot = {k: sum(r[k] for r in rows) for k in ("ready", "pending", "blocked", "other", "total")}
+    out = ['<p>Ready <strong>%s</strong>, pending <strong>%s</strong>, blocked <strong>%s</strong> of <strong>%s</strong> scenarios.</p>'
+           % (num(tot["ready"]), num(tot["pending"]), num(tot["blocked"]), num(tot["total"])),
+           '<div class="scroll"><table><thead><tr><th scope="col">Area</th><th scope="col">Ready</th>'
+           '<th scope="col">Pending</th><th scope="col">Blocked</th><th scope="col">Other</th>'
+           '<th scope="col">Total</th><th scope="col">Ready share</th></tr></thead><tbody>']
+    for r in sorted(rows, key=lambda r: (-r["ready"], -r["total"], r["area"])):
+        out.append('<tr><td>%s</td><td class="num">%s</td><td class="num">%s</td><td class="num">%s</td>'
+                   '<td class="num">%s</td><td class="num">%s</td><td><div class="bar-cell">%s<span>%s</span></div></td></tr>'
+                   % (esc(r["title"]), num(r["ready"]), num(r["pending"]), num(r["blocked"]),
+                      num(r["other"]), num(r["total"]), bar(r["ready"], r["total"]),
+                      pct(r["ready"], r["total"])))
+    out.append("</tbody></table></div>")
+    return "".join(out)
+
+
+def render_ports(d):
+    rows = d["ports"]["rows"]
+    if not rows:
+        return '<p class="muted">No upstream modules in ports.toml.</p>'
+    out = ['<div class="scroll"><table><thead><tr><th scope="col">Module</th><th scope="col">Status</th>'
+           '<th scope="col">Upstream path globs</th><th scope="col">Rust paths</th></tr></thead><tbody>']
+    for r in rows:
+        out.append('<tr><td><code>%s</code></td><td><span class="pill pill-%s">%s</span></td>'
+                   '<td class="num">%d</td><td class="num">%d</td></tr>'
+                   % (esc(r["id"]), esc(r["status"]), esc(r["status"]), r["upstream"], r["rust"]))
+    out.append("</tbody></table></div>")
+    return "".join(out)
+
+
+def render_trends(d):
+    h = d["history"]
+    series = [
+        ("Settings wired", [(e["date"], e.get("settings_wired")) for e in h], ""),
+        ("Upstream tests ported", [(e["date"], e.get("tests_ported")) for e in h], ""),
+        ("Smoke scenarios ready", [(e["date"], e.get("scenarios_ready")) for e in h], ""),
+    ]
+    return '<div class="charts">' + "".join(
+        '<figure class="chart"><figcaption>%s</figcaption>%s</figure>' % (esc(label), sparkline(pts, label, unit))
+        for label, pts, unit in series) + "</div>" + \
+        '<p class="muted small">One point per recorded commit (%d so far), from docs/progress-history.json.</p>' % len(h)
+
+
+def render_day_chart(days):
+    peak = max([n for _, n in days] + [1])
+    w, h, gap = 560, 110, 4
+    bw = (w - gap * len(days)) / float(len(days))
+    bars = []
+    for i, (d, n) in enumerate(days):
+        bh = (h - 22) * n / float(peak)
+        x = i * (bw + gap)
+        bars.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" class="day-bar"><title>%s: %d commits</title></rect>'
+                    '<text x="%.1f" y="%d" class="axis">%s</text>'
+                    % (x, h - 18 - bh, bw, bh, esc(d), n, x + bw / 2.0, h - 4, esc(d[5:])))
+    total = sum(n for _, n in days)
+    return ('<svg viewBox="0 0 %d %d" role="img" aria-label="Commits per day, last 14 days: %d in total">%s</svg>'
+            '<p class="muted small">%d commits in the last 14 days.</p>' % (w, h, total, "".join(bars), total))
+
+
+def render(d):
+    g, s = d["git"], d["snapshot"]
+    notices = "".join('<div class="notice" role="status">%s</div>' % esc(n) for n in d["notices"])
+    commits = "".join('<li><code>%s</code> <span class="muted">%s</span> %s</li>'
+                      % (esc(c["sha"]), esc(c["date"]), esc(c["subject"])) for c in g["recent"])
+    adrs = "".join('<li><strong>ADR-%04d</strong> %s <span class="muted">%s</span></li>'
+                   % (a["num"], esc(a["title"]), esc(a["date"])) for a in d["adrs"][:5])
+    nav = ('<nav aria-label="Sections"><a href="#kpis">Summary</a> <a href="#settings">Settings</a> '
+           '<a href="#roadmap">Roadmap</a> <a href="#tests">Tests</a> <a href="#scenarios">E2E</a> '
+           '<a href="#modules">Modules</a> <a href="#trends">Trends</a> <a href="#recent">Recent</a></nav>')
+    settings_sec = render_settings(d)
+    body = """
+<header>
+  <h1>rscode — progress</h1>
+  <p class="meta">Generated <time>%(generated)s</time> · commit <code>%(sha)s</code> · branch <code>%(branch)s</code> · commit date %(cdate)s</p>
+  %(nav)s
+</header>
+%(notices)s
+<main>
+<section id="kpis" aria-labelledby="h-kpis"><h2 id="h-kpis">Summary</h2>%(kpis)s</section>
+<section id="settings" aria-labelledby="h-settings"><h2 id="h-settings">Settings</h2>%(settings)s</section>
+<section id="roadmap" aria-labelledby="h-roadmap"><h2 id="h-roadmap">Roadmap</h2>%(roadmap)s</section>
+<section id="tests" aria-labelledby="h-tests"><h2 id="h-tests">Upstream unit tests</h2>%(tests)s</section>
+<section id="scenarios" aria-labelledby="h-scen"><h2 id="h-scen">Smoke scenarios (E2E)</h2>%(scenarios)s</section>
+<section id="modules" aria-labelledby="h-mod"><h2 id="h-mod">Ported modules</h2>%(ports)s</section>
+<section id="trends" aria-labelledby="h-trends"><h2 id="h-trends">Trends</h2>%(trends)s</section>
+<section id="recent" aria-labelledby="h-recent"><h2 id="h-recent">Recent work</h2>
+  <div class="two">
+    <div><h3>Last 15 commits</h3><ol class="commits">%(commits)s</ol></div>
+    <div><h3>Commits per day</h3>%(days)s
+      <h3>Latest decisions</h3><ul class="adrs">%(adrs)s</ul>
+      <p class="muted small">%(adr_count)d ADRs in <code>DECISIONS.md</code>.</p>
+    </div>
+  </div>
+</section>
+</main>
+<footer>
+  <p>Regenerate: <code>%(command)s</code>. Without <code>--with-tests</code> the Rust test count is reused from the last snapshot.
+  Snapshot for this run: sha <code>%(sha)s</code>, %(date)s.</p>
+</footer>
+""" % {
+        "generated": esc(d["generated"]), "sha": esc(g["sha"]), "branch": esc(g["branch"]),
+        "cdate": esc(g["date"]), "nav": nav, "notices": notices, "kpis": render_kpis(d),
+        "settings": settings_sec, "roadmap": render_roadmap(d), "tests": render_tests(d),
+        "scenarios": render_scenarios(d), "ports": render_ports(d), "trends": render_trends(d),
+        "commits": commits, "days": render_day_chart(g["per_day"]), "adrs": adrs,
+        "adr_count": len(d["adrs"]), "command": esc(COMMAND), "date": esc(s["date"]),
+    }
+    return PAGE_HEAD + body + "</body>\n</html>\n"
+
+
+PAGE_HEAD = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="scripts/progress-report">
+<title>rscode progress</title>
+<style>
+:root {
+  --bg: #fbfaf7; --surface: #ffffff; --text: #1d1b19; --muted: #5a5550; --border: #e2ded7;
+  --accent: #1f5fa8; --wired: #2f7d4f; --exthost: #1f5fa8; --na: #7b766f; --todo: #a85d10;
+  --ok: #2f7d4f; --warn: #8a5a00; --bar-bg: #ebe7e0; --focus-bg: #eef4fb; --notice-bg: #fff4d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171b; --surface: #1e2127; --text: #ecebe8; --muted: #aba59e; --border: #343840;
+    --accent: #8fbdf0; --wired: #62c08a; --exthost: #8fbdf0; --na: #a09b94; --todo: #e6a85a;
+    --ok: #62c08a; --warn: #f0c060; --bar-bg: #2b2f37; --focus-bg: #1d2a3a; --notice-bg: #3a3118;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  padding: 16px; overflow-x: hidden; overflow-wrap: anywhere;
+}
+header, main, footer { max-width: 1100px; margin: 0 auto; }
+h1 { font-size: 1.9rem; margin: 0.4em 0 0.2em; }
+h2 { font-size: 1.35rem; margin: 0 0 0.6em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+h3 { font-size: 1.05rem; margin: 1.1em 0 0.4em; }
+main > section { margin: 2rem 0; }
+a { color: var(--accent); }
+nav a { margin-right: 0.7em; display: inline-block; }
+code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.meta, .muted { color: var(--muted); }
+.small { font-size: 0.875rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.notice { background: var(--notice-bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 12px auto; max-width: 1100px; }
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: 0.92rem; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+th { color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.tile-label { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.tile-value { margin: 2px 0; font-size: 1.9rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tile-sub { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.stack { display: flex; height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); background: var(--bar-bg); }
+.stack span { display: block; height: 100%; }
+.seg-wired { background: var(--wired); } .seg-exthost { background: var(--exthost); }
+.seg-na { background: var(--na); } .seg-todo { background: var(--todo); }
+.legend { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 10px 0; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.sw.seg-wired { background: var(--wired); } .sw.seg-exthost { background: var(--exthost); }
+.sw.seg-na { background: var(--na); } .sw.seg-todo { background: var(--todo); }
+.bar { height: 10px; background: var(--bar-bg); border-radius: 5px; overflow: hidden; min-width: 80px; }
+.bar-fill { display: block; height: 100%; background: var(--accent); }
+.bar-cell { display: flex; align-items: center; gap: 8px; }
+.bar-cell .bar { flex: 1; }
+.bar-cell span { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
+.roadmap-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.card.focus { border-color: var(--accent); background: var(--focus-bg); box-shadow: inset 4px 0 0 var(--accent); }
+.card h3 { margin-top: 0; }
+ul.roadmap { list-style: none; padding: 0; margin: 6px 0 0; }
+ul.roadmap li { padding: 3px 0 3px 0; }
+ul.roadmap li.done { color: var(--muted); }
+ul.roadmap .mark { display: inline-block; width: 1.3em; color: var(--ok); }
+ul.roadmap li.open .mark { color: var(--warn); }
+.pill { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 0.8rem; border: 1px solid var(--border); white-space: nowrap; }
+.pill-ported { color: var(--ok); } .pill-partial { color: var(--warn); } .pill-planned { color: var(--muted); }
+.pill-focus { color: var(--accent); border-color: var(--accent); margin-left: 6px; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.chart { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.chart figcaption { font-weight: 600; margin-bottom: 4px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .line { stroke: var(--accent); stroke-width: 2.2; }
+.chart circle { fill: var(--accent); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; }
+ol.commits, ul.adrs { padding-left: 1.2em; margin: 0; }
+ol.commits li, ul.adrs li { margin: 4px 0; }
+svg { max-width: 100%; height: auto; }
+.day-bar { fill: var(--accent); }
+.axis { fill: var(--muted); font-size: 9px; text-anchor: middle; }
+footer { border-top: 1px solid var(--border); margin-top: 2rem; padding-top: 1rem; color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+"""
+
+
+# ---------------------------------------------------------------- output
+
+def write_outputs(data):
+    with open(HTML_OUT, "w", encoding="utf-8") as fh:
+        fh.write(render(data))
+    with open(HISTORY, "w", encoding="utf-8") as fh:
+        json.dump(data["history"], fh, indent=2)
+        fh.write("\n")
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="progress-report", description=__doc__.split("\n\n")[0])
+    p.add_argument("--clone", help="upstream clone for settings-port and test-port "
+                   "(default: [upstream].clone from upstream/ports.toml, against the repo root)")
+    p.add_argument("--with-tests", action="store_true",
+                   help="run cargo test --workspace and record the passing count (slow; default off)")
+    args = p.parse_args(argv)
+    data = collect(args)
+    write_outputs(data)
+    s = data["snapshot"]
+    print("wrote %s and %s" % (os.path.relpath(HTML_OUT, REPO_ROOT),
+                                os.path.relpath(HISTORY, REPO_ROOT)))
+    print("sha %s, settings wired %s, tests ported %s / %s, scenarios ready %s / %s, rust tests %s"
+          % (data["git"]["sha"], num(s["settings_wired"]), num(s["tests_ported"]), num(s["tests_total"]),
+             num(s["scenarios_ready"]), num(s["scenarios_total"]), num(s["rust_tests_passing"])))
+    for n in data["notices"]:
+        print("note: " + n, file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

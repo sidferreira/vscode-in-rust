@@ -1,0 +1,10 @@
+[package]
+name = "vsr-quickinput"
+description = "UI-free quick input logic: VS Code's fuzzy scorer, quick pick filtering model, quick open path parsing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+regex = "1"

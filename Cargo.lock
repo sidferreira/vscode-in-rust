@@ -7248,6 +7248,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vsr-quickinput"
+version = "0.1.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "vsr-search"
 version = "0.1.0"
 dependencies = [

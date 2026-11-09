@@ -1,0 +1,24 @@
+[
+  {
+    "date": "2026-11-09",
+    "sha": "a6f2e91",
+    "settings_wired": 40,
+    "settings_counts": {
+      "wired": 40,
+      "exthost": 426,
+      "n/a": 540,
+      "todo": 1056
+    },
+    "tests_ported": 248,
+    "tests_total": 57836,
+    "scenarios_ready": 8,
+    "scenarios_total": 127,
+    "ports_by_status": {
+      "planned": 1,
+      "partial": 17,
+      "ported": 0
+    },
+    "rust_tests_passing": 554,
+    "rust_tests_failed": 0
+  }
+]

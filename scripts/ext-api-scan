@@ -1,0 +1,664 @@
+#!/usr/bin/env python3
+"""ext-api-scan: profile installed VS Code extensions for rscode compatibility planning.
+
+Stdlib-only, Python >= 3.8. Read-only: it never runs anything from the extension folder.
+Results feed docs/research/extensions-compat.md.
+
+Usage:
+  scripts/ext-api-scan FOLDER [FOLDER ...] [--json FILE] [--md FILE]
+                       [--upstream DIR] [--dts-dir DIR] [--top N]
+  Without --json/--md the markdown summary goes to stdout.
+
+Defaults: --upstream is ../vscode-original (read-only upstream clone); the API surface is
+read from <upstream>/src/vscode-dts/vscode.d.ts and vscode.proposed.*.d.ts.
+
+What is measured, per extension folder:
+  manifest      main/browser entry, activationEvents, engines.vscode, extensionKind,
+                extensionDependencies, extensionPack, enabledApiProposals, contributes counts
+  bundles       ext-host JS (node/browser) vs webview JS (path or acquireVsCodeApi() call)
+  api.exact     vscode.<namespace>.<member> through a binding of require("vscode") or an
+                ESM import (aliases, namespaces destructured from the module). Exact.
+  api.heuristic .<namespace>.<function>( on an object that is not a known binding. HEURISTIC:
+                this is how webpack externals (`o.window.createX(`) are counted, since the
+                alias cannot be followed through the bundle.
+  api.types     vscode.<Class|Enum> references (Range, Position, ThemeColor, ...). Exact only.
+  api.unknown   member accesses on known bindings that are not in the d.ts (DOM collisions etc.)
+  languageclient  vscode-languageclient markers (LSP client), declared deps, node_modules dirs
+  processes     bundled native executables (magic bytes), child_process require + call sites
+                (HEURISTIC for call sites), `"java"` literals (HEURISTIC)
+  builtins      string references to built-in extension ids (vscode.git, ...), from upstream
+                extensions/*/package.json
+"""
+
+import argparse
+import collections
+import json
+import os
+import re
+import sys
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_UPSTREAM = os.path.join(os.path.dirname(REPO_ROOT), "vscode-original")
+
+JS_EXTS = (".js", ".cjs", ".mjs")
+PRUNE_DIRS = ("node_modules", ".git")
+
+# Used only when the upstream d.ts surface is unavailable (then nothing is verified).
+FALLBACK_NAMESPACES = {
+    "window", "workspace", "languages", "commands", "extensions", "env", "debug", "scm",
+    "tasks", "comments", "authentication", "chat", "lm", "l10n", "tests", "notebooks",
+    "env", "speech", "secrets", "test",
+}
+
+WEBVIEW_APIS = (
+    "window.createWebviewPanel", "window.registerWebviewViewProvider",
+    "window.registerCustomEditorProvider", "window.registerWebviewPanelSerializer",
+)
+LANGCLIENT_MARKERS = ("vscode-languageclient", "TransportKind", "vscode-jsonrpc", "ServerOptions")
+
+REQUIRE_VSCODE = r"""require\(\s*["']vscode["']\s*\)"""
+IDENT = r"[A-Za-z_$][\w$]*"
+MODULE_ASSIGN_RE = re.compile(
+    r"(?<![\w$.])(" + IDENT + r")\s*=\s*(?:[\w$.]+\(\s*)?" + REQUIRE_VSCODE)
+IMPORT_STAR_RE = re.compile(r"import\s*\*\s*as\s+(" + IDENT + r")\s+from\s*[\"']vscode[\"']")
+IMPORT_DEFAULT_RE = re.compile(r"import\s+(" + IDENT + r")\s*(?:,\s*\{[^{}]*\})?\s+from\s*[\"']vscode[\"']")
+DESTRUCT_RES = (
+    re.compile(r"(?:const|let|var)\s*\{([^{}]*)\}\s*=\s*" + REQUIRE_VSCODE),
+    re.compile(r"import\s*\{([^{}]*)\}\s*from\s*[\"']vscode[\"']"),
+)
+NAMESPACE_RE = re.compile(r"export\s+namespace\s+(" + IDENT + r")\s*\{")
+MODULE_RE = re.compile(r"declare\s+module\s+[\"']vscode[\"']\s*\{")
+DECL_RE = re.compile(
+    r"^\s*export\s+(?:declare\s+|abstract\s+|default\s+)*"
+    r"(function|const|let|var|namespace|class|enum|interface|type)\s+(" + IDENT + r")")
+CHILD_REQ_RE = re.compile(r"""require\(\s*["'](?:node:)?child_process["']\s*\)""")
+SPAWN_CALL_RE = re.compile(
+    r"\.(?:spawn|spawnSync|execFile|execFileSync|fork|exec|execSync)\(|"
+    r"(?<![\w$.])(?:spawn|spawnSync|execFile|execFileSync|fork|exec|execSync)\(")
+JAVA_LITERAL_RE = re.compile(r"""["']java["']""")
+
+
+class ScanError(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- d.ts surface
+
+def strip_comments(text):
+    text = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+    return "\n".join(line for line in text.split("\n") if not line.lstrip().startswith("//"))
+
+
+def block_body(text, open_pos):
+    """Text between the '{' at open_pos and its matching '}'."""
+    depth = 0
+    for i in range(open_pos, len(text)):
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_pos + 1:i]
+    return text[open_pos + 1:]
+
+
+def depth0_decls(body):
+    """(kind, name) for declarations that sit at brace depth 0 of body."""
+    depth = 0
+    out = []
+    for line in body.split("\n"):
+        if depth == 0:
+            m = DECL_RE.match(line)
+            if m:
+                out.append((m.group(1), m.group(2)))
+        depth += line.count("{") - line.count("}")
+    return out
+
+
+def parse_dts(text):
+    """Return ({namespace: {member: kind}}, {top-level class/enum name: kind},
+    {top-level module function name: 'function'})."""
+    text = strip_comments(text)
+    namespaces = {}
+    for m in NAMESPACE_RE.finditer(text):
+        members = namespaces.setdefault(m.group(1), {})
+        for kind, name in depth0_decls(block_body(text, m.end() - 1)):
+            if kind != "namespace":
+                members[name] = kind
+    types = {}
+    functions = {}
+    mm = MODULE_RE.search(text)
+    if mm:
+        for kind, name in depth0_decls(block_body(text, mm.end() - 1)):
+            if kind in ("class", "enum"):
+                types[name] = kind
+            elif kind == "function":
+                functions[name] = kind
+    return namespaces, types, functions
+
+
+class Surface:
+    """The VS Code API surface from vscode.d.ts (stable) plus vscode.proposed.*.d.ts."""
+
+    def __init__(self):
+        self.loaded = False
+        self.namespaces = {}   # ns -> {member: kind}
+        self.types = {}        # name -> kind (class|enum)
+        self.functions = {}    # top-level module functions, e.g. createCommentController
+        self.proposals = {}    # (ns, member) -> {proposal name}
+        self.proposal_types = {}  # type name -> {proposal name}
+        self.proposal_names = set()
+
+    @classmethod
+    def load(cls, dts_dir):
+        s = cls()
+        stable = os.path.join(dts_dir, "vscode.d.ts")
+        if not os.path.isfile(stable):
+            return s
+        with open(stable, encoding="utf-8", errors="replace") as f:
+            s.namespaces, s.types, s.functions = parse_dts(f.read())
+        s.loaded = True
+        stable_keys = {(ns, m) for ns, ms in s.namespaces.items() for m in ms}
+        stable_types = set(s.types)
+        stable_fns = set(s.functions)
+        for name in sorted(os.listdir(dts_dir)):
+            m = re.match(r"vscode\.proposed\.(.+)\.d\.ts$", name)
+            if not m:
+                continue
+            pname = m.group(1)
+            s.proposal_names.add(pname)
+            with open(os.path.join(dts_dir, name), encoding="utf-8", errors="replace") as f:
+                ns_map, types, funcs = parse_dts(f.read())
+            for ns, members in ns_map.items():
+                for mem, kind in members.items():
+                    if (ns, mem) in stable_keys:
+                        continue
+                    s.namespaces.setdefault(ns, {})[mem] = kind
+                    s.proposals.setdefault((ns, mem), set()).add(pname)
+            for tname, kind in types.items():
+                if tname in stable_types:
+                    continue
+                s.types.setdefault(tname, kind)
+                s.proposal_types.setdefault(tname, set()).add(pname)
+            for fname in funcs:
+                if fname in stable_fns:
+                    continue
+                s.functions.setdefault(fname, "function")
+                s.proposals.setdefault(("module", fname), set()).add(pname)
+        return s
+
+    def is_namespace(self, name):
+        return name in self.namespaces or (not self.loaded and name in FALLBACK_NAMESPACES)
+
+    def is_type(self, name):
+        return name in self.types
+
+    def is_module_function(self, name):
+        return name in self.functions
+
+    def member_kind(self, ns, mem):
+        """kind string, 'unverified' when the surface is missing, or None when absent."""
+        if not self.loaded:
+            return "unverified" if ns in FALLBACK_NAMESPACES else None
+        return self.namespaces.get(ns, {}).get(mem)
+
+
+# ---------------------------------------------------------------- JS text analysis
+
+def _binding_names(spec):
+    """Parse `a, b: c, d as e` (destructuring or import list) into (orig, local) pairs."""
+    pairs = []
+    for item in spec.split(","):
+        item = re.sub(r"\s+", " ", item).strip()
+        if not item:
+            continue
+        if ":" in item:
+            orig, local = item.split(":", 1)
+        elif " as " in item:
+            orig, local = item.split(" as ", 1)
+        else:
+            orig = local = item
+        orig = orig.strip()
+        local = local.split("=")[0].strip()
+        if re.fullmatch(IDENT, orig) and re.fullmatch(IDENT, local):
+            pairs.append((orig, local))
+    return pairs
+
+
+def find_bindings(text):
+    """(module aliases, [(orig, local)] destructured or imported names) for require("vscode")."""
+    mods = set()
+    for rx in (MODULE_ASSIGN_RE, IMPORT_STAR_RE, IMPORT_DEFAULT_RE):
+        mods.update(m.group(1) for m in rx.finditer(text))
+    pairs = []
+    for rx in DESTRUCT_RES:
+        for m in rx.finditer(text):
+            pairs.extend(_binding_names(m.group(1)))
+    return mods, pairs
+
+
+def count_text(text, surface):
+    """Count VS Code API usage in one JS file. Returns a dict of Counters/lists."""
+    mods, pairs = find_bindings(text)
+    res = {
+        "exact": collections.Counter(), "heuristic": collections.Counter(),
+        "unknown": collections.Counter(), "types": collections.Counter(),
+        "proposed": collections.Counter(), "aliases": sorted(mods),
+        "destructured": sorted({local for _, local in pairs}),
+    }
+    ns_locals, type_locals = {}, {}
+    for orig, local in pairs:
+        if surface.is_namespace(orig):
+            ns_locals[local] = orig
+        elif surface.is_type(orig):
+            type_locals[local] = orig
+
+    def record(ns, mem):
+        key = f"{ns}.{mem}"
+        if surface.member_kind(ns, mem) is None:
+            res["unknown"][key] += 1
+            return
+        res["exact"][key] += 1
+        for pname in surface.proposals.get((ns, mem), ()):
+            res["proposed"][f"{pname}: {key}"] += 1
+
+    mod_tokens = [re.escape(a) for a in sorted(mods)] + [REQUIRE_VSCODE]
+    mod_alt = "(?:" + "|".join(mod_tokens) + ")"
+    rx_ns = re.compile(r"(?<![\w$.])" + mod_alt + r"\s*\.\s*(" + IDENT + r")\s*\.\s*(" + IDENT + r")(?![\w$])")
+    rx_type = re.compile(r"(?<![\w$.])" + mod_alt + r"\s*\.\s*(" + IDENT + r")(?![\w$])")
+    for m in rx_ns.finditer(text):
+        ns, mem = m.group(1), m.group(2)
+        # vscode.Range.Something is a static on a class (counted as a type), not a namespace member.
+        if surface.is_namespace(ns):
+            record(ns, mem)
+    for m in rx_type.finditer(text):
+        name = m.group(1)
+        if surface.is_type(name):
+            res["types"][name] += 1
+        elif surface.is_module_function(name):
+            key = f"module.{name}"
+            res["exact"][key] += 1
+            for pname in surface.proposals.get(("module", name), ()):
+                res["proposed"][f"{pname}: {key}"] += 1
+
+    if ns_locals:
+        rx_local = re.compile(r"(?<![\w$.])(" + "|".join(re.escape(x) for x in ns_locals)
+                              + r")\s*\.\s*(" + IDENT + r")(?![\w$])")
+        for m in rx_local.finditer(text):
+            record(ns_locals[m.group(1)], m.group(2))
+    if type_locals:
+        for local, orig in type_locals.items():
+            n = len(re.findall(r"(?<![\w$.])" + re.escape(local) + r"(?![\w$])", text))
+            if n:
+                res["types"][orig] += n
+
+    # Heuristic: .ns.fn( on an object that is not a known vscode binding (webpack externals).
+    if surface.loaded:
+        skip = mods | set(ns_locals) | set(type_locals)
+        rx_h = re.compile(r"(?<![\w$])(" + IDENT + r")\s*\.\s*(" + IDENT + r")\s*\.\s*(" + IDENT + r")\s*\(")
+        for m in rx_h.finditer(text):
+            obj, ns, mem = m.groups()
+            if obj in skip or not surface.is_namespace(ns):
+                continue
+            if surface.member_kind(ns, mem) != "function":
+                continue
+            key = f"{ns}.{mem}"
+            res["heuristic"][key] += 1
+            for pname in surface.proposals.get((ns, mem), ()):
+                res["proposed"][f"{pname}: {key} (heuristic)"] += 1
+    return res
+
+
+# ---------------------------------------------------------------- filesystem
+
+def walk_files(root, prune=()):
+    for dp, dns, fns in os.walk(root):
+        dns[:] = [d for d in dns if d not in prune]
+        for f in fns:
+            yield os.path.join(dp, f)
+
+
+def read_text(path):
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+def magic_kind(path):
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4)
+    except OSError:
+        return None
+    if head == b"\x7fELF":
+        return "ELF"
+    if head[:2] == b"MZ":
+        return "PE"
+    if head in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe"):
+        return "Mach-O"
+    if head == b"\xca\xfe\xba\xbe":
+        return "Mach-O fat or Java class"
+    if head == b"PK\x03\x04" and path.endswith(".jar"):
+        return "jar"
+    return None
+
+
+def find_binaries(folder):
+    out = []
+    for path in walk_files(folder):
+        if path.endswith((".map", ".js", ".json", ".md", ".txt")):
+            continue
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        if os.path.islink(path) or size == 0:
+            continue
+        kind = magic_kind(path)
+        if kind is None and path.endswith(".node"):
+            kind = "node addon (unknown format)"
+        if kind is None and os.access(path, os.X_OK) and "." not in os.path.basename(path):
+            kind = "exec (no magic match; script or unknown)"
+        if kind:
+            out.append({"path": os.path.relpath(path, folder), "kind": kind, "bytes": size})
+    return out
+
+
+def load_builtin_ids(upstream):
+    ids = set()
+    ext_dir = os.path.join(upstream, "extensions")
+    if os.path.isdir(ext_dir):
+        for name in os.listdir(ext_dir):
+            pj = os.path.join(ext_dir, name, "package.json")
+            if not os.path.isfile(pj):
+                continue
+            try:
+                with open(pj, encoding="utf-8") as f:
+                    data = json.load(f)
+                ids.add(f"{data.get('publisher', 'vscode')}.{data['name']}")
+            except (OSError, ValueError, KeyError):
+                continue
+    return ids
+
+
+def classify_bundle(rel, text):
+    parts = rel.replace(os.sep, "/").split("/")
+    if any(p.startswith("webview") for p in parts):
+        return "webview"
+    if re.search(r"acquireVsCodeApi\(", text) and not re.search(
+            REQUIRE_VSCODE + r"|from\s*[\"']vscode[\"']", text):
+        return "webview"
+    if "browser" in parts[:-1]:
+        return "browser"
+    return "node"
+
+
+# ---------------------------------------------------------------- profile
+
+def build_profile(folder, surface, builtin_ids):
+    pj = os.path.join(folder, "package.json")
+    if not os.path.isfile(pj):
+        raise ScanError(f"no package.json in {folder}")
+    with open(pj, encoding="utf-8") as f:
+        manifest = json.load(f)
+    warnings = []
+    base = os.path.basename(folder.rstrip(os.sep))
+    plat = re.search(r"-((?:darwin|linux|win32|alpine)-[a-z0-9_]+)$", base)
+    publisher = manifest.get("publisher", "?")
+    name = manifest.get("name", "?")
+
+    entry_rel = {k: manifest[k] for k in ("main", "browser") if manifest.get(k)}
+    entry_paths = {}
+    for key, rel in entry_rel.items():
+        p = os.path.normpath(os.path.join(folder, rel))
+        if os.path.isfile(p):
+            entry_paths[p] = key
+        elif os.path.isfile(p + ".js"):
+            entry_paths[p + ".js"] = key
+        else:
+            warnings.append(f"{key} entry not found: {rel}")
+    if not entry_rel:
+        warnings.append("no main/browser entry (contributes-only extension)")
+
+    contributes = manifest.get("contributes") or {}
+    js_paths = [p for p in walk_files(folder, prune=PRUNE_DIRS)
+                if p.endswith(JS_EXTS)]
+    for p in entry_paths:
+        if p not in js_paths:
+            js_paths.append(p)
+
+    bundles = []
+    api = {k: collections.Counter() for k in ("exact", "heuristic", "unknown", "types", "proposed")}
+    aliases_total = 0
+    destructured_total = set()
+    lc_markers = collections.Counter()
+    child_req = 0
+    spawn_sites = 0
+    java_lits = 0
+    builtin_refs = collections.Counter()
+    webview_bundles = []
+    acquire_calls = 0
+    for path in sorted(js_paths):
+        rel = os.path.relpath(path, folder)
+        try:
+            text = read_text(path)
+        except OSError as e:
+            warnings.append(f"unreadable {rel}: {e}")
+            continue
+        kind = classify_bundle(rel, text)
+        if path in entry_paths and entry_paths[path] == "browser" and kind == "node":
+            kind = "browser"
+        if kind == "webview":
+            webview_bundles.append({"path": rel, "bytes": len(text)})
+            acquire_calls += text.count("acquireVsCodeApi(")
+            continue
+        counts = count_text(text, surface)
+        for k in api:
+            api[k].update(counts[k])
+        aliases_total += len(counts["aliases"])
+        destructured_total.update(counts["destructured"])
+        bundles.append({
+            "path": rel, "kind": kind, "bytes": len(text), "entry": path in entry_paths,
+            "aliases": counts["aliases"], "exact_calls": sum(counts["exact"].values()),
+            "heuristic_calls": sum(counts["heuristic"].values()),
+        })
+        for marker in LANGCLIENT_MARKERS:
+            lc_markers[marker] += text.count(marker)
+        if CHILD_REQ_RE.search(text):
+            child_req += 1
+            spawn_sites += len(SPAWN_CALL_RE.findall(text))
+        java_lits += len(JAVA_LITERAL_RE.findall(text))
+        for bid in builtin_ids:
+            c = text.count(f'"{bid}"') + text.count(f"'{bid}'") + text.count(f"`{bid}`")
+            if c:
+                builtin_refs[bid] += c
+
+    if not bundles:
+        warnings.append("no ext-host JS bundle found (webview-only or binary-only extension)")
+    if not surface.loaded:
+        warnings.append("vscode.d.ts not loaded: exact counts are unverified, heuristic off")
+
+    declared_deps = sorted((manifest.get("dependencies") or {}).keys())
+    nm = os.path.join(folder, "node_modules")
+    nm_dirs = sorted(os.listdir(nm)) if os.path.isdir(nm) else []
+    lc_declared = "vscode-languageclient" in declared_deps or "vscode-languageclient" in nm_dirs
+    uses_lc = lc_declared or lc_markers["vscode-languageclient"] > 0 or lc_markers["TransportKind"] > 0
+
+    ns_totals = collections.Counter()
+    for key, n in api["exact"].items():
+        ns_totals[key.split(".", 1)[0]] += n
+    for key, n in api["heuristic"].items():
+        ns_totals[key.split(".", 1)[0]] += n
+
+    webview_api_calls = {k: api["exact"].get(k, 0) + api["heuristic"].get(k, 0) for k in WEBVIEW_APIS}
+    ext_deps = manifest.get("extensionDependencies") or []
+    ext_pack = manifest.get("extensionPack") or []
+
+    contrib_counts = {k: _count_contribution(k, v) for k, v in contributes.items()}
+    bins = find_binaries(folder)
+
+    return {
+        "extension": {
+            "id": f"{publisher}.{name}", "version": manifest.get("version"),
+            "platform": plat.group(1) if plat else None, "folder": folder,
+            "display_name": manifest.get("displayName"),
+            "description": manifest.get("description"),
+        },
+        "manifest": {
+            "main": manifest.get("main"), "browser": manifest.get("browser"),
+            "activationEvents": manifest.get("activationEvents") or [],
+            "engines_vscode": (manifest.get("engines") or {}).get("vscode"),
+            "extensionKind": manifest.get("extensionKind"),
+            "extensionDependencies": ext_deps, "extensionPack": ext_pack,
+            "enabledApiProposals": manifest.get("enabledApiProposals") or [],
+            "declared_dependencies": declared_deps,
+            "contributes": contrib_counts,
+        },
+        "bundles": {
+            "host": bundles, "webview": webview_bundles,
+            "acquire_vscode_api_calls": acquire_calls,
+        },
+        "api": {
+            "exact": dict(api["exact"].most_common()),
+            "heuristic": dict(api["heuristic"].most_common()),
+            "unknown": dict(api["unknown"].most_common()),
+            "types": dict(api["types"].most_common()),
+            "proposed": dict(api["proposed"].most_common()),
+            "by_namespace": dict(ns_totals.most_common()),
+            "module_aliases_found": aliases_total,
+            "destructured_names": sorted(destructured_total),
+            "webview_api_calls": webview_api_calls,
+        },
+        "languageclient": {
+            "uses_languageclient": uses_lc, "declared": lc_declared,
+            "markers_in_host_js": dict(lc_markers),
+            "node_modules_top_level": nm_dirs[:50],
+        },
+        "processes": {
+            "bundled_binaries": bins,
+            "child_process_require_files": child_req,
+            "spawn_call_sites_heuristic": spawn_sites,
+            "java_string_literals_heuristic": java_lits,
+        },
+        "builtin_extension_refs": dict(builtin_refs.most_common()),
+        "warnings": warnings,
+    }
+
+
+def _count_contribution(key, val):
+    if key == "configuration":
+        objs = val if isinstance(val, list) else [val]
+        return sum(len((o or {}).get("properties") or {}) for o in objs if isinstance(o, dict))
+    if key in ("menus", "views", "viewsContainers") and isinstance(val, dict):
+        return sum(len(v) for v in val.values() if isinstance(v, list))
+    if isinstance(val, (list, dict)):
+        return len(val)
+    return 1 if val not in (None, False) else 0
+
+
+# ---------------------------------------------------------------- rendering
+
+def _md_table(rows, headers):
+    out = ["| " + " | ".join(headers) + " |", "|" + "---|" * len(headers)]
+    for r in rows:
+        out.append("| " + " | ".join(str(x) for x in r) + " |")
+    return out
+
+
+def render_markdown(profiles, top):
+    lines = ["# ext-api-scan summary", ""]
+    lines += _md_table(
+        [(p["extension"]["id"], p["extension"]["version"], p["extension"]["platform"] or "-",
+          p["manifest"]["engines_vscode"], sum(p["api"]["exact"].values()),
+          sum(p["api"]["heuristic"].values()), p["languageclient"]["uses_languageclient"],
+          len(p["processes"]["bundled_binaries"]))
+         for p in profiles],
+        ["extension", "version", "platform", "engines.vscode", "exact calls",
+         "heuristic calls", "LSP client", "native binaries"])
+    for p in profiles:
+        ext = p["extension"]
+        man = p["manifest"]
+        lines += ["", f"## {ext['id']} {ext['version']} ({ext['platform'] or 'any'})", ""]
+        lines.append(f"- folder: `{ext['folder']}`")
+        lines.append(f"- entry: main=`{man['main']}` browser=`{man['browser']}`")
+        acts = man["activationEvents"]
+        lines.append(f"- activationEvents ({len(acts)}): " + (", ".join(f"`{a}`" for a in acts[:12]) or "none"))
+        lines.append(f"- extensionKind: {man['extensionKind']}; extensionDependencies: "
+                     f"{', '.join(man['extensionDependencies']) or 'none'}; extensionPack: "
+                     f"{', '.join(man['extensionPack']) or 'none'}")
+        props = man["enabledApiProposals"]
+        lines.append(f"- enabledApiProposals ({len(props)}): " + (", ".join(props) or "none"))
+        contrib = {k: v for k, v in man["contributes"].items() if v}
+        lines.append("- contributes: " + (", ".join(f"{k}={v}" for k, v in contrib.items()) or "none"))
+        host = p["bundles"]["host"]
+        lines.append(f"- ext-host bundles: {len(host)} "
+                     f"({', '.join(sorted({b['kind'] for b in host})) or 'none'}); "
+                     f"webview bundles: {len(p['bundles']['webview'])}")
+        lc = p["languageclient"]
+        lines.append(f"- LSP client (vscode-languageclient): {'yes' if lc['uses_languageclient'] else 'no'}")
+        procs = p["processes"]
+        lines.append(f"- child_process require in {procs['child_process_require_files']} file(s); "
+                     f"spawn-like call sites ~{procs['spawn_call_sites_heuristic']} (heuristic)")
+        if procs["bundled_binaries"]:
+            lines.append("- bundled executables/binaries:")
+            for b in procs["bundled_binaries"][:12]:
+                lines.append(f"  - `{b['path']}` {b['kind']} {b['bytes']} bytes")
+        if p["builtin_extension_refs"]:
+            lines.append("- built-in extension refs: " + ", ".join(
+                f"{k} ({v})" for k, v in p["builtin_extension_refs"].items()))
+        wapi = {k: v for k, v in p["api"]["webview_api_calls"].items() if v}
+        lines.append(f"- webview: API calls {wapi or 'none'}; webview bundles "
+                     f"{len(p['bundles']['webview'])}; acquireVsCodeApi() {p['bundles']['acquire_vscode_api_calls']}")
+        lines.append("- API namespaces (exact + heuristic): " + (", ".join(
+            f"{k}={v}" for k, v in list(p["api"]["by_namespace"].items())[:12]) or "none"))
+        for label, key in (("exact", "exact"), ("heuristic (unresolved bindings)", "heuristic"),
+                           ("types", "types"), ("proposed API members", "proposed")):
+            items = list(p["api"][key].items())[:top]
+            if items:
+                lines += ["", f"**{label}, top {len(items)}**", ""]
+                lines += _md_table(items, ["name", "count"])
+        if p["warnings"]:
+            lines += ["", "Warnings: " + "; ".join(p["warnings"])]
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------- CLI
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Profile VS Code extensions for rscode compatibility.")
+    ap.add_argument("folders", nargs="+", help="extension folders (contain package.json)")
+    ap.add_argument("--json", metavar="FILE", help="write JSON profile(s) here")
+    ap.add_argument("--md", metavar="FILE", help="write markdown summary here")
+    ap.add_argument("--upstream", default=DEFAULT_UPSTREAM, help="vscode-original checkout (read-only)")
+    ap.add_argument("--dts-dir", help="override <upstream>/src/vscode-dts")
+    ap.add_argument("--top", type=int, default=12, help="rows per table in markdown")
+    args = ap.parse_args(argv)
+
+    dts_dir = args.dts_dir or os.path.join(args.upstream, "src", "vscode-dts")
+    surface = Surface.load(dts_dir)
+    if not surface.loaded:
+        print(f"ext-api-scan: warning: no vscode.d.ts under {dts_dir}", file=sys.stderr)
+    builtin_ids = load_builtin_ids(args.upstream)
+
+    profiles = []
+    for folder in args.folders:
+        try:
+            profiles.append(build_profile(os.path.abspath(folder), surface, builtin_ids))
+        except (ScanError, ValueError, OSError) as e:
+            print(f"ext-api-scan: {folder}: {e}", file=sys.stderr)
+            return 2
+
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as f:
+            json.dump(profiles, f, indent=2, sort_keys=False)
+            f.write("\n")
+    if args.md:
+        with open(args.md, "w", encoding="utf-8") as f:
+            f.write(render_markdown(profiles, args.top))
+    if not args.json and not args.md:
+        sys.stdout.write(render_markdown(profiles, args.top))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

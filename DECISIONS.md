@@ -192,3 +192,21 @@ App lifecycle: closing the last rscode window quits the app (unlike the macOS de
 in the Dock). Cmd+Q and an app menu "Quit rscode" are bound (`install_app_lifecycle` in vsr-app).
 Verified by launching, closing the window via the accessibility close button, and observing the
 process exit.
+
+## ADR-0020 — Extension compatibility strategy (2026-11-09)
+
+From `docs/research/extensions-compat.md` (scanned the user's 8 installed extensions with
+`scripts/ext-api-scan`; installed today: Claude Code, GitHub Pull Requests).
+
+**Approach (Option A):** run upstream's own compiled extension host (`extensionHostProcess`)
+under Node, built from a self-built Code-OSS at the pinned commit (MIT), and implement the
+`MainThread*` side in Rust over upstream's RPC wire format (`vsr-rpc`, id table generated from
+`extHost.protocol.ts`). Not the installed Microsoft VS Code bundle (not MIT). Fallback if the
+Code-OSS build is blocked by the proxy: a minimal JS `vscode` shim (Option C) for the first
+milestones only. Webviews later via WKWebView (`wry`) embedded in the gpui window (ADR-0001's
+escape hatch); macOS only (ADR-0019), so no web extension host.
+
+**Roadmap:** P0 ext-host handshake spike → P1 **ErrorLens** (commands, config, status bar,
+decorations, diagnostics; no LSP/webview/native) → P2 oxc (LSP) → TS / XML / Kotlin → GitLens →
+**Claude Code** (webviews, terminal + shell integration, native binary) → **PR GitHub** (GitHub
+auth, comments, git API, 32 proposed APIs).

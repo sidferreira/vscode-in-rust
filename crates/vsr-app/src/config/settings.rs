@@ -389,6 +389,8 @@ pub struct EditorSettings {
     pub insert_final_newline: bool,
     /// `files.trimFinalNewlines`.
     pub trim_final_newlines: bool,
+    /// `files.saveConflictResolution` is `askUser` (true) or `overwriteFileOnDisk` (false, ADR-0039).
+    pub save_conflict_ask: bool,
     /// `files.eol`: the line break of a file that has none yet (ADR-0034). `auto` is LF on macOS.
     pub eol: DefaultEol,
     /// `files.autoSave`, `files.autoSaveDelay` (ms) and `files.autoSaveWorkspaceFilesOnly`.
@@ -437,6 +439,7 @@ impl Default for EditorSettings {
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             trim_final_newlines: false,
+            save_conflict_ask: true,
             eol: DefaultEol::Lf,
             auto_save: AutoSaveMode::Off,
             auto_save_delay_ms: 1000,
@@ -501,6 +504,7 @@ impl EditorSettings {
             trim_trailing_whitespace: c.get_bool("files.trimTrailingWhitespace").unwrap_or(false),
             insert_final_newline: c.get_bool("files.insertFinalNewline").unwrap_or(false),
             trim_final_newlines: c.get_bool("files.trimFinalNewlines").unwrap_or(false),
+            save_conflict_ask: c.get_str("files.saveConflictResolution") != Some("overwriteFileOnDisk"),
             eol: match c.get_str("files.eol") {
                 Some("\r\n") => DefaultEol::CrLf,
                 _ => DefaultEol::Lf,

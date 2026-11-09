@@ -1,0 +1,884 @@
+#!/usr/bin/env python3
+"""test-port: inventory upstream VS Code unit tests and track which ones our Rust code ports.
+
+Stdlib-only, Python >= 3.8. Run from the repo root. Upstream is read with git (never built,
+never fetched). See docs/testing.md for the workflow.
+
+Commands:
+  inventory [--area PREFIX] [--files]     upstream unit tests in scope, by area and layer
+  status    [--all-files]                 `// upstream: <suite> > <test>` refs in our Rust code matched
+                                          to the inventory; orphans; stale headers
+  next      [--area X] [--n 20] [--all]   files to port next, as task briefs for an LLM agent
+  report                                  write upstream/TEST_PORT_REPORT.md
+
+Scope: src/vs/**/test/**/*.test.ts, extensions/*/src/test/**/*.test.ts, and cli/**/*.rs
+(#[test] / #[tokio::test] functions). Titles: suite()/describe() and test()/it(), with
+.skip/.only/.todo/.each modifiers. Titles that cannot be read statically (identifiers, calls,
+arrays) are "dynamic": counted, never matched. Tests inside for/while/forEach are "in-loop":
+counted once.
+"""
+
+import argparse
+import bisect
+import collections
+import os
+import re
+import subprocess
+import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+PORTS = os.path.join(REPO_ROOT, "upstream", "ports.toml")
+REPORT = os.path.join(REPO_ROOT, "upstream", "TEST_PORT_REPORT.md")
+DEFAULT_CLONE = "../vscode-original"
+RUST_ROOTS = ("crates", "tests")
+
+LAYERS = ("common", "node", "browser", "electron-main", "electron-browser",
+          "electron-utility", "electron-sandbox", "electron-renderer", "worker")
+TEST_CALL = {"suite": "suite", "describe": "suite", "test": "test", "it": "test"}
+LOOP_CALLS = ("for", "while", "forEach", "each")
+KW_BEFORE_EXPR = ("return", "typeof", "case", "do", "else", "in", "of", "void", "yield",
+                  "await", "throw", "instanceof", "new", "delete")
+OPEN = ("(", "[", "{")
+CLOSE = (")", "]", "}")
+
+# Crate mapping for the `next` suggestions, matched by prefix of the module path (the upstream
+# source path with the `test` directory removed). Tier A = maps to an existing or planned crate
+# named in ADR-0006 / the task brief; B = pure logic in base/common; C = other common/node code.
+CRATE_MAP = (
+    ("src/vs/editor/common/core/", "vsr-text", "A"),
+    ("src/vs/editor/common/model/", "vsr-text", "A"),
+    ("src/vs/editor/common/cursor/", "vsr-editor", "A"),
+    ("src/vs/workbench/contrib/preferences/", "vsr-settings", "A"),
+    ("src/vs/platform/configuration/", "vsr-settings", "A"),
+    ("src/vs/base/common/", "vsr-base (new)", "B"),
+)
+TIER_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3, "X": 4}
+TIER_NAMES = {
+    "A": "crate-mapped",
+    "B": "base/common pure logic",
+    "C": "other common/node logic",
+    "D": "extensions / cli (no crate planned)",
+    "X": "browser/electron DOM (skipped by default)",
+}
+
+HEADER_RE = re.compile(r"^\s*//[/!]?\s*upstream:\s*(\S+)\s*@\s*([0-9a-fA-F]{7,40})\b")
+REF_RE = re.compile(r"^\s*//\s*upstream:\s*(.+?)\s*$")
+
+
+class TestPortError(Exception):
+    pass
+
+
+# --------------------------------------------------------------------------
+# JS/TS lexer (best effort, enough for mocha-style test files)
+# --------------------------------------------------------------------------
+
+_TOKEN_RE = re.compile(r"""
+    (?P<ws>\s+)
+  | (?P<lc>//[^\n]*)
+  | (?P<bc>/\*.*?\*/)
+  | (?P<id>[A-Za-z_$][\w$]*)
+  | (?P<num>\d[\w.]*)
+  | (?P<str>'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*")
+  | (?P<tmpl>`)
+  | (?P<punct>=>|.)
+""", re.VERBOSE | re.DOTALL)
+_REGEX_RE = re.compile(r"/(?![*/])(?:[^/\\\n\[]|\\.|\[(?:[^\]\\\n]|\\.)*\])+/[A-Za-z]*")
+_ESC = {"n": "\n", "t": "\t", "r": "\r"}
+
+
+def _unescape(s):
+    return re.sub(r"\\(.)", lambda m: _ESC.get(m.group(1), m.group(1)), s, flags=re.S)
+
+
+def _tmpl_body(src, j):
+    """Scan template text from j. Returns (index after the end, True if it stopped at ${)."""
+    n = len(src)
+    while j < n:
+        c = src[j]
+        if c == "\\":
+            j += 2
+            continue
+        if c == "`":
+            return j + 1, False
+        if c == "$" and src.startswith("{", j + 1):
+            return j + 2, True
+        j += 1
+    return n, False
+
+
+def _regex_ok(toks):
+    if not toks:
+        return True
+    kind, val, _ = toks[-1]
+    if kind == "punct":
+        return val not in (")", "]", "}")
+    if kind == "id":
+        return val in KW_BEFORE_EXPR
+    return False
+
+
+def lex(src):
+    """Tokens are (kind, value, pos). Kinds: id, num, str (decoded value), tmpl (raw text between
+    the backticks, ${...} kept verbatim), regex, punct. Comments are dropped."""
+    toks = []
+    n = len(src)
+    i = 0
+    brace = 0
+    tstack = []  # open template expressions: [brace depth, index of the tmpl token, start]
+    while i < n:
+        m = _TOKEN_RE.match(src, i)
+        kind = m.lastgroup
+        text = m.group(0)
+        if kind == "tmpl":
+            end, expr = _tmpl_body(src, i + 1)
+            if expr:
+                toks.append(("tmpl", None, i))
+                tstack.append([brace, len(toks) - 1, i])
+            else:
+                toks.append(("tmpl", src[i + 1:end - 1], i))
+            i = end
+            continue
+        if kind in ("ws", "lc", "bc"):
+            i = m.end()
+            continue
+        if kind == "punct" and text == "}" and tstack and tstack[-1][0] == brace:
+            _depth, idx, start = tstack.pop()
+            del toks[idx + 1:]  # drop the tokens of the ${...} expression
+            end, expr = _tmpl_body(src, i + 1)
+            if expr:
+                tstack.append([brace, idx, start])
+            else:
+                toks[idx] = ("tmpl", src[start + 1:end - 1], start)
+            i = end
+            continue
+        if kind == "punct" and text == "/" and _regex_ok(toks):
+            rm = _REGEX_RE.match(src, i)
+            if rm:
+                toks.append(("regex", rm.group(0), i))
+                i = rm.end()
+                continue
+        if kind == "punct":
+            if text == "{":
+                brace += 1
+            elif text == "}":
+                brace -= 1
+        if kind == "str":
+            toks.append(("str", _unescape(text[1:-1]), i))
+        else:
+            toks.append((kind, text, i))
+        i = m.end()
+    for _depth, idx, start in tstack:  # unterminated template: keep what we have
+        toks[idx] = ("tmpl", src[start + 1:], start)
+    return toks
+
+
+# --------------------------------------------------------------------------
+# Title resolution and TS parser
+# --------------------------------------------------------------------------
+
+def _is(tok, kind, val=None):
+    return tok is not None and tok[0] == kind and (val is None or tok[1] == val)
+
+
+def _concat_literals(parts):
+    """First call argument -> (title, dynamic). Accepts a string/template literal, or several
+    of them joined with '+'. Anything else is dynamic."""
+    if not parts:
+        return None, True
+    out = []
+    want_operand = True
+    for kind, val, _ in parts:
+        if want_operand:
+            if kind not in ("str", "tmpl") or val is None:
+                return None, True
+            out.append(val)
+            want_operand = False
+        elif kind == "punct" and val == "+":
+            want_operand = True
+        else:
+            return None, True
+    if want_operand:
+        return None, True
+    return "".join(out), False
+
+
+def _first_arg_title(toks, j):
+    """toks[j] is the '(' of a call. Returns the title of its first argument."""
+    parts = []
+    depth = 0
+    k = j + 1
+    while k < len(toks):
+        kind, val, _ = toks[k]
+        if kind == "punct":
+            if val in OPEN:
+                depth += 1
+            elif val in CLOSE:
+                if depth == 0:
+                    break
+                depth -= 1
+            elif val == "," and depth == 0:
+                break
+        parts.append(toks[k])
+        k += 1
+    return _concat_literals(parts)
+
+
+def parse_ts(src):
+    """Returns (suites, tests) for one TS file.
+    suites: [{"path": [..], "line": n, "skip": bool}] (path includes the suite itself)
+    tests:  [{"suite": [..], "title": str|None, "dynamic": bool, "skip": bool,
+              "looped": bool, "line": n}]"""
+    toks = lex(src)
+    nls = [m.start() for m in re.finditer("\n", src)]
+
+    def line_of(pos):
+        return bisect.bisect_left(nls, pos) + 1
+
+    suites, tests = [], []
+    braces = []   # {"suite": title|None, "skip": bool, "loop": bool}
+    parens = []   # {"loop": bool, "call": None | {"title", "skip", "body"}}
+    loop_depth = 0
+    last_close_loop = False
+    n = len(toks)
+    i = 0
+    while i < n:
+        kind, val, pos = toks[i]
+        prev = toks[i - 1] if i else None
+        if (kind == "id" and val in TEST_CALL and not _is(prev, "punct", ".")
+                and not _is(prev, "id", "function")):
+            j = i + 1
+            mod = None
+            if (j + 2 < n and _is(toks[j], "punct", ".") and toks[j + 1][0] == "id"
+                    and _is(toks[j + 2], "punct", "(")):
+                mod = toks[j + 1][1]
+                j += 2
+            if j < n and _is(toks[j], "punct", "("):
+                title, dynamic = _first_arg_title(toks, j)
+                skip = mod in ("skip", "todo") or any(b["skip"] for b in braces)
+                owner = [b["suite"] for b in braces if b["suite"] is not None]
+                if TEST_CALL[val] == "test":
+                    tests.append({"suite": owner, "title": None if dynamic else title,
+                                  "dynamic": dynamic or mod == "each", "skip": skip,
+                                  "looped": loop_depth > 0, "line": line_of(pos)})
+                    parens.append({"loop": False, "call": None})
+                else:
+                    name = "<dynamic>" if dynamic else title
+                    suites.append({"path": owner + [name], "line": line_of(pos), "skip": skip})
+                    parens.append({"loop": False,
+                                   "call": {"title": name, "skip": skip, "body": False}})
+                i = j + 1
+                continue
+        if kind == "punct":
+            if val == "(":
+                is_loop = _is(prev, "id") and prev[1] in LOOP_CALLS
+                parens.append({"loop": is_loop, "call": None})
+                loop_depth += int(is_loop)
+            elif val == ")":
+                entry = parens.pop() if parens else {"loop": False, "call": None}
+                loop_depth -= int(entry["loop"])
+                last_close_loop = entry["loop"]
+            elif val == "{":
+                entry = {"suite": None, "skip": False,
+                         "loop": _is(prev, "punct", ")") and last_close_loop}
+                call = parens[-1]["call"] if parens else None
+                if (call is not None and not call["body"] and prev is not None
+                        and (_is(prev, "punct", "=>") or _is(prev, "punct", ")"))):
+                    call["body"] = True
+                    entry["suite"] = call["title"]
+                    entry["skip"] = call["skip"]
+                loop_depth += int(entry["loop"])
+                braces.append(entry)
+            elif val == "}":
+                if braces:
+                    loop_depth -= int(braces.pop()["loop"])
+        i += 1
+    return suites, tests
+
+
+# --------------------------------------------------------------------------
+# Rust (cli) parser: #[test] / #[tokio::test] functions inside `mod` blocks
+# --------------------------------------------------------------------------
+
+_RS_TEST_ATTR = re.compile(r"^\s*#\[(?:tokio::|async_std::)?test\b")
+_RS_IGNORE = re.compile(r"^\s*#\[ignore")
+_RS_FN = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)")
+_RS_MOD = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*\{")
+
+
+def parse_rs(src):
+    """Returns (suites, tests) in the same shape as parse_ts. Suites are the `mod` blocks."""
+    tests, suites = [], []
+    mods = []          # [(name, depth_inside)]
+    depth = 0
+    pending = None     # {"line": n, "skip": bool}
+    for lineno, raw in enumerate(src.splitlines(), 1):
+        code = re.sub(r'"(?:\\.|[^"\\])*"', '""', raw).split("//")[0]
+        if _RS_TEST_ATTR.match(raw):
+            pending = pending or {"line": lineno, "skip": False}
+        elif _RS_IGNORE.match(raw) and pending:
+            pending["skip"] = True
+        else:
+            fm = _RS_FN.match(code)
+            if fm and pending:
+                suite = [m[0] for m in mods]
+                tests.append({"suite": suite, "title": fm.group(1), "dynamic": False,
+                              "skip": pending["skip"], "looped": False, "line": pending["line"]})
+                pending = None
+        mm = _RS_MOD.match(code)
+        if mm:
+            mods.append((mm.group(1), depth + 1))
+            suites.append({"path": [m[0] for m in mods], "line": lineno, "skip": False})
+        for ch in code:
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                while mods and mods[-1][1] > depth:
+                    mods.pop()
+    return suites, tests
+
+
+# --------------------------------------------------------------------------
+# Scope, layers, areas, crates
+# --------------------------------------------------------------------------
+
+def in_scope(path):
+    parts = path.split("/")
+    if path.startswith("src/vs/") and path.endswith(".test.ts"):
+        return "test" in parts[2:-1]
+    if path.startswith("extensions/") and path.endswith(".test.ts"):
+        return len(parts) >= 5 and parts[2] == "src" and parts[3] == "test"
+    if path.startswith("cli/") and path.endswith(".rs"):
+        return True
+    return False
+
+
+def classify(path):
+    """Returns (layer, area, module). module = upstream path with the `test` dir removed."""
+    parts = path.split("/")
+    if path.startswith("cli/"):
+        area = "cli/tests" if len(parts) > 1 and parts[1] == "tests" else "cli/src"
+        return "rust", area, path
+    if path.startswith("extensions/"):
+        layer = parts[4] if len(parts) > 4 and parts[4] in LAYERS else "node"
+        return layer, "extensions/" + parts[1], path
+    idx = next(k for k in range(2, len(parts) - 1) if parts[k] == "test")
+    layer = parts[idx + 1] if idx + 1 < len(parts) and parts[idx + 1] in LAYERS else "other"
+    prefix = parts[2:idx]
+    module = "/".join(parts[:idx] + parts[idx + 1:])
+    if not prefix:
+        area = "src/vs"
+    elif len(prefix) == 1:
+        area = prefix[0] + ("/" + layer if layer in LAYERS else "")
+    elif prefix[0] in ("workbench", "sessions", "editor") and prefix[1] in ("contrib", "services"):
+        area = "/".join(prefix[:3])
+    else:
+        area = "/".join(prefix[:2])
+    return layer, area, module
+
+
+def crate_for(module):
+    for prefix, crate, tier in CRATE_MAP:
+        if module.startswith(prefix):
+            return crate, tier
+    return None, None
+
+
+def tier_for(f):
+    if f["layer"] == "browser" or f["layer"].startswith("electron-"):
+        return "X"
+    if f["path"].startswith("cli/") or f["path"].startswith("extensions/"):
+        return "D"
+    crate, tier = crate_for(f["module"])
+    if tier:
+        return tier
+    return "C"
+
+
+def tests_key(suite, title):
+    return " > ".join(suite + [title])
+
+
+# --------------------------------------------------------------------------
+# Git access (upstream clone), via a few batched git calls
+# --------------------------------------------------------------------------
+
+def load_config():
+    clone, ref = DEFAULT_CLONE, "HEAD"
+    try:
+        with open(PORTS, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        text = ""
+    m = re.search(r'^clone\s*=\s*"([^"]+)"', text, re.M)
+    if m:
+        clone = m.group(1)
+    m = re.search(r'^ref\s*=\s*"([^"]+)"', text, re.M)
+    if m:
+        ref = m.group(1)
+    return os.path.normpath(os.path.join(REPO_ROOT, clone)), ref
+
+
+def _git(clone, *args, input_bytes=None, check=True):
+    r = subprocess.run(["git", "-C", clone, "-c", "core.quotepath=off"] + list(args),
+                       input=input_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if check and r.returncode != 0:
+        raise TestPortError("git %s failed: %s" % (" ".join(args),
+                                                   r.stderr.decode("utf-8", "replace").strip()))
+    return r.stdout if r.returncode == 0 else None
+
+
+def resolve_commit(clone, ref):
+    if not os.path.isdir(clone):
+        raise TestPortError("upstream clone not found at %s (use --clone or UPSTREAM_CLONE)" % clone)
+    out = _git(clone, "rev-parse", "--verify", "--quiet", ref + "^{commit}", check=False)
+    if not out:
+        raise TestPortError("ref %r not found in %s" % (ref, clone))
+    return out.decode().strip()
+
+
+def read_tree(clone, commit):
+    out = _git(clone, "ls-tree", "-r", "-z", "--full-tree", commit)
+    tree = {}
+    for entry in out.split(b"\0"):
+        if not entry:
+            continue
+        meta, path = entry.split(b"\t", 1)
+        mode, typ, sha = meta.split()
+        if typ == b"blob":
+            tree[path.decode("utf-8", "replace")] = sha.decode()
+    return tree
+
+
+def read_blobs(clone, shas):
+    uniq = list(dict.fromkeys(shas))
+    if not uniq:
+        return {}
+    data = _git(clone, "cat-file", "--batch", input_bytes=("\n".join(uniq) + "\n").encode())
+    out, pos = {}, 0
+    for sha in uniq:
+        nl = data.index(b"\n", pos)
+        header = data[pos:nl].split()
+        if len(header) < 3:
+            raise TestPortError("unexpected cat-file output for %s" % sha)
+        size = int(header[2])
+        out[sha] = data[nl + 1:nl + 1 + size].decode("utf-8", "replace")
+        pos = nl + 1 + size + 1
+    return out
+
+
+def load_inventory(clone, ref):
+    commit = resolve_commit(clone, ref)
+    tree = read_tree(clone, commit)
+    scope = sorted(p for p in tree if in_scope(p))
+    blobs = read_blobs(clone, [tree[p] for p in scope])
+    files = []
+    for p in scope:
+        text = blobs[tree[p]]
+        layer, area, module = classify(p)
+        if p.endswith(".rs"):
+            suites, tests = parse_rs(text)
+        else:
+            suites, tests = parse_ts(text)
+        if not tests and not suites:
+            continue
+        for t in tests:
+            t["key"] = None if t["dynamic"] else tests_key(t["suite"], t["title"])
+        files.append({"path": p, "layer": layer, "area": area, "module": module,
+                      "suites": suites, "tests": tests})
+    return {"commit": commit, "ref": ref, "tree": tree, "files": files}
+
+
+def scan_rust(root):
+    """Returns headers {rel: [(upstream path, sha, line)]} and refs [(rel, line, key)]."""
+    headers, refs = {}, []
+    for base in RUST_ROOTS:
+        for dirpath, dirnames, filenames in os.walk(os.path.join(root, base)):
+            dirnames[:] = [d for d in dirnames if d not in ("target", ".git")]
+            for fn in filenames:
+                if not fn.endswith(".rs"):
+                    continue
+                full = os.path.join(dirpath, fn)
+                rel = os.path.relpath(full, root)
+                with open(full, encoding="utf-8", errors="replace") as fh:
+                    lines = fh.read().splitlines()
+                hs = []
+                for lineno, line in enumerate(lines[:40], 1):
+                    m = HEADER_RE.match(line)
+                    if m:
+                        hs.append((m.group(1), m.group(2), lineno))
+                if hs:
+                    headers[rel] = hs
+                for lineno, line in enumerate(lines, 1):
+                    if HEADER_RE.match(line):
+                        continue
+                    m = REF_RE.match(line)
+                    if m:
+                        refs.append((rel, lineno, m.group(1).strip()))
+    return headers, refs
+
+
+def match_refs(inv, headers, refs):
+    index = collections.Counter()
+    by_key = collections.defaultdict(set)
+    for f in inv["files"]:
+        for t in f["tests"]:
+            if t["key"] is not None:
+                index[(f["path"], t["key"])] += 1
+                by_key[t["key"]].add(f["path"])
+    matched = collections.Counter()
+    orphans, mismatched = [], []
+    for rel, line, key in refs:
+        hp = [p for p, _, _ in headers.get(rel, [])]
+        hit = [p for p in hp if (p, key) in index]
+        if hit:
+            matched[(hit[0], key)] += 1
+        elif key in by_key:
+            mismatched.append((rel, line, key, sorted(by_key[key])))
+        else:
+            orphans.append((rel, line, key, hp))
+    return index, matched, orphans, mismatched
+
+
+def ported_per_file(inv, index, matched):
+    """Returns {path: (ported, total)} where total excludes dynamic tests."""
+    out = {}
+    for f in inv["files"]:
+        total, ported = 0, 0
+        for t in f["tests"]:
+            if t["key"] is None:
+                continue
+            total += 1
+        seen = collections.Counter()
+        for t in f["tests"]:
+            if t["key"] is None:
+                continue
+            seen[t["key"]] += 1
+            if seen[t["key"]] <= matched.get((f["path"], t["key"]), 0):
+                ported += 1
+        out[f["path"]] = (ported, total)
+    return out
+
+
+def stale_headers(clone, inv, headers):
+    rows, seen = [], {}
+    for rel, hs in sorted(headers.items()):
+        for p, sha, _ in hs:
+            if (p, sha) not in seen:
+                cur = inv["tree"].get(p)
+                if cur is None:
+                    state = "MISSING at ref (renamed or deleted upstream)"
+                else:
+                    old = _git(clone, "rev-parse", "-q", "--verify", "%s:%s" % (sha, p), check=False)
+                    if not old:
+                        state = "sha %s not in clone" % sha[:12]
+                    elif old.decode().strip() == cur:
+                        state = "unchanged"
+                    else:
+                        state = "CHANGED upstream since %s" % sha[:12]
+                seen[(p, sha)] = state
+                rows.append((p, sha, state, [rel]))
+            else:
+                for r in rows:
+                    if r[0] == p and r[1] == sha:
+                        r[3].append(rel)
+    return rows
+
+
+# --------------------------------------------------------------------------
+# Output helpers
+# --------------------------------------------------------------------------
+
+def pct(a, b):
+    return "%5.1f%%" % (100.0 * a / b) if b else "    -"
+
+
+def short(sha):
+    return sha[:12]
+
+
+def table(headers, rows):
+    widths = [len(h) for h in headers]
+    for r in rows:
+        for k, c in enumerate(r):
+            widths[k] = max(widths[k], len(str(c)))
+    lines = ["  ".join(str(h).ljust(widths[k]) for k, h in enumerate(headers))]
+    lines.append("  ".join("-" * w for w in widths))
+    for r in rows:
+        lines.append("  ".join(str(c).ljust(widths[k]) for k, c in enumerate(r)))
+    return "\n".join(lines)
+
+
+def area_rows(inv, files, index=None, matched=None):
+    """Aggregate files into per-area rows."""
+    agg = collections.OrderedDict()
+    for f in files:
+        a = agg.setdefault(f["area"], {"layers": set(), "files": 0, "suites": 0, "tests": 0,
+                                       "skipped": 0, "dynamic": 0, "looped": 0,
+                                       "ported": 0, "total": 0, "crates": set()})
+        a["layers"].add(f["layer"])
+        a["files"] += 1
+        a["suites"] += len(f["suites"])
+        for t in f["tests"]:
+            a["tests"] += 1
+            a["skipped"] += int(t["skip"])
+            a["dynamic"] += int(t["dynamic"])
+            a["looped"] += int(t["looped"])
+        crate, _ = crate_for(f["module"])
+        if crate:
+            a["crates"].add(crate)
+    return agg
+
+
+def cmd_inventory(args, inv):
+    files = [f for f in inv["files"] if in_area(f, args.area)]
+    agg = area_rows(inv, files)
+    tot = {k: sum(a[k] for a in agg.values()) for k in
+           ("files", "suites", "tests", "skipped", "dynamic", "looped")}
+    layer_counts = collections.Counter()
+    for f in files:
+        for t in f["tests"]:
+            layer_counts[f["layer"]] += 1
+    print("upstream %s (ref %s): %d files, %d suites, %d tests"
+          % (short(inv["commit"]), inv["ref"], tot["files"], tot["suites"], tot["tests"]))
+    print("  active %d, skipped upstream %d, dynamic (unreadable title) %d, in-loop %d"
+          % (tot["tests"] - tot["skipped"], tot["skipped"], tot["dynamic"], tot["looped"]))
+    print("  by layer: " + ", ".join("%s %d" % (k, v) for k, v in layer_counts.most_common()))
+    print()
+    rows = [(area, ",".join(sorted(a["layers"])), a["files"], a["suites"], a["tests"],
+             a["skipped"], a["dynamic"], ",".join(sorted(a["crates"])) or "-")
+            for area, a in sorted(agg.items(), key=lambda kv: -kv[1]["tests"])]
+    print(table(["area", "layer", "files", "suites", "tests", "skipped", "dynamic", "crate"], rows))
+    if args.files or args.area:
+        print()
+        for f in sorted(files, key=lambda f: f["path"]):
+            print("%-100s %-14s %-8s suites=%-4d tests=%d" % (
+                f["path"], f["area"], f["layer"], len(f["suites"]), len(f["tests"])))
+
+
+def cmd_status(args, inv, root):
+    headers, refs = scan_rust(root)
+    index, matched, orphans, mismatched = match_refs(inv, headers, refs)
+    pf = ported_per_file(inv, index, matched)
+    files = inv["files"]
+    total = sum(t for _, t in pf.values())
+    ported = sum(p for p, _ in pf.values())
+    touched = sum(1 for p, _ in pf.values() if p)
+    print("upstream %s (ref %s): %d files, %d tests (dynamic excluded from ported %%)"
+          % (short(inv["commit"]), inv["ref"], len(files), total))
+    print("rust: %d `// upstream:` refs in %d files, %d header lines in %d files"
+          % (len(refs), len({r[0] for r in refs}), sum(len(v) for v in headers.values()),
+             len(headers)))
+    print("ported: %d / %d tests (%s); upstream files touched: %d"
+          % (ported, total, pct(ported, total).strip(), touched))
+    print()
+    agg = collections.OrderedDict()
+    for f in files:
+        a = agg.setdefault(f["area"], [0, 0, 0, set()])
+        a[0] += 1
+        p, t = pf[f["path"]]
+        a[1] += t
+        a[2] += p
+        a[3].add(f["layer"])
+    rows = [(area, ",".join(sorted(a[3])), a[0], a[1], a[2], pct(a[2], a[1]))
+            for area, a in sorted(agg.items(), key=lambda kv: -kv[1][2])
+            if a[2] or args.all_files]
+    print(table(["area", "layer", "files", "tests", "ported", "%"], rows))
+    print()
+    print("per file (ported > 0%s):" % (" or all" if args.all_files else ""))
+    for f in sorted(files, key=lambda f: f["path"]):
+        p, t = pf[f["path"]]
+        if p or args.all_files:
+            print("  %-100s %4d / %-4d %s" % (f["path"], p, t, pct(p, t).strip()))
+    print()
+    print("orphans (refs that match no upstream test): %d" % len(orphans))
+    for rel, line, key, hp in orphans:
+        print("  %s:%d  %s  [header: %s]" % (rel, line, key, ", ".join(hp) or "none"))
+    print("refs whose title is in an upstream file not named in their header: %d" % len(mismatched))
+    for rel, line, key, where in mismatched:
+        print("  %s:%d  %s  (upstream: %s)" % (rel, line, key, ", ".join(where)))
+    print()
+    stale = stale_headers(inv["clone"], inv, headers) if "clone" in inv else []
+    changed = [r for r in stale if r[2] != "unchanged"]
+    print("header files: %d; changed or missing upstream since their sha: %d"
+          % (len(stale), len(changed)))
+    for p, sha, state, rels in changed:
+        print("  %s  @ %s  %s  [ours: %s]" % (p, short(sha), state, ", ".join(sorted(set(rels)))))
+
+
+def in_area(f, prefix):
+    """--area PREFIX matches the upstream path, the module path (test dir removed), or the area."""
+    if not prefix:
+        return True
+    return (f["path"].startswith(prefix) or f["module"].startswith(prefix)
+            or f["area"].startswith(prefix))
+
+
+def next_candidates(inv, pf, include_all):
+    out = []
+    for f in inv["files"]:
+        tier = tier_for(f)
+        if tier in ("D", "X") and not include_all:
+            continue
+        p, t = pf[f["path"]]
+        if t - p <= 0:
+            continue
+        crate, _ = crate_for(f["module"])
+        out.append({"f": f, "tier": tier, "crate": crate, "ported": p, "total": t})
+    out.sort(key=lambda c: (TIER_ORDER[c["tier"]], -(c["total"] - c["ported"])))
+    return out
+
+
+def brief(c, sha):
+    f = c["f"]
+    t = f["tests"]
+    active = sum(1 for x in t if not x["skip"])
+    suites = []
+    for s in f["suites"]:
+        name = s["path"][0] if s["path"] else None
+        if len(s["path"]) == 1 and name not in suites:
+            suites.append(name)
+    lines = [
+        "**%s**" % f["path"],
+        "- tests: %d (%d active, %d skipped upstream, %d dynamic) | layer: %s | area: %s | tier %s (%s)"
+        % (len(t), active, len(t) - active, sum(1 for x in t if x["dynamic"]), f["layer"],
+           f["area"], c["tier"], TIER_NAMES[c["tier"]]),
+        "- ported so far: %d / %d | target crate: %s" % (
+            c["ported"], c["total"], c["crate"] or "none yet (decide when the area is started)"),
+        "- top-level suites: %s" % (", ".join(suites[:8]) or "(none, tests at top level)"),
+    ]
+    stem = os.path.basename(f["path"]).replace(".test.ts", "").replace(".test.rs", "")
+    stem = re.sub(r"[^a-z0-9]+", "_", stem.lower()).strip("_")
+    target = "crates/%s/tests/upstream_%s.rs" % (c["crate"].split(" ")[0] if c["crate"] else "<crate>", stem)
+    lines.append("- brief: port the tests of this file into `%s`. File header: "
+                 "`//! upstream: %s @ %s`. One `// upstream: <suite> > <test>` comment per ported test "
+                 "(suite path joined by ' > ', no extra prefix). Skipped upstream tests may be "
+                 "skipped too, with a reason. Record intentional gaps in the commit message."
+                 % (target, f["path"], short(sha)))
+    return "\n".join(lines)
+
+
+def cmd_next(args, inv, root):
+    headers, refs = scan_rust(root)
+    index, matched, _, _ = match_refs(inv, headers, refs)
+    pf = ported_per_file(inv, index, matched)
+    cands = next_candidates(inv, pf, args.all)
+    if args.area:
+        cands = [c for c in cands if in_area(c["f"], args.area)]
+    cands = cands[:args.n]
+    print("# Next upstream test files to port (%d shown)" % len(cands))
+    print()
+    print("Tiers: " + "; ".join("%s = %s" % (k, v) for k, v in TIER_NAMES.items()))
+    print("Default excludes tiers D and X (use --all). Files with every test already ported are not listed.")
+    print()
+    for i, c in enumerate(cands, 1):
+        print("%d. %s" % (i, brief(c, inv["commit"])))
+        print()
+
+
+def cmd_report(args, inv, root):
+    headers, refs = scan_rust(root)
+    index, matched, orphans, mismatched = match_refs(inv, headers, refs)
+    pf = ported_per_file(inv, index, matched)
+    files = inv["files"]
+    total = sum(t for _, t in pf.values())
+    ported = sum(p for p, _ in pf.values())
+    lines = [
+        "# Upstream test port report",
+        "",
+        "Generated by `scripts/test-port report`. Do not edit by hand; regenerate.",
+        "",
+        "- Upstream: VS Code `%s` (ref `%s`)" % (inv["commit"], inv["ref"]),
+        "- Scope: `src/vs/**/test/**/*.test.ts`, `extensions/*/src/test/**/*.test.ts`, `cli/**/*.rs`",
+        "- Files in scope: %d; suites: %d; tests: %d (dynamic titles excluded from the ported count)"
+        % (len(files), sum(len(f["suites"]) for f in files),
+           sum(len(f["tests"]) for f in files)),
+        "- Ported: **%d / %d** (%s); upstream files touched: %d"
+        % (ported, total, pct(ported, total).strip(), sum(1 for p, _ in pf.values() if p)),
+        "- Our refs: %d in %d files; orphans: %d; refs in the wrong header file: %d"
+        % (len(refs), len({r[0] for r in refs}), len(orphans), len(mismatched)),
+        "",
+        "## By layer",
+        "",
+    ]
+    layer = collections.Counter()
+    for f in files:
+        layer[f["layer"]] += len(f["tests"])
+    lines.append(table(["layer", "tests"], sorted(layer.items(), key=lambda kv: -kv[1])))
+    lines += ["", "## By area", ""]
+    agg = collections.OrderedDict()
+    for f in files:
+        a = agg.setdefault(f["area"], {"layers": set(), "files": 0, "tests": 0, "p": 0,
+                                       "t": 0, "crates": set()})
+        a["layers"].add(f["layer"])
+        a["files"] += 1
+        a["tests"] += len(f["tests"])
+        p, t = pf[f["path"]]
+        a["p"] += p
+        a["t"] += t
+        crate, _ = crate_for(f["module"])
+        if crate:
+            a["crates"].add(crate)
+    rows = [(k, ",".join(sorted(a["layers"])), ",".join(sorted(a["crates"])) or "-", a["files"],
+             a["tests"], a["p"], pct(a["p"], a["t"]).strip())
+            for k, a in sorted(agg.items(), key=lambda kv: -kv[1]["tests"])]
+    lines.append(table(["area", "layer", "crate", "files", "tests", "ported", "%"], rows))
+    lines += ["", "## Top 20 next files", ""]
+    cands = next_candidates(inv, pf, False)[:20]
+    if not cands:
+        lines.append("(none)")
+    for i, c in enumerate(cands, 1):
+        f = c["f"]
+        lines.append("%d. `%s` - tier %s, %d tests, %d ported, crate %s"
+                     % (i, f["path"], c["tier"], c["total"], c["ported"],
+                        c["crate"] or "none yet"))
+    lines.append("")
+    with open(REPORT, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))
+    print("wrote %s" % os.path.relpath(REPORT, REPO_ROOT))
+
+
+def main(argv=None):
+    default_clone, default_ref = load_config()
+    p = argparse.ArgumentParser(prog="test-port", description=__doc__.split("\n\n")[0])
+    p.add_argument("--clone", default=os.environ.get("UPSTREAM_CLONE") or default_clone,
+                   help="upstream clone (default: [upstream].clone, or UPSTREAM_CLONE)")
+    p.add_argument("--ref", default=default_ref, help="upstream ref (default: %s)" % default_ref)
+    sub = p.add_subparsers(dest="cmd")
+    s = sub.add_parser("inventory")
+    s.add_argument("--area", help="only paths or areas starting with this prefix")
+    s.add_argument("--files", action="store_true", help="list every file")
+    s = sub.add_parser("status")
+    s.add_argument("--all-files", action="store_true")
+    s = sub.add_parser("next")
+    s.add_argument("--area")
+    s.add_argument("--n", type=int, default=20)
+    s.add_argument("--all", action="store_true", help="include tiers D and X")
+    sub.add_parser("report")
+    args = p.parse_args(argv)
+    if not args.cmd:
+        p.print_help()
+        return 2
+    try:
+        clone = args.clone if os.path.isabs(args.clone) else os.path.normpath(
+            os.path.join(os.getcwd(), args.clone))
+        inv = load_inventory(clone, args.ref)
+        inv["clone"] = clone
+        if args.cmd == "inventory":
+            cmd_inventory(args, inv)
+        elif args.cmd == "status":
+            cmd_status(args, inv, REPO_ROOT)
+        elif args.cmd == "next":
+            cmd_next(args, inv, REPO_ROOT)
+        elif args.cmd == "report":
+            cmd_report(args, inv, REPO_ROOT)
+    except TestPortError as e:
+        print("test-port: %s" % e, file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

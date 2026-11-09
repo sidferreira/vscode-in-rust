@@ -165,3 +165,18 @@ starts the locally installed VS Code with an isolated throwaway profile and read
 implemented upstream). Caveat: the installed app is 1.144.1, not the 1.147.0 pin; re-run the
 script after updating VS Code. User settings live at
 `~/Library/Application Support/rscode/User/settings.json` (JSONC read; save drops comments for now).
+
+## ADR-0016 — Test porting program and visual policy (2026-11-09)
+
+Upstream has ~58k unit tests (3080 files; browser 29.7k, node 14.6k, common 10.5k), 127 smoke
+scenarios in 15 areas, and no pixel tests. Three tiers (details in `docs/testing.md`):
+1. **Unit:** ported upstream tests carry `// upstream: <suite> > <test>` refs; `scripts/test-port`
+   inventories upstream, reports ported/total per area, suggests the next files (`next`), and lists
+   orphans (refs that no longer match upstream, i.e. renamed/deleted or mis-titled tests).
+2. **Headless E2E:** scenarios in `tests/e2e-scenarios/<area>.md` (ported from `test/smoke`), run
+   via gpui's `TestAppContext` (simulate_keystrokes / simulate_click / dispatch_action /
+   run_until_parked). Needs the gpui `test-support` feature in vsr-app dev-deps (todo).
+3. **Visual regression:** `Window::render_to_image` (gpui test-support, offscreen on macOS),
+   per-channel tolerance 2, 99% match. Baselines are rscode-window-only images in
+   `tests/visual/baselines/` (gitignored) and are never committed or pushed without the user's
+   approval.

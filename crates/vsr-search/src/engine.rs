@@ -351,14 +351,18 @@ fn walker(dir: &Path, options: &SearchOptions, filter: &Arc<FileFilter>) -> Walk
     wb
 }
 
-/// Run a streaming text search. `on_file` is called (from worker threads, one at a time) for each
-/// file with matches. Returns when the walk is complete, the result limit is hit, or `cancel`
-/// is set.
+/// Run a streaming text search. `on_file` is called for each file with matches, in completion
+/// order, on the calling thread. Returns when the walk is complete, the result limit is hit, or
+/// `cancel` is set.
+///
+/// The walk runs on `ignore`'s worker threads, each with one `Searcher` it reuses for every file.
+/// Matches travel to the calling thread over a channel: the workers never wait on a callback lock,
+/// and `on_file` needs no `Send` bound.
 pub fn search(
     query: &TextSearchQuery,
     options: &SearchOptions,
     cancel: &AtomicBool,
-    on_file: impl FnMut(FileMatch) + Send,
+    mut on_file: impl FnMut(FileMatch),
 ) -> Result<SearchComplete, SearchError> {
     let started = Instant::now();
     let matcher = build_matcher(query, options.smart_case)?;
@@ -371,53 +375,64 @@ pub fn search(
         max_results: options.max_results,
         preview: options.preview,
     };
-    let callback = Mutex::new(on_file);
     let seen = Mutex::new(std::collections::HashSet::<PathBuf>::new());
     let folders = plan_folders(options);
     let dedupe = folders.len() > 1;
+    let (tx, rx) = std::sync::mpsc::channel::<FileMatch>();
 
-    for folder in &folders {
-        if cancel.load(Ordering::Relaxed) || shared.cancel.load(Ordering::Relaxed) {
-            break;
-        }
-        let dir = folder.dir.clone();
-        let filter = Arc::clone(&folder.filter);
-        walker(&dir, options, &folder.filter).build_parallel().run(|| {
-            let mut searcher = SearcherBuilder::new()
-                .line_number(true)
-                .multi_line(multiline)
-                .binary_detection(BinaryDetection::quit(b'\x00'))
-                .line_terminator(LineTerminator::crlf())
-                .build();
-            let (matcher, shared, callback, seen, dir, filter) = (&matcher, &shared, &callback, &seen, &dir, &filter);
-            Box::new(move |entry| {
+    std::thread::scope(|scope| {
+        let (matcher, shared, seen) = (&matcher, &shared, &seen);
+        let walk = scope.spawn(move || {
+            for folder in &folders {
                 if cancel.load(Ordering::Relaxed) || shared.cancel.load(Ordering::Relaxed) {
-                    return WalkState::Quit;
+                    break;
                 }
-                let Ok(entry) = entry else { return WalkState::Continue };
-                if !entry.file_type().is_some_and(|t| t.is_file()) {
-                    return WalkState::Continue;
-                }
-                let path = entry.path();
-                let rel = path.strip_prefix(dir).unwrap_or(path).to_string_lossy();
-                if !filter.accept_file(&rel) {
-                    return WalkState::Continue;
-                }
-                if dedupe && !seen.lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_path_buf()) {
-                    return WalkState::Continue;
-                }
-                shared.files_searched.fetch_add(1, Ordering::Relaxed);
-                let mut sink = Collector { matcher, shared, external_cancel: cancel, matches: Vec::new() };
-                // I/O errors (permissions, races with deletion) skip the file, like ripgrep.
-                let _ = searcher.search_path(matcher, path, &mut sink);
-                if !sink.matches.is_empty() {
-                    let fm = FileMatch { path: path.to_path_buf(), matches: sink.matches };
-                    (callback.lock().unwrap_or_else(|e| e.into_inner()))(fm);
-                }
-                WalkState::Continue
-            })
+                let dir = folder.dir.clone();
+                let filter = Arc::clone(&folder.filter);
+                walker(&dir, options, &folder.filter).build_parallel().run(|| {
+                    let tx = tx.clone();
+                    let mut searcher = SearcherBuilder::new()
+                        .line_number(true)
+                        .multi_line(multiline)
+                        .binary_detection(BinaryDetection::quit(b'\x00'))
+                        .line_terminator(LineTerminator::crlf())
+                        .build();
+                    let (dir, filter) = (&dir, &filter);
+                    Box::new(move |entry| {
+                        if cancel.load(Ordering::Relaxed) || shared.cancel.load(Ordering::Relaxed) {
+                            return WalkState::Quit;
+                        }
+                        let Ok(entry) = entry else { return WalkState::Continue };
+                        if !entry.file_type().is_some_and(|t| t.is_file()) {
+                            return WalkState::Continue;
+                        }
+                        let path = entry.path();
+                        let rel = path.strip_prefix(dir).unwrap_or(path).to_string_lossy();
+                        if !filter.accept_file(&rel) {
+                            return WalkState::Continue;
+                        }
+                        if dedupe && !seen.lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_path_buf()) {
+                            return WalkState::Continue;
+                        }
+                        shared.files_searched.fetch_add(1, Ordering::Relaxed);
+                        let mut sink = Collector { matcher, shared, external_cancel: cancel, matches: Vec::new() };
+                        // I/O errors (permissions, races with deletion) skip the file, like ripgrep.
+                        let _ = searcher.search_path(matcher, path, &mut sink);
+                        if !sink.matches.is_empty() {
+                            // The receiver outlives the walk; a send error only means it stopped.
+                            let _ = tx.send(FileMatch { path: path.to_path_buf(), matches: sink.matches });
+                        }
+                        WalkState::Continue
+                    })
+                });
+            }
+            // `tx` is dropped here, and each worker's clone with its visitor: `rx` ends.
         });
-    }
+        for file in rx {
+            on_file(file);
+        }
+        walk.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    });
 
     Ok(SearchComplete {
         limit_hit: shared.limit_hit.load(Ordering::Relaxed),

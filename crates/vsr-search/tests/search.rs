@@ -132,6 +132,38 @@ fn cancellation_stops_early() {
 }
 
 #[test]
+fn pre_cancelled_search_walks_nothing() {
+    let files: Vec<(String, String)> = (0..50).map(|i| (format!("f{i}.txt"), "x\n".into())).collect();
+    let refs: Vec<(&str, &str)> = files.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+    let d = ws(&refs);
+    let cancel = AtomicBool::new(true);
+    let mut seen = 0usize;
+    let done = search(&TextSearchQuery::new("x"), &SearchOptions::new(d.path()), &cancel, |_| seen += 1).unwrap();
+    assert!(done.cancelled);
+    assert_eq!(seen, 0);
+    assert_eq!(done.files_searched, 0);
+}
+
+#[test]
+fn parallel_walk_streams_every_file_and_respects_max_results() {
+    let files: Vec<(String, String)> = (0..300).map(|i| (format!("d{}/f{i}.txt", i % 7), "hit\n".into())).collect();
+    let refs: Vec<(&str, &str)> = files.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+    let d = ws(&refs);
+    let (all, done) = search_collect(&TextSearchQuery::new("hit"), &SearchOptions::new(d.path())).unwrap();
+    assert_eq!(all.len(), 300);
+    assert_eq!(done.files_searched, 300);
+    assert!(!done.limit_hit && !done.cancelled);
+    let (some, done) = search_collect(&TextSearchQuery::new("hit"), &{
+        let mut o = SearchOptions::new(d.path());
+        o.max_results = Some(100);
+        o
+    })
+    .unwrap();
+    assert!(done.limit_hit);
+    assert_eq!(total(&some), 100);
+}
+
+#[test]
 fn max_results_sets_limit_hit() {
     let d = ws(&[("a.txt", "x x x x x\nx x x\n")]);
     let (files, done) = search_collect(&TextSearchQuery::new("x"), &{

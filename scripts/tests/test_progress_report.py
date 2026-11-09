@@ -181,7 +181,7 @@ class HistoryTest(unittest.TestCase):
 
 def fixture_data(**over):
     snap = {"date": "2026-11-09", "sha": "abc1234", "settings_wired": 40,
-            "settings_counts": {"wired": 40, "exthost": 426, "n/a": 540, "todo": 1056},
+            "settings_counts": {"wired": 40, "exthost": 426, "blocked": 30, "n/a": 510, "todo": 1056},
             "tests_ported": 248, "tests_total": 57836, "scenarios_ready": 8, "scenarios_total": 127,
             "ports_by_status": {"planned": 1, "partial": 17, "ported": 0},
             "rust_tests_passing": 512, "rust_tests_failed": 0}
@@ -193,8 +193,10 @@ def fixture_data(**over):
         "git": {"sha": "abc1234", "full": "abc", "branch": "main", "date": "2026-11-09",
                 "recent": [{"sha": "abc1234", "date": "2026-11-09", "subject": "Fix <b>& stuff"}],
                 "per_day": [("2026-11-08", 2), ("2026-11-09", 5)]},
-        "settings": {"totals": {"wired": 40, "exthost": 426, "n/a": 540, "todo": 1056},
+        "settings": {"totals": {"wired": 40, "exthost": 426, "blocked": 30, "n/a": 510, "todo": 1056},
                      "naReasons": {"deprecated upstream": 140, "web-only": 7},
+                     "blockedReasons": {"needs editor splits and editor groups": 20,
+                                        "needs navigation history (Go Back / Go Forward)": 10},
                      "todoPriorities": {"P1": 298, "P2": 594, "P3": 164}},
         "tests": {"upstream": {"commit": "c", "ref": "HEAD", "files": 3, "tests": 57836},
                   "ported": 248, "total": 57836, "touched": 12,
@@ -258,6 +260,42 @@ class RenderTest(unittest.TestCase):
         html_out = pr.render(fixture_data(settings=None, tests=None))
         self.assertIn("Settings data unavailable in this run.", html_out)
         self.assertIn("Test data unavailable in this run.", html_out)
+
+    def test_blocked_segment_legend_and_reasons(self):
+        self.assertIn('class="stack"', self.html)
+        self.assertIn("seg-blocked", self.html)
+        self.assertIn("Blocked (needs a feature first): <strong>30</strong>", self.html)
+        self.assertIn("<h3>Blocked, by reason</h3>", self.html)
+        self.assertIn("needs editor splits and editor groups", self.html)
+        self.assertIn("needs navigation history (Go Back / Go Forward)", self.html)
+        self.assertIn("aria-label=\"Settings: 40 of 2,062 wired, 426 via extension host, 30 blocked, 510 not applicable, 1,056 to do\"",
+                      self.html)
+
+    def test_blocked_colour_defined_for_light_and_dark(self):
+        self.assertIn("--blocked: #7a4f9a;", self.html)
+        self.assertIn("--blocked: #b899d9;", self.html)
+        self.assertLess(self.html.index("--blocked: #7a4f9a;"), self.html.index("prefers-color-scheme: dark"))
+
+    def test_older_snapshot_without_blocked_counts_as_zero(self):
+        old = dict(fixture_data()["snapshot"])
+        old["settings_counts"] = {"wired": 30, "exthost": 426, "n/a": 540, "todo": 1066}
+        html_out = pr.render(fixture_data(snapshot=old, settings=None))
+        self.assertIn("Settings data unavailable in this run.", html_out)
+        self.assertIn("of 2,062", html_out)
+        self.assertEqual(pr.settings_counts_from(old["settings_counts"])["blocked"], 0)
+
+    def test_settings_without_blocked_reasons_renders_none(self):
+        data = fixture_data()
+        del data["settings"]["blockedReasons"]
+        data["settings"]["totals"].pop("blocked")
+        html_out = pr.render(data)
+        self.assertIn("<h3>Blocked, by reason</h3>", html_out)
+        self.assertIn("None.", html_out)
+
+    def test_settings_counts_from_totals(self):
+        self.assertIsNone(pr.settings_counts_from(None))
+        self.assertEqual(pr.settings_counts_from({"wired": 1, "blocked": 2}),
+                         {"wired": 1, "exthost": 0, "blocked": 2, "n/a": 0, "todo": 0})
 
     def test_rust_not_run_text(self):
         html_out = pr.render(fixture_data(rust_source=None))

@@ -6,8 +6,17 @@
 #
 # Status precedence per setting: wired (crates/vsr-app/src/config/wired.rs) > first matching
 # [[rule]] > deprecated policy > exthost (contributed by a built-in extension) > todo.
+# A [[rule]] sets its status to one of: n/a, blocked, exthost, todo (the script rejects others).
+# Use n/a and blocked for the two cases below; exthost and todo exist only to override a rule.
+#   n/a      never applies to rscode (Windows/Linux-only, telemetry, web-only, deprecated, AI chat
+#            policy). A decision, not a backlog item. Never used for deferred work.
+#   blocked  deferred: applies to rscode later, but needs a feature that does not exist yet. Not
+#            actionable (`next` skips it) and counted separately, so the backlog stays honest.
+#            The reason says what it needs ("needs editor splits and editor groups").
 # Patterns are upstream-style globs: `*` is a wildcard, case-insensitive, whole key.
 # Rule `match` is against the setting key; `source` (optional) against the export's source.
+# Unblocking: when the feature lands, delete the blocked rule (the settings become todo), or
+# change its status to "todo" to keep the settings as work without a rule.
 
 [upstream]
 # The clone is read from its working tree at the pinned commit (UPSTREAM.md).
@@ -79,8 +88,8 @@ comment = "No telemetry pipeline is planned; the settings would configure nothin
 match = ["telemetry.*"]
 
 [[rule]]
-status = "n/a"
-reason = "not yet: multi-line selection matches"
+status = "blocked"
+reason = "needs multi-line selection matches"
 comment = "editor.selectionHighlightMultiline. The default (false) matches upstream: a multi-line selection is not highlighted. Setting it to true has no effect yet; the highlight search is per line (ADR-0032)."
 match = ["editor.selectionHighlightMultiline"]
 
@@ -129,9 +138,10 @@ source = ["vscode.github", "vscode.github-authentication", "vscode.github-enterp
           "vscode.microsoft-sovereign-cloud", "TypeScriptTeam.jsts-chat-features"]
 
 # ---------------------------------------------------------------------------------------------
-# workbench.editor (Editor management, ADR-0033). Settings below are deliberately not done yet.
-# Each reason starts with "not yet:" so it reads as a deferral, not a product decision. Revisit
-# when the feature exists; the wired ones are in config/wired.rs and need no rule.
+# workbench.editor (Editor management, ADR-0033). The settings below are status `blocked`: they
+# need a feature rscode does not have yet, so they are deferred, not declined. Each reason says
+# what it needs ("needs ..."). When that feature lands, delete the rule (or set it to "todo") so
+# the settings enter the backlog. The wired ones are in config/wired.rs and need no rule.
 # ---------------------------------------------------------------------------------------------
 
 [[rule]]
@@ -141,42 +151,42 @@ comment = "The Agents window's Markdown editor default. rscode has no Agents win
 match = ["workbench.editor.markdownDefaultEditorInAgentsWindow"]
 
 [[rule]]
-status = "n/a"
-reason = "not yet: editor splits and editor groups (one group in rscode)"
+status = "blocked"
+reason = "needs editor splits and editor groups (one group in rscode)"
 comment = "Multi-group behaviour: a single editor group exists, so these have no observable effect yet. closeEmptyGroups and autoLockGroups apply to groups; revealIfOpen only matters across groups; openSideBySideDirection needs splits; doubleClickTabToToggleEditorGroupSizes resizes groups."
 match = ["workbench.editor.closeEmptyGroups", "workbench.editor.autoLockGroups", "workbench.editor.revealIfOpen",
          "workbench.editor.openSideBySideDirection", "workbench.editor.doubleClickTabToToggleEditorGroupSizes",
          "workbench.editor.sharedViewState", "workbench.editor.limit.perEditorGroup"]
 
 [[rule]]
-status = "n/a"
-reason = "not yet: navigation history (Go Back / Go Forward)"
+status = "blocked"
+reason = "needs navigation history (Go Back / Go Forward)"
 comment = "Needs a navigation history of editor positions. Mouse buttons 4 and 5, three-finger swipe and the scope of history navigation all depend on it."
 match = ["workbench.editor.mouseBackForwardToNavigate", "workbench.editor.swipeToNavigate", "workbench.editor.navigationScope"]
 
 [[rule]]
-status = "n/a"
-reason = "not yet: session restore of open editors"
+status = "blocked"
+reason = "needs session restore of open editors"
 comment = "Open editors are not saved between runs (restoreEditors). Restoring their view state needs the same store."
 match = ["workbench.editor.restoreEditors", "workbench.editor.restoreViewState"]
 
 [[rule]]
-status = "n/a"
-reason = "not yet: untitled, binary, custom and large-file editors"
+status = "blocked"
+reason = "needs untitled, binary, custom and large-file editors"
 comment = "rscode has no untitled files, binary editor, custom editor associations or large-file confirmation dialog yet."
 match = ["workbench.editor.untitled.labelFormat", "workbench.editor.defaultBinaryEditor", "workbench.editorAssociations",
          "workbench.editorLargeFileConfirmation", "workbench.editor.hiddenEditorTypes", "workbench.editor.useModal"]
 
 [[rule]]
-status = "n/a"
-reason = "not yet: language detection for untitled and unknown files"
+status = "blocked"
+reason = "needs language detection for untitled and unknown files"
 comment = "No language detection service. Needs the untitled editors above."
 match = ["workbench.editor.languageDetection", "workbench.editor.historyBasedLanguageDetection",
          "workbench.editor.preferHistoryBasedLanguageDetection", "workbench.editor.languageDetectionHints"]
 
 [[rule]]
-status = "n/a"
-reason = "not yet: tab strip presentation (scrollbars, wrapping, pinned tabs, actions)"
+status = "blocked"
+reason = "needs tab strip presentation (scrollbars, wrapping, pinned tabs, actions)"
 comment = "The tab strip is one scrollless row with close buttons only. Pinned tabs can be made (double click) but not sized or placed differently yet; the title scrollbar and editor title actions do not exist."
 match = ["workbench.editor.titleScrollbarSizing", "workbench.editor.titleScrollbarVisibility", "workbench.editor.wrapTabs",
          "workbench.editor.pinnedTabSizing", "workbench.editor.pinnedTabsOnSeparateRow", "workbench.editor.preventPinnedEditorClose",
@@ -184,15 +194,15 @@ match = ["workbench.editor.titleScrollbarSizing", "workbench.editor.titleScrollb
          "workbench.editor.centeredLayoutAutoResize", "workbench.editor.centeredLayoutFixedWidth"]
 
 [[rule]]
-status = "n/a"
-reason = "not yet: file decorations and custom tab labels"
+status = "blocked"
+reason = "needs file decorations and custom tab labels"
 comment = "Decorations need the SCM and problems services (git status and diagnostics colours and badges). customLabels.patterns needs a label service."
 match = ["workbench.editor.decorations.badges", "workbench.editor.decorations.colors", "workbench.editor.customLabels.enabled",
          "workbench.editor.customLabels.patterns"]
 
 [[rule]]
-status = "n/a"
-reason = "not yet: single window (no multi-window)"
+status = "blocked"
+reason = "needs multi-window support (dragging out opens a window)"
 comment = "Dragging an editor out of the window opens a new window; rscode is one window."
 match = ["workbench.editor.dragToOpenWindow"]
 

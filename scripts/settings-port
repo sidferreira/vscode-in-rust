@@ -24,6 +24,8 @@ Inputs:
 
 Status precedence per setting: wired > first matching rule in settings.toml > exthost (source
 is an extension) > todo. Deprecated settings are n/a when [policy] deprecated = "n/a".
+Statuses: wired, exthost, blocked (needs a feature rscode does not have yet; not actionable),
+n/a (never applies), todo. See docs/settings-migration.md.
 
 The consumer index is cached in ~/Library/Caches/rscode-settings-port/inventory.json, keyed by
 the export's SHA-256 and the clone's HEAD. --rebuild ignores the cache. Settings.toml and
@@ -53,7 +55,8 @@ DEFAULT_CLONE = os.path.join(os.path.dirname(REPO_ROOT), "vscode-original")
 CACHE_PATH = os.path.join(os.path.expanduser("~"), "Library", "Caches", "rscode-settings-port",
                           "inventory.json")
 
-STATUSES = ("wired", "exthost", "n/a", "todo")
+STATUSES = ("wired", "exthost", "blocked", "n/a", "todo")
+RULE_STATUSES = ("n/a", "blocked", "exthost", "todo")
 PRIORITIES = ("P1", "P2", "P3")
 MAX_GROUP = 30            # a feature group larger than this is split one level further
 MIN_GROUP = 3             # a smaller group is merged into its parent (drop the last segment)
@@ -220,8 +223,8 @@ def load_config(path=CONFIG_PATH):
         cfg["groups"].append({"match": _as_list(g["match"]), "id": g["id"]})
     for r in raw.get("rule", []):
         status = r.get("status")
-        if status not in ("n/a", "exthost", "todo"):
-            raise SettingsPortError("[[rule]] status must be n/a, exthost or todo: %r" % status)
+        if status not in RULE_STATUSES:
+            raise SettingsPortError("[[rule]] status must be one of %s: %r" % (", ".join(RULE_STATUSES), status))
         if not r.get("match") and not r.get("source"):
             raise SettingsPortError("[[rule]] needs match or source")
         cfg["rules"].append({
@@ -717,8 +720,9 @@ def component_for(group_id, cfg):
 def tally(settings):
     total = collections.Counter(s["status"] for s in settings)
     reasons = collections.Counter(s["reason"] for s in settings if s["status"] == "n/a")
+    blocked = collections.Counter(s["reason"] for s in settings if s["status"] == "blocked")
     prios = collections.Counter(s["priority"] for s in settings if s["status"] == "todo")
-    return total, reasons, prios
+    return total, reasons, prios, blocked
 
 
 # --------------------------------------------------------------------------
@@ -760,7 +764,7 @@ def load_all(args):
 
 
 def summary_lines(raw, settings, groups):
-    total, reasons, prios = tally(settings)
+    total, reasons, prios, blocked = tally(settings)
     n = len(settings)
     lines = ["settings: %d (core %d, extensions %d)" % (
         n, sum(1 for s in settings if s["source"] == "core"), sum(1 for s in settings if s["source"] != "core"))]
@@ -771,6 +775,10 @@ def summary_lines(raw, settings, groups):
         lines.append("")
         lines.append("n/a by reason:")
         lines.append(table(["reason", "count"], [(r, c) for r, c in reasons.most_common()]))
+    if blocked:
+        lines.append("")
+        lines.append("blocked by reason (not actionable until the feature lands):")
+        lines.append(table(["reason", "count"], [(r, c) for r, c in blocked.most_common()]))
     if prios:
         lines.append("")
         lines.append("todo by priority:")
@@ -822,18 +830,20 @@ def cmd_status(args):
         if args.json:
             print(json.dumps({"group": group, "settings": items}, indent=2, ensure_ascii=False))
             return 0
-        print("%s  (%s · %s)  total %d · wired %d · exthost %d · n/a %d · todo %d" % (
+        print("%s  (%s · %s)  total %d · wired %d · exthost %d · blocked %d · n/a %d · todo %d" % (
             group["id"], group["sectionLabel"], group["tocPath"], group["total"],
-            group["counts"]["wired"], group["counts"]["exthost"], group["counts"]["n/a"], group["todo"]))
+            group["counts"]["wired"], group["counts"]["exthost"], group["counts"]["blocked"],
+            group["counts"]["n/a"], group["todo"]))
         for s in items:
-            extra = s["reason"] if s["status"] in ("n/a", "wired", "exthost") else ""
+            extra = s["reason"] if s["status"] in ("n/a", "blocked", "wired", "exthost") else ""
             print("  " + _setting_line(s) + ("  [" + extra + "]" if extra else ""))
         return 0
     if args.json:
-        total, reasons, prios = tally(settings)
+        total, reasons, prios, blocked = tally(settings)
         out = {
             "totals": {st: total.get(st, 0) for st in STATUSES},
-            "naReasons": dict(reasons), "todoPriorities": {p: prios.get(p, 0) for p in PRIORITIES},
+            "naReasons": dict(reasons), "blockedReasons": dict(blocked),
+            "todoPriorities": {p: prios.get(p, 0) for p in PRIORITIES},
             "groups": [{k: g[k] for k in ("id", "section", "total", "counts", "todo", "priority", "hits")}
                        for g in groups],
             "sections": {sec: dict(collections.Counter(s["status"] for s in settings if s["section"] == sec))
@@ -849,21 +859,31 @@ def cmd_status(args):
         if not items:
             continue
         c = collections.Counter(s["status"] for s in items)
-        rows.append((sec, len(items), c["wired"], c["exthost"], c["n/a"], c["todo"]))
-    print(table(["section", "total", "wired", "exthost", "n/a", "todo"], rows))
+        rows.append((sec, len(items), c["wired"], c["exthost"], c["blocked"], c["n/a"], c["todo"]))
+    print(table(["section", "total", "wired", "exthost", "blocked", "n/a", "todo"], rows))
     return 0
 
 
 def component_hint_brief(group, settings_by_group, cfg, group_by_id):
     todo = [s for s in settings_by_group[group["id"]] if s["status"] == "todo"]
+    blocked = [s for s in settings_by_group[group["id"]] if s["status"] == "blocked"]
     out = []
-    out.append("## %s  (%s · %d todo of %d · %s)" % (
-        group["id"], group["priority"] or "-", group["todo"], group["total"], group["tocPath"]))
+    out.append("## %s  (%s · %d todo of %d · %s%s)" % (
+        group["id"], group["priority"] or "-", group["todo"], group["total"], group["tocPath"],
+        " · %d blocked" % len(blocked) if blocked else ""))
     out.append("")
     out.append("Settings to implement:")
     for s in todo:
         out.append("- `%s` · %s · default %s · %s" % (s["key"], s["type"], s["default"], s["description"] or "(no description)"))
     out.append("")
+    if blocked:
+        out.append("Blocked, not actionable here (%d): each needs a feature that does not exist yet." % len(blocked))
+        by_reason = collections.OrderedDict()
+        for s in blocked:
+            by_reason.setdefault(s["reason"], []).append(s["key"])
+        for reason, keys in by_reason.items():
+            out.append("- %s: %s" % (reason, ", ".join("`%s`" % k for k in keys)))
+        out.append("")
     first = next((s for s in todo if s["registration"]), None)
     if first is None:
         out.append("Upstream registration: (not found by the index; check upstream by hand)")
@@ -911,7 +931,7 @@ def cmd_next(args):
 
 def cmd_report(args):
     raw, cfg, settings, groups = load_all(args)
-    total, reasons, prios = tally(settings)
+    total, reasons, prios, blocked = tally(settings)
     n = len(settings)
     lines = []
     lines.append("# Settings port report")
@@ -935,6 +955,12 @@ def cmd_report(args):
     lines.append("")
     lines.append(md_table(["reason", "count"], reasons.most_common() or [("(none)", 0)]))
     lines.append("")
+    lines.append("## blocked by reason")
+    lines.append("")
+    lines.append("Deferred: each needs a feature rscode does not have yet. Not actionable; `next` skips them.")
+    lines.append("")
+    lines.append(md_table(["reason", "count"], blocked.most_common() or [("(none)", 0)]))
+    lines.append("")
     lines.append("## todo by priority")
     lines.append("")
     lines.append(md_table(["priority", "count"], [(p, prios.get(p, 0)) for p in PRIORITIES]))
@@ -946,16 +972,16 @@ def cmd_report(args):
         items = [s for s in settings if s["section"] == sec]
         if items:
             c = collections.Counter(s["status"] for s in items)
-            rows.append((sec, len(items), c["wired"], c["exthost"], c["n/a"], c["todo"]))
-    lines.append(md_table(["section", "total", "wired", "exthost", "n/a", "todo"], rows))
+            rows.append((sec, len(items), c["wired"], c["exthost"], c["blocked"], c["n/a"], c["todo"]))
+    lines.append(md_table(["section", "total", "wired", "exthost", "blocked", "n/a", "todo"], rows))
     lines.append("")
     lines.append("## Feature groups")
     lines.append("")
     rows = []
     for g in groups:
         rows.append((g["id"], g["sectionLabel"], g["total"], g["counts"]["wired"], g["counts"]["exthost"],
-                     g["counts"]["n/a"], g["todo"], g["priority"] or "-"))
-    lines.append(md_table(["group", "section", "total", "wired", "exthost", "n/a", "todo", "priority"], rows))
+                     g["counts"]["blocked"], g["counts"]["n/a"], g["todo"], g["priority"] or "-"))
+    lines.append(md_table(["group", "section", "total", "wired", "exthost", "blocked", "n/a", "todo", "priority"], rows))
     lines.append("")
     lines.append("## Next groups (`scripts/settings-port next`)")
     lines.append("")

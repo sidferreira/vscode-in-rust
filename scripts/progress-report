@@ -35,6 +35,7 @@ TEST_PORT = os.path.join(SCRIPT_DIR, "test-port")
 UPSTREAM_SYNC = os.path.join(SCRIPT_DIR, "upstream-sync")
 RUSTUP_BIN = "/opt/homebrew/opt/rustup/bin"
 COMMAND = "python3 -I scripts/progress-report --clone <upstream clone> --with-tests"
+SETTINGS_STATUSES = ("wired", "exthost", "blocked", "n/a", "todo")
 
 
 def load_module(name, path):
@@ -222,6 +223,14 @@ def collect_git(today):
     }
 
 
+def settings_counts_from(totals):
+    """Settings counts per status. Snapshots recorded before a status existed (blocked) count 0.
+    None (no figures at all) stays None."""
+    if totals is None:
+        return None
+    return {k: totals.get(k) or 0 for k in SETTINGS_STATUSES}
+
+
 def run_tool_json(script, clone):
     """Run `<tool> --clone X status --json`; returns (data, error)."""
     cmd = [sys.executable, "-I", script, "--clone", clone, "status", "--json"]
@@ -285,11 +294,10 @@ def collect(args, today=None):
             rust = None
 
     if settings:
-        t = settings["totals"]
-        settings_counts = {k: t.get(k, 0) for k in ("wired", "exthost", "n/a", "todo")}
+        settings_counts = settings_counts_from(settings["totals"])
         settings_wired = settings_counts["wired"]
     else:
-        settings_counts = last.get("settings_counts")
+        settings_counts = settings_counts_from(last.get("settings_counts"))
         settings_wired = last.get("settings_wired")
     if tests:
         tests_ported, tests_total = tests["ported"], tests["total"]
@@ -399,6 +407,7 @@ def render_settings(d):
         return '<p class="muted">Settings data unavailable in this run.</p>'
     t = st["totals"]
     keys = [("wired", "Wired in rscode", "seg-wired"), ("exthost", "Via extension host", "seg-exthost"),
+            ("blocked", "Blocked (needs a feature first)", "seg-blocked"),
             ("n/a", "Not applicable", "seg-na"), ("todo", "To do", "seg-todo")]
     total = sum(t.get(k, 0) for k, _, _ in keys)
     segs = "".join('<span class="%s" style="width:%s%%"></span>' % (cls, width(t.get(k, 0), total))
@@ -406,13 +415,22 @@ def render_settings(d):
     legend = "".join('<li><span class="sw %s" aria-hidden="true"></span>%s: <strong>%s</strong> (%s)</li>'
                      % (cls, esc(label), num(t.get(k, 0)), pct(t.get(k, 0), total))
                      for k, label, cls in keys)
-    out = ['<div class="stack" role="img" aria-label="Settings: %s of %s wired, %s via extension host, %s not applicable, %s to do">%s</div>'
-           % (num(t.get("wired", 0)), num(total), num(t.get("exthost", 0)), num(t.get("n/a", 0)),
-              num(t.get("todo", 0)), segs),
+    out = ['<div class="stack" role="img" aria-label="Settings: %s of %s wired, %s via extension host, %s blocked, %s not applicable, %s to do">%s</div>'
+           % (num(t.get("wired", 0)), num(total), num(t.get("exthost", 0)), num(t.get("blocked", 0)),
+              num(t.get("n/a", 0)), num(t.get("todo", 0)), segs),
            '<ul class="legend">%s</ul>' % legend,
-           "<h3>Not applicable, by reason</h3>",
+           "<h3>Blocked, by reason</h3>",
+           '<p class="muted small">Deferred: each needs a feature rscode does not have yet. Not actionable.</p>',
            '<div class="scroll"><table><thead><tr><th scope="col">Reason</th><th scope="col">Settings</th>'
            '</tr></thead><tbody>']
+    for reason, n in sorted(st.get("blockedReasons", {}).items(), key=lambda kv: -kv[1]):
+        out.append("<tr><td>%s</td><td class=\"num\">%s</td></tr>" % (esc(reason), num(n)))
+    if not st.get("blockedReasons"):
+        out.append('<tr><td colspan="2" class="muted">None.</td></tr>')
+    out.append("</tbody></table></div>")
+    out.append("<h3>Not applicable, by reason</h3>")
+    out.append('<div class="scroll"><table><thead><tr><th scope="col">Reason</th><th scope="col">Settings</th>'
+               '</tr></thead><tbody>')
     for reason, n in sorted(st["naReasons"].items(), key=lambda kv: -kv[1]):
         out.append("<tr><td>%s</td><td class=\"num\">%s</td></tr>" % (esc(reason), num(n)))
     out.append("</tbody></table></div>")
@@ -602,12 +620,14 @@ PAGE_HEAD = """<!doctype html>
 :root {
   --bg: #fbfaf7; --surface: #ffffff; --text: #1d1b19; --muted: #5a5550; --border: #e2ded7;
   --accent: #1f5fa8; --wired: #2f7d4f; --exthost: #1f5fa8; --na: #7b766f; --todo: #a85d10;
+  --blocked: #7a4f9a;
   --ok: #2f7d4f; --warn: #8a5a00; --bar-bg: #ebe7e0; --focus-bg: #eef4fb; --notice-bg: #fff4d6;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #15171b; --surface: #1e2127; --text: #ecebe8; --muted: #aba59e; --border: #343840;
     --accent: #8fbdf0; --wired: #62c08a; --exthost: #8fbdf0; --na: #a09b94; --todo: #e6a85a;
+    --blocked: #b899d9;
     --ok: #62c08a; --warn: #f0c060; --bar-bg: #2b2f37; --focus-bg: #1d2a3a; --notice-bg: #3a3118;
   }
 }
@@ -644,10 +664,12 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .stack span { display: block; height: 100%; }
 .seg-wired { background: var(--wired); } .seg-exthost { background: var(--exthost); }
 .seg-na { background: var(--na); } .seg-todo { background: var(--todo); }
+.seg-blocked { background: var(--blocked); }
 .legend { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 10px 0; }
 .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .sw.seg-wired { background: var(--wired); } .sw.seg-exthost { background: var(--exthost); }
 .sw.seg-na { background: var(--na); } .sw.seg-todo { background: var(--todo); }
+.sw.seg-blocked { background: var(--blocked); }
 .bar { height: 10px; background: var(--bar-bg); border-radius: 5px; overflow: hidden; min-width: 80px; }
 .bar-fill { display: block; height: 100%; background: var(--accent); }
 .bar-cell { display: flex; align-items: center; gap: 8px; }

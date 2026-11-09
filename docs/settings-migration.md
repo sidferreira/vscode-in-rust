@@ -21,12 +21,20 @@ How rscode works through VS Code's 2062 settings, one feature group at a time. T
 - **Status** (per setting, first match wins):
   - `wired`: the key is read by the app. Detected from string literals in
     `crates/vsr-app/src/config/wired.rs` (absent file = none wired).
-  - `n/a`: we decided not to implement it on macOS desktop. Always with a reason. Set by the first
+  - `blocked`: deferred. rscode will need it, but a feature it does not have yet comes first
+    (for example "needs editor splits and editor groups"). Not actionable: `next` skips it.
+    Always with a reason that starts "needs". Set by a `[[rule]]` with `status = "blocked"`.
+  - `n/a`: we decided it never applies to rscode (Windows/Linux-only, telemetry, web-only,
+    deprecated, AI chat policy). Not a backlog item. Always with a reason. Set by the first
     matching `[[rule]]` (match on the key, or on the extension `source`), or by the deprecated
     policy.
   - `exthost`: contributed by a built-in extension. Expected to work once the Node extension host
     runs the extension (ADR-0020); not reimplemented in Rust.
-  - `todo`: everything else. Has a priority.
+  - `todo`: everything else. Has a priority. This is the backlog.
+  - Choosing between `n/a` and `blocked`: ask "would rscode ever want this?". No (or only on
+    another OS, or it is a product service) means `n/a`. Yes, but a missing feature has to land
+    first means `blocked`. `blocked` is never a way to park work nobody has scheduled; that is
+    `todo`.
 - **Priority** (todo only): `P1` if Commonly Used or in a `[priority] p1` group (everyday editing:
   editor basics, files, explorer, search, layout). `P3` if tagged experimental/preview/advanced or
   in `[priority] p3`. `P2` otherwise.
@@ -39,9 +47,28 @@ How rscode works through VS Code's 2062 settings, one feature group at a time. T
 `scripts/settings-port next --n 3` prints task briefs for the next groups: P1 first, then by
 upstream consumer hits (how much upstream code reads the group). A brief lists the todo settings
 with type, default and description, the upstream registration file, the top consumer files, the
-rscode module it probably touches (`[[component]]`), and the acceptance criteria below. Take the
-first brief in order unless the user asks for something specific. Check `status --group <id>`
-before starting, since a previous task may have wired some of it.
+rscode module it probably touches (`[[component]]`), and the acceptance criteria below. A group's
+blocked settings are not listed as work; the brief names how many there are and the reason
+(grouped), so the blocker is visible. Take the first brief in order unless the user asks for
+something specific. Check `status --group <id>` before starting, since a previous task may have
+wired some of it.
+
+## Blocked settings and how to unblock them
+
+A blocked setting is deferred work with a missing prerequisite. The report lists them in "blocked
+by reason" next to "n/a by reason", and the totals count them on their own line, so they never
+inflate `n/a` or hide in `todo`.
+
+To unblock, when the prerequisite feature lands (for example editor groups):
+
+1. Delete the `[[rule]]` whose reason is "needs ..." (its settings become `todo` and enter the
+   backlog with a priority), or change its `status` to `"todo"` to keep them as work without
+   the rule.
+2. Re-run `scripts/settings-port status` (or `status --group <id>`) to see them move to `todo`,
+   then `next` to see them in a brief.
+3. Adjust the reason or split the rule if only some of its settings are unblocked; a setting
+   that the feature now supports can also simply be wired (see `wired.rs`), which takes
+   precedence over any rule.
 
 ## Definition of done (one group per task)
 
@@ -50,8 +77,8 @@ before starting, since a previous task may have wired some of it.
 2. A headless E2E test proves each effect (gpui `TestAppContext`, see `docs/testing.md`). The
    scenario lives in `tests/e2e-scenarios/<area>.md`.
 3. Each key is added to the wired list in `crates/vsr-app/src/config/wired.rs`.
-4. `scripts/settings-port status --group <id>` shows the group's settings as `wired`, `n/a` or
-   `exthost`. Nothing is left as `todo` by accident.
+4. `scripts/settings-port status --group <id>` shows the group's settings as `wired`, `n/a`,
+   `exthost` or `blocked` (with its reason). Nothing is left as `todo` by accident.
 5. A setting deliberately left out gets a `[[rule]]` in `upstream/settings.toml` with a reason
    and a comment. Never skip one silently.
 6. `scripts/settings-port report` regenerated, and the change committed by the user, not by the
@@ -63,6 +90,8 @@ before starting, since a previous task may have wired some of it.
 - **Decided n/a**: add a `[[rule]]` with `status = "n/a"`, a `reason` and a `comment`. Prefer
   explicit key lists; use globs only where every match is really out of scope. Re-run `status`
   to see the effect.
+- **Deferred behind a missing feature**: add a `[[rule]]` with `status = "blocked"`, a reason that
+  starts "needs" and names the feature, and a `comment` on what it blocks. Unblock as above.
 - **Group in the wrong place**: add a `[[group]] match = [...] id = "..."` override. Overrides
   are not merged into their parent, so they can be small.
 - **Priority**: edit `[priority] p1` / `p3`. Commonly Used settings are always P1.

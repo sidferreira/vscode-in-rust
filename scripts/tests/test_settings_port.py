@@ -4,6 +4,7 @@ Pure functions use inline fixtures. The consumer-index test builds a small throw
 fake upstream in a fresh tempfile.mkdtemp() directory (never deleted, never reused).
 """
 
+import collections
 import importlib.machinery
 import importlib.util
 import os
@@ -200,6 +201,79 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(sp.decide_priority(core("x.y", tags=["experimental"]), "x", c, commonly), "P3")
         self.assertEqual(sp.decide_priority(core("mergeEditor.x"), "mergeEditor", c, commonly), "P3")
         self.assertEqual(sp.decide_priority(core("x.y"), "x", c, commonly), "P2")
+
+
+class BlockedTests(unittest.TestCase):
+    def _write_policy(self, body):
+        path = os.path.join(tempfile.mkdtemp(prefix="settings-port-test-"), "settings.toml")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        return path
+
+    def test_blocked_is_a_status_between_exthost_and_n_a(self):
+        self.assertEqual(sp.STATUSES, ("wired", "exthost", "blocked", "n/a", "todo"))
+
+    def test_blocked_rule_loads_and_decides_status_with_reason(self):
+        path = self._write_policy('[[rule]]\nstatus = "blocked"\nreason = "needs tabs"\n'
+                                  'match = ["editor.wrapTabs"]\n')
+        rules = sp.load_config(path)["rules"]
+        self.assertEqual(rules[0]["status"], "blocked")
+        status, reason = sp.decide_status(core("editor.wrapTabs"), cfg(rules=rules), set())
+        self.assertEqual((status, reason), ("blocked", "needs tabs"))
+
+    def test_wired_still_beats_blocked(self):
+        c = cfg(rules=[rule("blocked", match=["editor.wrapTabs"], reason="needs tabs")])
+        self.assertEqual(sp.decide_status(core("editor.wrapTabs"), c, {"editor.wrapTabs"})[0], "wired")
+
+    def test_rule_status_error_lists_allowed_values(self):
+        path = self._write_policy('[[rule]]\nstatus = "deferred"\nmatch = ["a.b"]\n')
+        with self.assertRaises(sp.SettingsPortError) as ctx:
+            sp.load_config(path)
+        self.assertIn("blocked", str(ctx.exception))
+
+    def test_blocked_has_no_priority_and_is_counted_by_reason(self):
+        settings = [
+            {"key": "a.%d" % i, "source": "core", "status": st, "reason": why, "priority": pr}
+            for i, (st, why, pr) in enumerate([
+                ("blocked", "needs tabs", None), ("blocked", "needs tabs", None),
+                ("n/a", "telemetry", None), ("todo", "", "P1")])
+        ]
+        total, reasons, prios, blocked = sp.tally(settings)
+        self.assertEqual(total["blocked"], 2)
+        self.assertEqual(blocked, collections.Counter({"needs tabs": 2}))
+        self.assertEqual(reasons, collections.Counter({"telemetry": 1}))
+        self.assertEqual(prios, collections.Counter({"P1": 1}))
+        lines = sp.summary_lines({}, settings, [])
+        self.assertIn("blocked by reason (not actionable until the feature lands):", lines)
+        self.assertIn("needs tabs", "\n".join(lines))
+
+    def test_next_brief_skips_blocked_and_names_them_by_reason(self):
+        todo = {"key": "editor.find.history", "status": "todo", "type": "string", "default": "x",
+                "description": "History.", "registration": None, "registrationGuessed": False,
+                "consumers": [], "reason": "", "priority": "P1"}
+        blocked = [
+            {"key": "editor.a", "status": "blocked", "reason": "needs splits", "type": "boolean",
+             "default": False, "description": "", "registration": None, "consumers": []},
+            {"key": "editor.b", "status": "blocked", "reason": "needs splits", "type": "boolean",
+             "default": False, "description": "", "registration": None, "consumers": []},
+        ]
+        group = {"id": "editor.find", "priority": "P1", "todo": 1, "total": 3,
+                 "tocPath": "Text Editor > Find"}
+        brief = sp.component_hint_brief(group, {"editor.find": [todo] + blocked}, cfg(), {})
+        self.assertIn("1 todo of 3", brief)
+        self.assertIn("2 blocked", brief)
+        self.assertIn("- `editor.find.history`", brief)
+        self.assertNotIn("- `editor.a`", brief.split("Blocked")[0])
+        self.assertIn("needs splits: `editor.a`, `editor.b`", brief)
+
+    def test_real_policy_blocked_rules_say_what_they_need(self):
+        policy = sp.load_config(os.path.join(sp.REPO_ROOT, "upstream", "settings.toml"))
+        blocked = [r for r in policy["rules"] if r["status"] == "blocked"]
+        self.assertTrue(blocked)
+        for rule_ in policy["rules"]:
+            self.assertNotIn("not yet", rule_["reason"].lower())
+        for rule_ in blocked:
+            self.assertTrue(rule_["reason"].startswith("needs "), rule_["reason"])
 
 
 class WiredTests(unittest.TestCase):

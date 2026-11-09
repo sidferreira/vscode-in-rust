@@ -17,13 +17,13 @@ use crate::Editor;
 const USUAL_WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Class {
+pub(crate) enum Class {
     Space,
     Separator,
     Word,
 }
 
-fn class_of(ch: char) -> Class {
+pub(crate) fn class_of(ch: char) -> Class {
     if ch.is_whitespace() {
         Class::Space
     } else if USUAL_WORD_SEPARATORS.contains(ch) {

@@ -207,6 +207,173 @@ comment = "Dragging an editor out of the window opens a new window; rscode is on
 match = ["workbench.editor.dragToOpenWindow"]
 
 # ---------------------------------------------------------------------------------------------
+# window and workbench (window chrome and general workbench, ADR-0035). Wired ones are in
+# config/wired.rs and take precedence. The rest are blocked on a feature rscode does not have.
+# ---------------------------------------------------------------------------------------------
+
+[[rule]]
+status = "n/a"
+reason = "fetches Microsoft online experiments (product service)"
+comment = "workbench.enableExperiments asks Microsoft's experiment service which experiments to run. rscode has no such service and will not use it."
+match = ["workbench.enableExperiments"]
+
+[[rule]]
+status = "n/a"
+reason = "application icon in the custom title bar is shown on Windows and Linux only"
+comment = "window.doubleClickIconToClose acts on the app icon. Upstream creates that icon only when isWindows || isLinux (titlebarPart.ts), so it never applies on macOS."
+match = ["window.doubleClickIconToClose"]
+
+[[rule]]
+status = "blocked"
+reason = "needs multi-window support (native window tabs, several windows, zoom and size per window)"
+comment = "rscode is one window. These settings choose how a second window opens or is laid out: window.nativeTabs (macOS window tabs), window.newWindowDimensions, window.zoomPerWindow."
+match = ["window.nativeTabs", "window.newWindowDimensions", "window.zoomPerWindow"]
+
+[[rule]]
+status = "blocked"
+reason = "needs session restore of windows and window state"
+comment = "Restoring windows, editors and full screen state from the previous run needs the same store as hot exit (restoreEditors, ADR-0033)."
+match = ["window.restoreWindows", "window.restoreFullscreen"]
+
+[[rule]]
+status = "blocked"
+reason = "needs windows without a folder (rscode always opens a folder)"
+comment = "window.closeWhenEmpty only applies to windows that show no folder. rscode always has a folder, so it has no effect yet."
+match = ["window.closeWhenEmpty"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a confirm dialog (modal) before closing the window"
+comment = "window.confirmBeforeClose asks before closing or quitting with unsaved changes. rscode has no modal dialog yet."
+match = ["window.confirmBeforeClose", "window.dialogStyle"]
+
+[[rule]]
+status = "blocked"
+reason = "needs context menus (rscode has none yet)"
+comment = "window.menuStyle chooses the look of context menus (native or custom). rscode has no context menus yet."
+match = ["window.menuStyle"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a theme service (system light and dark modes, high contrast themes)"
+comment = "Colour mode and high contrast themes are chosen by the theme service. rscode has one built-in theme (theme.rs)."
+match = ["window.autoDetectColorScheme", "window.autoDetectHighContrast", "window.systemColorTheme"]
+
+[[rule]]
+status = "blocked"
+reason = "needs untitled workspace files (multi-root workspaces)"
+comment = "window.confirmSaveUntitledWorkspace asks about an untitled .code-workspace when switching workspaces. rscode opens folders only."
+match = ["window.confirmSaveUntitledWorkspace"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a native title bar and a full screen mode"
+comment = "window.customTitleBarVisibility hides the custom title bar in full screen or with a native title bar. rscode always draws its title bar and has no full screen command yet."
+match = ["window.customTitleBarVisibility", "window.nativeFullScreen"]
+
+[[rule]]
+status = "blocked"
+reason = "needs first-mouse click handling for inactive windows (gpui accepts the first click)"
+comment = "window.clickThroughInactive: with it off, the first click on an inactive window only activates it. gpui-apple accepts the first mouse always, so the option needs a window setting there."
+match = ["window.clickThroughInactive"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a native title bar mode (window options are fixed when the window opens)"
+comment = "window.titleBarStyle native shows the system title bar. Upstream applies it only on restart; rscode sets its window options once, in main.rs, and draws a custom title bar."
+match = ["window.titleBarStyle"]
+
+[[rule]]
+status = "blocked"
+reason = "needs user profiles"
+comment = "window.newWindowProfile picks the profile of a new window. rscode has no profiles."
+match = ["window.newWindowProfile"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the modern UI layout (workbench.experimental.modernUI) and the Agents window"
+comment = "window.density.layout changes the spacing of the modern UI and the Agents window only. rscode has neither yet."
+match = ["window.density.layout"]
+
+[[rule]]
+status = "blocked"
+reason = "needs notification toasts and the notifications centre"
+comment = "Toast position and the title bar notifications button. rscode shows a status bar bell only."
+match = ["workbench.notifications.position", "workbench.notifications.showInTitleBar"]
+
+[[rule]]
+status = "blocked"
+reason = "needs extension views (view containers)"
+comment = "workbench.view.showQuietly shows a status bar item when an extension asks for a hidden view. rscode has no extension views yet (ADR-0020)."
+match = ["workbench.view.showQuietly"]
+
+[[rule]]
+status = "blocked"
+reason = "needs view header actions that show on hover and focus (they are always visible)"
+comment = "workbench.view.alwaysShowHeaderActions: the Explorer and Search header actions are always visible, so there is nothing to hide until the hover behaviour exists."
+match = ["workbench.view.alwaysShowHeaderActions"]
+
+[[rule]]
+status = "blocked"
+reason = "needs hover widgets with a configurable delay (gpui tooltips use a fixed delay)"
+comment = "workbench.hover.delay and reducedDelay apply to workbench hovers, such as extension tree items. rscode's tooltips use gpui's fixed delay."
+match = ["workbench.hover.delay", "workbench.hover.reducedDelay"]
+
+[[rule]]
+status = "blocked"
+reason = "needs workbench animations and translucent surfaces (there are none yet)"
+comment = "reduceMotion and reduceTransparency tone down animations and blur. rscode has neither yet, so they would do nothing."
+match = ["workbench.reduceMotion", "workbench.reduceTransparency"]
+
+[[rule]]
+status = "blocked"
+reason = "needs shadows on floating surfaces (menus and pop-ups) and the modern UI frosted glass"
+comment = "workbench.shadows draws shadows around side panels and pop-ups; the modern UI frosted glass settings blur pop-up backgrounds. rscode's pop-ups have no shadow or blur yet."
+match = ["workbench.shadows", "workbench.modernUIFrostedGlass", "workbench.modernUIFrostedGlassOpacity"]
+
+[[rule]]
+status = "blocked"
+reason = "needs font smoothing control in gpui (text rendering)"
+comment = "workbench.fontAliasing picks the font smoothing method. gpui uses the system default; the setting needs a text rendering option."
+match = ["workbench.fontAliasing"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the title bar navigation and layout controls"
+comment = "workbench.navigationControl (Go Back / Forward) needs navigation history; workbench.layoutControl (toggle buttons and a layout menu) needs the layout controls in the title bar. Neither exists yet."
+match = ["workbench.navigationControl.enabled", "workbench.layoutControl.enabled", "workbench.layoutControl.type"]
+
+[[rule]]
+status = "blocked"
+reason = "needs watermark tips for the empty editor"
+comment = "workbench.tips.enabled shows tips on the empty editor. rscode shows the empty editor hint (workbench.editor.empty.hint) only."
+match = ["workbench.tips.enabled"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a theme service (theme switching, icon, product icon and colour overrides)"
+comment = "workbench.colorTheme, iconTheme, productIconTheme and colorCustomizations pick or override themes. rscode has one built-in theme (theme.rs), with no theme registry."
+match = ["workbench.colorTheme", "workbench.iconTheme", "workbench.productIconTheme", "workbench.colorCustomizations"]
+
+[[rule]]
+status = "blocked"
+reason = "needs link opening (external browser and URI openers)"
+comment = "workbench.externalBrowser, externalUriOpeners and trustedDomains.promptInTrustedWorkspace decide how http links open. rscode opens no links yet."
+match = ["workbench.externalBrowser", "workbench.externalUriOpeners", "workbench.trustedDomains.promptInTrustedWorkspace"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a remote indicator in the status bar (remote development)"
+comment = "workbench.remoteIndicator.showExtensionRecommendations offers remote extensions in the remote indicator. rscode is local only so far."
+match = ["workbench.remoteIndicator.showExtensionRecommendations"]
+
+[[rule]]
+status = "blocked"
+reason = "needs custom editors for diff views"
+comment = "workbench.diffEditorAssociations maps file patterns to editors for diff views. rscode has no diff editor or custom editors yet."
+match = ["workbench.diffEditorAssociations"]
+
+# ---------------------------------------------------------------------------------------------
 # rscode component map for `next` briefs (first match wins; match is against the group id).
 # ---------------------------------------------------------------------------------------------
 

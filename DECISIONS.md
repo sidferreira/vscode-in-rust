@@ -180,3 +180,15 @@ scenarios in 15 areas, and no pixel tests. Three tiers (details in `docs/testing
    per-channel tolerance 2, 99% match. Baselines are rscode-window-only images in
    `tests/visual/baselines/` (gitignored) and are never committed or pushed without the user's
    approval.
+
+## ADR-0019 — Platform scope: macOS desktop only; quit on last window (2026-11-09)
+
+User's call. rscode targets **desktop macOS** (Apple Silicon first). No browser/web build, no
+web-extension host, no Linux/Windows work for now; code may stay portable where it's free, but
+nothing is tested or planned elsewhere. Extension compatibility plans cover the Node (desktop)
+extension host only.
+
+App lifecycle: closing the last rscode window quits the app (unlike the macOS default of staying
+in the Dock). Cmd+Q and an app menu "Quit rscode" are bound (`install_app_lifecycle` in vsr-app).
+Verified by launching, closing the window via the accessibility close button, and observing the
+process exit.

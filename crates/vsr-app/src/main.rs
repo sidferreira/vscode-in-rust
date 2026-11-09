@@ -23,6 +23,8 @@ use model::{DirEntry, Editors, list_dir};
 use theme::{Theme, metrics as m};
 use ui::to_gpui;
 
+actions!(rscode, [Quit]);
+
 fn main() {
     let root = std::env::args()
         .nth(1)
@@ -33,6 +35,7 @@ fn main() {
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
         icons::install(cx);
+        install_app_lifecycle(cx);
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -53,6 +56,20 @@ fn main() {
             .expect("failed to open window");
         cx.activate(true);
     });
+}
+
+/// macOS app lifecycle (ADR-0019): Cmd+Q / "Quit rscode" menu, and quit when the
+/// last window closes (unlike the macOS default of staying alive in the Dock).
+fn install_app_lifecycle(cx: &mut App) {
+    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+    cx.set_menus([Menu::new("rscode").items([MenuItem::action("Quit rscode", Quit)])]);
+    cx.on_window_closed(|cx, _| {
+        if cx.windows().is_empty() {
+            cx.quit();
+        }
+    })
+    .detach();
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]

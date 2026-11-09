@@ -180,3 +180,37 @@ scenarios in 15 areas, and no pixel tests. Three tiers (details in `docs/testing
    per-channel tolerance 2, 99% match. Baselines are rscode-window-only images in
    `tests/visual/baselines/` (gitignored) and are never committed or pushed without the user's
    approval.
+
+## ADR-0017 — Settings editor UI (2026-11-09)
+
+The Settings editor is a gpui view (`crates/vsr-app/src/settings_view.rs`, pure logic in
+`src/settings/{model,markdown,validate}.rs`) over `vsr-settings`. It opens from Cmd+, (an
+`OpenSettings` action on the workbench root) or the Manage gear, as a single "Settings" tab.
+`Editors` (model.rs) is file-only, so the tab is held by the workbench next to it
+(`settings`, `settings_active`) instead of widening that model.
+
+Matches upstream (`settingsEditor2.css`, `settingsTree.ts`): header (14px top, 24px side padding),
+30px search box with "N Settings Found", User/Workspace tabs with the header-foreground underline,
+TOC (200px, draggable 150-450px sash, bold selected row, chevrons), grouped list with group titles
+at 26/22/18px by depth, rows with 12/14/18px padding, bold "Category: " + name, description at
+90% opacity, 2px modified bar at left 5px, hover/focused row backgrounds, bool checkbox left of
+the description, 420px text / 200px number inputs with validation message, 320px enum select
+with the selected value's description, "Edit in settings.json" for array/object/complex,
+hover "More Actions" gear (Reset Setting, Copy Setting ID), `@id:key` search, Esc clears.
+Colors are Dark Modern values from `dark_modern.json` / `settingsEditorColorRegistry.ts` as new
+`Theme` fields (so the modified indicator is `#BB800966`, the theme's value, not blue). Writing
+a value equal to the default removes the key, like upstream.
+
+Simplified or missing: markdown is inline-only (code, bold, links, `#id#`), code spans are
+monospace but not 11px; links open http(s) only; the enum dropdown is an inline popup, not
+a native select; no search suggestions, TOC counts in search mode, sticky scroll, keyboard row
+navigation, list/object widgets, scrollbar, workspace/folder scopes (Workspace tab shows a note),
+language overrides or sync indicators. Group titles use the node label (upstream does too); there
+is no "A > B" breadcrumb. Text inputs reuse `gpui-component`'s `Input`, recolored through its global
+theme in `settings_view::install`. Settings are saved on every valid change; saving drops comments
+in settings.json (ADR-0015). The list is gpui's variable-height `list` (virtualised); TOC selection
+follows wheel scrolling but not scrollbar drags.
+
+Testing: first tier-2 headless E2E tests (`src/settings/e2e_tests.rs`) run the workbench in gpui's
+test platform; see `docs/testing.md` for the dependency workaround (gpui-kit `test-support` breaks
+lock resolution, so `gpui-pre`'s feature is enabled directly).

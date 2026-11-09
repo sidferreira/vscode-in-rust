@@ -159,15 +159,18 @@ impl SettingsView {
         self.search.update(cx, |s, cx| s.focus(window, cx));
     }
 
+    #[cfg(test)]
     pub fn query(&self) -> &str {
         &self.query
     }
 
+    #[cfg(test)]
     pub fn user_settings(&self) -> &UserSettings {
         &self.user
     }
 
     /// Keys of the setting rows currently listed, in order.
+    #[cfg(test)]
     pub fn visible_keys(&self) -> Vec<String> {
         self.rows
             .iter()
@@ -187,7 +190,11 @@ impl SettingsView {
         self.dropdown = None;
         self.menu = None;
         self.rows = if self.searching() {
-            model::search_rows(self.registry.search(&self.query).into_iter().map(|s| s.key.as_str()))
+            // `@id:<key>` shows exactly that setting (upstream's id filter).
+            match self.query.trim().strip_prefix("@id:") {
+                Some(id) => model::search_rows(self.registry.get(id.trim()).map(|s| s.key.as_str())),
+                None => model::search_rows(self.registry.search(&self.query).into_iter().map(|s| s.key.as_str())),
+            }
         } else {
             model::build_rows(self.registry.toc())
         };
@@ -393,7 +400,7 @@ impl SettingsView {
         state
     }
 
-    fn input_box(&self, state: &Entity<InputState>, width: f32, bg: Rgba8, invalid: bool) -> Div {
+    fn input_box(&self, row_id: &str, state: &Entity<InputState>, width: f32, bg: Rgba8, invalid: bool) -> Div {
         let t = &self.theme;
         div()
             .w(px(width))
@@ -405,6 +412,7 @@ impl SettingsView {
             .border_color(to_gpui(if invalid { t.validation_error_border } else { t.input_border }))
             .bg(to_gpui(bg))
             .text_size(px(13.))
+            .debug_selector(|| format!("input:{row_id}"))
             .child(Input::new(state).appearance(false).bordered(false).small())
     }
 
@@ -517,6 +525,7 @@ impl SettingsView {
                         let state = self.field(row_id, s, window, cx);
                         let err = self.errors.get(row_id).cloned();
                         let mut col = div().mt(px(9.)).flex().flex_col().child(self.input_box(
+                            row_id,
                             &state,
                             200.,
                             t.settings_number_input_bg,
@@ -529,7 +538,7 @@ impl SettingsView {
                     }
                     SettingKind::String => {
                         let state = self.field(row_id, s, window, cx);
-                        body = body.child(div().mt(px(9.)).child(self.input_box(&state, 420., t.settings_text_input_bg, false)));
+                        body = body.child(div().mt(px(9.)).child(self.input_box(row_id, &state, 420., t.settings_text_input_bg, false)));
                     }
                     SettingKind::Enum { values, labels, descriptions } => {
                         let sel = values.iter().position(|v| *v == value);
@@ -641,6 +650,7 @@ impl SettingsView {
         let rid = row_id.to_string();
         let select = div()
             .id(format!("select:{row_id}"))
+            .debug_selector(|| format!("select:{row_id}"))
             .w(px(320.))
             .h(px(26.))
             .px(px(6.))
@@ -685,6 +695,7 @@ impl SettingsView {
                 list = list.child(
                     div()
                         .id(format!("option:{row_id}:{i}"))
+                        .debug_selector(|| format!("option:{row_id}:{i}"))
                         .h(px(22.))
                         .px(px(6.))
                         .flex()
@@ -719,6 +730,7 @@ impl SettingsView {
         let rid = row_id.to_string();
         let button = div()
             .id(format!("more-actions:{row_id}"))
+            .debug_selector(|| format!("more-actions:{row_id}"))
             .w(px(22.))
             .h(px(22.))
             .flex()
@@ -741,8 +753,10 @@ impl SettingsView {
         let mut holder = div().absolute().left(px(-22.)).top(px(8.)).child(button);
         if open {
             let item = |id: String, label: &'static str, enabled: bool| {
+                let sel = id.clone();
                 div()
                     .id(id)
+                    .debug_selector(move || sel)
                     .h(px(24.))
                     .px(px(12.))
                     .flex()

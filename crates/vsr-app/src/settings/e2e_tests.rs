@@ -4,10 +4,9 @@
 //! keystrokes, typing and clicks go through gpui's event dispatch. Settings are written to a
 //! temp file, never the real user settings.json.
 //!
-//! Scenario source: test/smoke/src/areas/preferences/preferences.test.ts ("Settings editor"),
-//! see tests/e2e-scenarios/preferences.md.
+//! Scenario source: the "Settings editor" scenarios of the preferences smoke area (see
+//! tests/e2e-scenarios/preferences.md). These are our own tests; no upstream test ports here.
 //!
-//! upstream: test/smoke/src/areas/preferences/preferences.test.ts @ 50e1350fc78d
 
 use std::path::PathBuf;
 
@@ -49,7 +48,6 @@ fn view_of(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> Entity<Setting
     wb.read_with(cx, |wb, _| wb.settings.clone()).expect("settings editor is open")
 }
 
-// upstream: Preferences > Settings editor (smoke scenario, search + open via Cmd+,)
 #[gpui_kit::test]
 fn cmd_comma_opens_settings_and_search_ranks_font_size_first(cx: &mut TestAppContext) {
     let (wb, cx, _settings) = workbench(cx, "search");
@@ -78,7 +76,6 @@ fn cmd_comma_opens_settings_and_search_ranks_font_size_first(cx: &mut TestAppCon
     assert!(view.read_with(cx, |v, _| v.visible_keys().len()) > 100);
 }
 
-// upstream: Settings editor > shows a modified indicator on a modified setting
 #[gpui_kit::test]
 fn toggling_a_bool_setting_persists_to_user_settings(cx: &mut TestAppContext) {
     let (wb, cx, settings) = workbench(cx, "toggle");
@@ -115,4 +112,60 @@ fn settings_view_loads_existing_user_settings(cx: &mut TestAppContext) {
     let p = path.clone();
     let (view, cx) = cx.add_window_view(move |window, cx| SettingsView::new(p, window, cx));
     assert!(view.read_with(cx, |v, _| v.user_settings().is_modified("editor.tabSize")));
+}
+
+#[gpui_kit::test]
+fn number_setting_edit_shows_modified_and_reset_restores_default(cx: &mut TestAppContext) {
+    let (wb, cx, settings) = workbench(cx, "number");
+    cx.simulate_keystrokes("cmd-,");
+    let view = view_of(&wb, cx);
+    cx.simulate_input("@id:editor.tabSize");
+    cx.run_until_parked();
+    assert_eq!(view.read_with(cx, |v, _| v.visible_keys()), ["editor.tabSize"]);
+
+    // Focus the number input, replace its text with 6.
+    let bounds = cx.debug_bounds("input:search:editor.tabSize").expect("number input is rendered");
+    cx.simulate_click(bounds.center(), Default::default());
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("6");
+    cx.run_until_parked();
+    let on_disk = vsr_settings::UserSettings::load(&settings).unwrap();
+    assert_eq!(on_disk.get("editor.tabSize"), Some(&serde_json::json!(6)));
+
+    // Invalid input is not written and shows a message under the input.
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("x");
+    cx.run_until_parked();
+    assert_eq!(vsr_settings::UserSettings::load(&settings).unwrap().get("editor.tabSize"), Some(&serde_json::json!(6)));
+    assert!(view.read_with(cx, |v, _| v.errors.contains_key("search:editor.tabSize")));
+
+    // More Actions > Reset Setting removes the key.
+    let gear = cx.debug_bounds("more-actions:search:editor.tabSize").expect("gear is rendered");
+    cx.simulate_click(gear.center(), Default::default());
+    cx.run_until_parked();
+    let reset = cx.debug_bounds("reset:search:editor.tabSize").expect("menu is open");
+    cx.simulate_click(reset.center(), Default::default());
+    cx.run_until_parked();
+    assert!(!vsr_settings::UserSettings::load(&settings).unwrap().is_modified("editor.tabSize"));
+    assert!(view.read_with(cx, |v, _| v.errors.is_empty()));
+}
+
+#[gpui_kit::test]
+fn enum_dropdown_selects_a_value(cx: &mut TestAppContext) {
+    let (wb, cx, settings) = workbench(cx, "enum");
+    cx.simulate_keystrokes("cmd-,");
+    let view = view_of(&wb, cx);
+    cx.simulate_input("@id:editor.lineNumbers");
+    cx.run_until_parked();
+    let select = cx.debug_bounds("select:search:editor.lineNumbers").expect("dropdown is rendered");
+    cx.simulate_click(select.center(), Default::default());
+    cx.run_until_parked();
+    let off = cx.debug_bounds("option:search:editor.lineNumbers:0").expect("options are listed");
+    cx.simulate_click(off.center(), Default::default());
+    cx.run_until_parked();
+    let _ = &view;
+    assert_eq!(
+        vsr_settings::UserSettings::load(&settings).unwrap().get("editor.lineNumbers"),
+        Some(&serde_json::json!("off"))
+    );
 }

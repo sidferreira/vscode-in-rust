@@ -152,5 +152,30 @@ in the `CHANGED` line.
 ## Current gaps
 
 - The `.gitignore` entry for `tests/visual/baselines/` is not added yet.
-- Headless E2E needs the gpui `test-support` feature in `vsr-app` dev-dependencies. Not added yet.
-- The smoke scenarios are specs only. No Rust E2E test exists yet.
+- Headless E2E exists for the Settings editor only (see below). Other areas are specs.
+- `.gitignore` for visual baselines: see above.
+
+## Headless gpui E2E (tier 2) in practice
+
+First tests: `crates/vsr-app/src/settings/e2e_tests.rs` (`cargo test -p vsr-app`). Headless gpui works
+on this setup: no window, no GPU, whole run under 1 s.
+
+- `vsr-app` is a binary crate, so E2E tests live in `src/` as `#[cfg(test)]` modules (an
+  integration test in `tests/` cannot import the app's modules). Moving to a lib target is a
+  later option.
+- Dev-dependency: `gpui-test = { package = "gpui-pre", version = "=0.3.11", features = ["test-support"] }`.
+  Do not enable gpui-kit's own `test-support` feature: with it Cargo's lockfile resolution pulls in
+  the `gpui-fast` stack, whose exact pins (`taffy =0.15.0`, `unicode-properties =0.1.3`) conflict
+  with gpui-pre's, and the resolve fails. The `gpui-pre` feature unifies with the one gpui-kit uses,
+  so `gpui_kit::test`, `TestAppContext` and `VisualTestContext` are available. The extra crates
+  (proptest, criterion, ...) were fetched with `scripts/cargo-firewall-fetch` (fixedbitset stepped
+  back to 0.5.7).
+- Pattern: `cx.add_window_view(|_, _| Workbench::new(dir))` gives the root entity and a
+  `VisualTestContext`; `simulate_keystrokes("cmd-,")`, `simulate_input("font size")`,
+  `simulate_click(bounds.center(), ..)` drive it, `run_until_parked()` settles. Elements the test
+  clicks carry `.debug_selector(|| ...)` and are found with `cx.debug_bounds("...")` (the selector
+  must be a literal; it is recorded in debug builds only).
+- Key bindings only reach handlers on the focus path, so the workbench root owns a focus handle.
+- Settings go to a temp file: `Workbench::settings_path` / `SettingsView::new(path, ..)` take the path.
+- `#[test]` inside a module that does `use gpui_kit::*` resolves to gpui's `test` macro; use
+  `#[core::prelude::v1::test]` there.

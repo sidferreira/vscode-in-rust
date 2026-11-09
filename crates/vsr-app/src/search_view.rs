@@ -8,16 +8,26 @@
 //! upstream: src/vs/workbench/contrib/search/browser/media/searchview.css @ 50e1350fc78d
 //! upstream: src/vs/workbench/contrib/search/browser/searchActionsTopBar.ts @ 50e1350fc78d
 //! upstream: src/vs/workbench/contrib/search/browser/searchActionsNav.ts @ 50e1350fc78d
+//! upstream: src/vs/workbench/contrib/search/browser/searchActionsRemoveReplace.ts @ 50e1350fc78d
+//! upstream: src/vs/workbench/contrib/search/browser/replaceService.ts @ 50e1350fc78d
 //!
 //! The engine is `vsr-search` (ADR-0023). The pure result state is in `search/model.rs`.
 //! A search runs on gpui's background executor and streams files over a channel into the view;
 //! starting a new search (or Escape) sets the old search's cancel flag and drops its tasks.
 //!
-//! Not implemented: replace (the chevron is shown disabled), the search editor ("Open in
-//! editor"), tree layout, open-editors / changed-files scopes, notebook and AI search.
+//! Replace (ADR-0029): the chevron opens a Replace input (Preserve Case toggle, Replace All
+//! button); results preview the replacement inline; rows have Replace / Replace All and Dismiss
+//! actions. The view never edits a file itself: it emits `SearchEvent::Replace` and the workbench
+//! applies it (open editors through `vsr-editor`, other files on disk, `search/replace.rs`) and
+//! calls back `replace_finished`.
+//!
+//! Not implemented: the search editor ("Open in editor"), tree layout, open-editors /
+//! changed-files scopes, notebook and AI search.
 
 #[path = "search/model.rs"]
 pub mod model;
+#[path = "search/replace.rs"]
+pub mod replace;
 
 #[cfg(test)]
 #[path = "search/e2e_tests.rs"]
@@ -33,6 +43,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+use vsr_find::SearchReplacePattern;
 use vsr_search::{
     CollapseResults, FileMatch, SearchComplete, SearchOptions, SearchSettings, TextSearchQuery, search,
     split_pattern_input,
@@ -43,11 +54,24 @@ use crate::config::settings::search_settings;
 use crate::icons;
 use crate::theme::Theme;
 use crate::ui::to_gpui;
-use model::{LIMIT_HIT_MESSAGE, Results, Row, no_results_message, result_count_message};
+use model::{
+    LIMIT_HIT_MESSAGE, Results, Row, after_replace_all_message, no_results_message, replace_all_confirmation_message,
+    result_count_message,
+};
+use replace::{FileOutcome, FileRanges, ReplaceRequest};
 
 actions!(
     rscode,
-    [FocusSearch, ToggleCaseSensitive, ToggleWholeWord, ToggleRegex, CancelSearch, ToggleSearchDetails]
+    [
+        FocusSearch,
+        ToggleCaseSensitive,
+        ToggleWholeWord,
+        ToggleRegex,
+        CancelSearch,
+        ToggleSearchDetails,
+        TogglePreserveCase,
+        ReplaceAll
+    ]
 );
 
 /// Key context of the view; its bindings only apply while focus is inside it.
@@ -65,6 +89,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("alt-cmd-r", ToggleRegex, Some(KEY_CONTEXT)),
         KeyBinding::new("escape", CancelSearch, Some(KEY_CONTEXT)),
         KeyBinding::new("ctrl-shift-j", ToggleSearchDetails, Some(KEY_CONTEXT)),
+        KeyBinding::new("alt-cmd-p", TogglePreserveCase, Some(KEY_CONTEXT)),
+        KeyBinding::new("alt-cmd-enter", ReplaceAll, Some(KEY_CONTEXT)),
     ]);
 }
 
@@ -73,6 +99,8 @@ pub enum SearchEvent {
     /// Open `path` and select `range` (1-based line, UTF-16 column).
     Open { path: PathBuf, range: vsr_search::SearchRange },
     OpenSettings,
+    /// Replace these matches (the workbench answers with `SearchView::replace_finished`).
+    Replace(ReplaceRequest),
 }
 
 impl EventEmitter<SearchEvent> for SearchView {}
@@ -105,6 +133,14 @@ pub enum Status {
     Failed(String),
 }
 
+/// A replace request waiting for the workbench.
+#[derive(Clone, Debug)]
+enum Pending {
+    All,
+    File,
+    Match(PathBuf, vsr_search::SearchRange, Option<String>),
+}
+
 enum Msg {
     File(FileMatch),
     Done(Result<SearchComplete, String>),
@@ -123,6 +159,22 @@ pub struct SearchView {
     details_open: bool,
     /// "Use Exclude Settings and Ignore Files".
     use_excludes: bool,
+    /// The Replace input and its toggles.
+    replace: Entity<InputState>,
+    replace_open: bool,
+    preserve_case: bool,
+    /// The Replace All button works: the shown results are up to date with the query
+    /// (`setReplaceAllActionState`).
+    replace_enabled: bool,
+    /// The query the shown results were searched with, and the replace pattern built from it.
+    searched_query: Option<(TextSearchQuery, bool)>,
+    pattern: Option<SearchReplacePattern>,
+    /// The "Replace N occurrences ...?" question, while it is asked.
+    confirm: Option<String>,
+    /// What a replace request in flight is about (to update the results when it is done).
+    pending: Option<Pending>,
+    /// "Replaced N occurrences ..." (shown instead of the result count until the next search).
+    after_replace: Option<String>,
     results: Results,
     rows: Vec<Row>,
     scroll: UniformListScrollHandle,
@@ -142,14 +194,23 @@ impl SearchView {
         let query = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         let include = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. *.ts, src/**/include"));
         let exclude = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. *.ts, src/**/exclude"));
+        let replace = cx.new(|cx| InputState::new(window, cx).placeholder("Replace"));
         let mut subs = Vec::new();
         for state in [&query, &include, &exclude] {
             subs.push(cx.subscribe_in(state, window, |this, _st, ev: &InputEvent, _w, cx| match ev {
-                InputEvent::Change => this.schedule(cx),
+                InputEvent::Change => {
+                    this.replace_enabled = false;
+                    this.schedule(cx)
+                }
                 InputEvent::PressEnter { .. } => this.start_search(cx),
                 _ => {}
             }));
         }
+        subs.push(cx.subscribe_in(&replace, window, |this, _st, ev: &InputEvent, _w, cx| match ev {
+            InputEvent::Change => this.replace_value_changed(cx),
+            InputEvent::PressEnter { .. } => this.start_search(cx),
+            _ => {}
+        }));
         subs.push(cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)));
         Self {
             theme: Theme::dark_modern(),
@@ -163,6 +224,15 @@ impl SearchView {
             use_regex: false,
             details_open: false,
             use_excludes: true,
+            replace,
+            replace_open: false,
+            preserve_case: false,
+            replace_enabled: false,
+            searched_query: None,
+            pattern: None,
+            confirm: None,
+            pending: None,
+            after_replace: None,
             results: Results::default(),
             rows: Vec::new(),
             scroll: UniformListScrollHandle::new(),
@@ -281,7 +351,12 @@ impl SearchView {
         self.cancel_running();
         self.results.clear();
         self.selected = None;
+        self.replace_enabled = false;
+        self.confirm = None;
+        self.after_replace = None;
         let query = self.build_query(cx);
+        self.searched_query = (!query.pattern.is_empty()).then(|| (query.clone(), self.settings.smart_case));
+        self.refresh_pattern(cx);
         if query.pattern.is_empty() {
             self.status = Status::Idle;
             self.rebuild_rows();
@@ -358,6 +433,9 @@ impl SearchView {
                 Msg::Done(Err(e)) => self.status = Status::Failed(e),
             }
         }
+        if matches!(self.status, Status::Done { .. }) {
+            self.replace_enabled = self.results.file_count() > 0;
+        }
         self.rebuild_rows();
         cx.notify();
     }
@@ -390,6 +468,10 @@ impl SearchView {
     }
 
     fn cancel_search(&mut self, cx: &mut Context<Self>) {
+        if self.confirm.take().is_some() {
+            cx.notify(); // Escape answers the Replace All question with "Cancel"
+            return;
+        }
         if self.status == Status::Searching {
             self.cancel_running();
             self.status = Status::Cancelled;
@@ -405,6 +487,12 @@ impl SearchView {
         }
         self.results.clear();
         self.status = Status::Idle;
+        self.replace_enabled = false;
+        self.confirm = None;
+        self.after_replace = None;
+        self.searched_query = None;
+        self.pattern = None;
+        self.replace.update(cx, |s, cx| s.set_value("", window, cx));
         self.rebuild_rows();
         self.focus_query(window, cx);
         cx.notify();
@@ -440,6 +528,161 @@ impl SearchView {
                     cx.emit(SearchEvent::Open { path: f.path.clone(), range: m.range });
                 }
             }
+        }
+        cx.notify();
+    }
+
+    // ---- replace ---------------------------------------------------------------------------
+
+    pub fn replace_text(&self, cx: &App) -> String {
+        self.text(&self.replace, cx)
+    }
+
+    fn refresh_pattern(&mut self, cx: &App) {
+        let text = self.replace_text(cx);
+        self.pattern = self
+            .searched_query
+            .as_ref()
+            .and_then(|(q, smart_case)| SearchReplacePattern::new(&text, q, *smart_case).ok());
+    }
+
+    fn replace_value_changed(&mut self, cx: &mut Context<Self>) {
+        self.refresh_pattern(cx);
+        cx.notify();
+    }
+
+    /// Replace is shown and usable (`replaceActive`): the replace row is open and the results
+    /// belong to the query now in the box.
+    pub fn replace_active(&self) -> bool {
+        self.replace_open && self.replace_enabled
+    }
+
+    /// The replacement of a match, when replacements are previewed (`replaceActive` and a
+    /// non-empty replace string).
+    fn replacement_for(&self, m: &model::MatchRow, cx: &App) -> Option<String> {
+        if !self.replace_active() || self.replace.read(cx).value().is_empty() {
+            return None;
+        }
+        self.pattern.as_ref()?.get_replace_string(m.matched_text(), self.preserve_case)
+    }
+
+    pub fn toggle_replace(&mut self, cx: &mut Context<Self>) {
+        self.replace_open = !self.replace_open;
+        cx.notify();
+    }
+
+    pub fn toggle_preserve_case(&mut self, cx: &mut Context<Self>) {
+        self.preserve_case = !self.preserve_case;
+        cx.notify();
+    }
+
+    /// The Replace All button / Alt+Cmd+Enter: ask first (upstream always does).
+    pub fn replace_all(&mut self, cx: &mut Context<Self>) {
+        if !self.replace_active() || self.results.count() == 0 {
+            return;
+        }
+        let value = self.replace_text(cx);
+        self.confirm = Some(replace_all_confirmation_message(self.results.count(), self.results.file_count(), &value));
+        cx.notify();
+    }
+
+    /// "Replace" in the question: replace every shown match.
+    pub fn confirm_replace(&mut self, cx: &mut Context<Self>) {
+        if self.confirm.take().is_none() {
+            return;
+        }
+        let files: Vec<usize> = (0..self.results.files.len()).collect();
+        self.request_replace(&files, Pending::All, cx);
+    }
+
+    fn cancel_confirm(&mut self, cx: &mut Context<Self>) {
+        self.confirm = None;
+        cx.notify();
+    }
+
+    /// The per-file "Replace All" action (no question, like upstream) and the per-match "Replace".
+    fn replace_row(&mut self, row: Row, cx: &mut Context<Self>) {
+        if !self.replace_active() {
+            return;
+        }
+        match row {
+            Row::File(i) => {
+                self.request_replace(&[i], Pending::File, cx);
+            }
+            Row::Match(i, j) => {
+                let Some(f) = self.results.files.get(i) else { return };
+                let Some(m) = f.matches.get(j) else { return };
+                let text = self.replacement_text_of(m);
+                let pending = Pending::Match(f.path.clone(), m.range, text);
+                self.request_replace(&[i], pending, cx);
+            }
+        }
+    }
+
+    /// The replacement of a match even for an empty replace string (which deletes the match).
+    fn replacement_text_of(&self, m: &model::MatchRow) -> Option<String> {
+        self.pattern.as_ref()?.get_replace_string(m.matched_text(), self.preserve_case)
+    }
+
+    fn request_replace(&mut self, files: &[usize], pending: Pending, cx: &mut Context<Self>) {
+        let Some(pattern) = self.pattern.clone() else { return };
+        let files: Vec<FileRanges> = files
+            .iter()
+            .filter_map(|&i| self.results.files.get(i))
+            .map(|f| {
+                let ranges = match &pending {
+                    Pending::Match(_, range, _) => vec![*range],
+                    _ => f.matches.iter().map(|m| m.range).collect(),
+                };
+                FileRanges { path: f.path.clone(), ranges }
+            })
+            .collect();
+        self.pending = Some(pending);
+        cx.emit(SearchEvent::Replace(ReplaceRequest { files, pattern, preserve_case: self.preserve_case }));
+    }
+
+    /// The workbench applied (or failed to apply) the last replace request: update the results
+    /// like upstream does (replaced matches and files leave the list) and the message.
+    pub fn replace_finished(&mut self, outcomes: Vec<FileOutcome>, cx: &mut Context<Self>) {
+        let Some(pending) = self.pending.take() else { return };
+        let done = |path: &PathBuf| outcomes.iter().any(|o| &o.path == path && o.error.is_none() && o.replaced > 0);
+        let replaced: usize = outcomes.iter().filter(|o| o.error.is_none()).map(|o| o.replaced).sum();
+        let files = outcomes.iter().filter(|o| o.error.is_none() && o.replaced > 0).count();
+        let errors: Vec<String> =
+            outcomes.iter().filter_map(|o| o.error.as_ref().map(|e| format!("{}: {e}", o.path.display()))).collect();
+        let mut research = false;
+        match &pending {
+            Pending::All | Pending::File => {
+                self.results.files.retain(|f| !done(&f.path));
+            }
+            Pending::Match(path, range, text) => {
+                if done(path) {
+                    let at = self.results.files.iter().position(|f| &f.path == path).and_then(|i| {
+                        self.results.files[i].matches.iter().position(|m| m.range == *range).map(|j| (i, j))
+                    });
+                    if let Some((i, j)) = at {
+                        research = !self.results.replaced_match(i, j, text.as_deref().unwrap_or(""));
+                    }
+                }
+            }
+        }
+        if matches!(pending, Pending::All) {
+            let value = self.replace_text(cx);
+            self.after_replace = Some(after_replace_all_message(replaced, files, &value));
+        }
+        if !errors.is_empty() {
+            let msg = format!("Replace failed: {}", errors.join("; "));
+            self.after_replace = Some(match self.after_replace.take() {
+                Some(m) => format!("{m} {msg}"),
+                None => msg,
+            });
+        }
+        if self.results.file_count() == 0 {
+            self.replace_enabled = false;
+        }
+        self.rebuild_rows();
+        if research {
+            self.start_search(cx);
         }
         cx.notify();
     }
@@ -591,7 +834,6 @@ impl SearchView {
                 this.toggle_regex(cx)
             }),
         ];
-        // Replace is not implemented yet: the chevron is shown disabled, like a collapsed replace.
         let replace_toggle = div()
             .id("toggle-replace")
             .absolute()
@@ -599,19 +841,54 @@ impl SearchView {
             .left_0()
             .w(px(16.))
             .h_full()
+            .rounded(px(3.))
             .flex()
             .items_center()
             .justify_center()
-            .opacity(0.4)
+            .cursor_pointer()
+            .hover(|s| s.bg(to_gpui(t.toolbar_hover_bg)))
             .font_family(icons::FAMILY)
             .text_size(px(16.))
-            .child(icons::glyph(icons::CHEVRON_RIGHT))
-            .tooltip(|w, cx| Tooltip::new("Toggle Replace (not implemented yet)").build(w, cx));
-        let search_row = div()
+            .child(icons::glyph(if self.replace_open { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }))
+            .tooltip(|w, cx| Tooltip::new("Toggle Replace").build(w, cx))
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.toggle_replace(cx)));
+        let mut search_row = div()
             .relative()
             .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
             .child(replace_toggle)
             .child(div().ml(px(18.)).child(self.input_box(&self.query, toggles, window, cx)));
+        if self.replace_open {
+            let preserve = vec![self.toggle(
+                "toggle-preserve-case",
+                icons::PRESERVE_CASE,
+                "Preserve Case (⌥⌘P)",
+                self.preserve_case,
+                cx,
+                |this, cx| this.toggle_preserve_case(cx),
+            )];
+            let enabled = self.replace_enabled;
+            let replace_all = self
+                .icon_button(
+                    "replace-all",
+                    icons::REPLACE_ALL,
+                    if enabled { "Replace All (⌥⌘↩)" } else { "Replace All (Submit Search to Enable)" },
+                    cx,
+                    |this, _, cx| this.replace_all(cx),
+                )
+                .when(!enabled, |d| d.opacity(0.4).cursor_default());
+            search_row = search_row.child(
+                div()
+                    .ml(px(18.))
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .child(div().flex_1().min_w_0().child(self.input_box(&self.replace, preserve, window, cx)))
+                    .child(replace_all),
+            );
+        }
 
         let details_toggle = div()
             .id("toggle-details")
@@ -688,6 +965,9 @@ impl SearchView {
             .text_size(px(13.))
             .text_color(to_gpui(t.search_results_info_fg));
         let line = || div().flex().flex_wrap().items_center();
+        if let Some(msg) = &self.after_replace {
+            return m.child(div().id("replace-message").child(msg.clone()));
+        }
         match &self.status {
             Status::Idle => return div(),
             Status::Failed(e) => m = m.child(div().text_color(to_gpui(t.setting_error_fg)).child(e.clone())),
@@ -731,6 +1011,65 @@ impl SearchView {
         m
     }
 
+    /// The Replace All question (upstream asks in a modal dialog; gpui-component's dialog needs
+    /// a `Root` layer around the whole window, so it is an inline bar under the inputs).
+    fn confirm_bar(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let t = &self.theme;
+        let message = self.confirm.clone()?;
+        let button = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .debug_selector(|| id.to_string())
+                .px(px(12.))
+                .h(px(26.))
+                .rounded(px(2.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .text_size(px(13.))
+                .border_1()
+                .border_color(to_gpui(t.button_border))
+                .when(primary, |d| {
+                    d.bg(to_gpui(t.button_bg)).text_color(to_gpui(t.button_fg)).hover(|s| s.bg(to_gpui(t.button_hover_bg)))
+                })
+                .when(!primary, |d| {
+                    d.text_color(to_gpui(t.button_secondary_fg)).hover(|s| s.bg(to_gpui(t.button_secondary_hover_bg)))
+                })
+                .child(label)
+        };
+        Some(
+            div()
+                .id("replace-confirm")
+                .flex_none()
+                .mx(px(20.))
+                .mb(px(8.))
+                .p(px(8.))
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .rounded(px(4.))
+                .border_1()
+                .border_color(to_gpui(t.input_border))
+                .bg(to_gpui(t.settings_text_input_bg))
+                .text_size(px(13.))
+                .child(div().whitespace_normal().child(message))
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(6.))
+                        .child(
+                            button("replace-confirm-ok", "Replace", true)
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.confirm_replace(cx))),
+                        )
+                        .child(
+                            button("replace-confirm-cancel", "Cancel", false)
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.cancel_confirm(cx))),
+                        ),
+                ),
+        )
+    }
+
     fn render_row(&self, ix: usize, row: Row, cx: &mut Context<Self>) -> AnyElement {
         let t = &self.theme;
         let selected = self.selected == Some(row);
@@ -754,9 +1093,10 @@ impl SearchView {
         let glyph = |c: char| {
             div().flex_none().w(px(16.)).font_family(icons::FAMILY).text_size(px(16.)).child(icons::glyph(c))
         };
-        let dismiss = |gid: String, tip: &'static str, cx: &mut Context<Self>| {
+        let action = |name: &'static str, glyph_char: char, gid: String, tip: &'static str, cx: &mut Context<Self>| {
             div()
-                .id(("dismiss", ix))
+                .id((name, ix))
+                .debug_selector(|| format!("sr-{name}:{ix}"))
                 .flex_none()
                 .size(px(20.))
                 .mr(px(8.))
@@ -769,16 +1109,21 @@ impl SearchView {
                 .hover(|s| s.bg(to_gpui(t.toolbar_hover_bg)))
                 .font_family(icons::FAMILY)
                 .text_size(px(16.))
-                .child(icons::glyph(icons::CLOSE))
+                .child(icons::glyph(glyph_char))
                 .tooltip(move |w, cx| Tooltip::new(tip).build(w, cx))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.dismiss(row, cx);
+                        if name == "dismiss" {
+                            this.dismiss(row, cx);
+                        } else {
+                            this.replace_row(row, cx);
+                        }
                     }),
                 )
         };
+        let replace_active = self.replace_active();
         match row {
             Row::File(i) => {
                 let f = &self.results.files[i];
@@ -816,12 +1161,16 @@ impl SearchView {
                             .text_color(to_gpui(t.badge_fg))
                             .child(f.matches.len().to_string()),
                     )
-                    .child(dismiss(gid, "Dismiss", cx))
+                    .when(replace_active, |d| {
+                        d.child(action("replace", icons::REPLACE, gid.clone(), "Replace All", cx))
+                    })
+                    .child(action("dismiss", icons::CLOSE, gid, "Dismiss", cx))
                     .into_any_element()
             }
             Row::Match(i, j) => {
                 let m = &self.results.files[i].matches[j];
                 let p = m.parts();
+                let replacement = self.replacement_for(m, cx);
                 let gid = format!("sr-match-{ix}");
                 base(("sr-match", ix))
                     .pl(px(32.))
@@ -843,10 +1192,39 @@ impl SearchView {
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .child(div().flex_none().child(p.before))
-                            .child(div().flex_none().bg(to_gpui(t.find_match_highlight_bg)).child(p.inside))
+                            .map(|d| match replacement {
+                                // `.replace.findInFileMatch` + `.replaceMatch` (searchview.css)
+                                Some(new) => d
+                                    .child(
+                                        div()
+                                            .flex_none()
+                                            .line_through()
+                                            .border_1()
+                                            .border_color(to_gpui(t.diff_removed_text_bg))
+                                            .bg(to_gpui(t.diff_removed_text_bg))
+                                            .child(p.inside),
+                                    )
+                                    .when(!new.is_empty(), |d| {
+                                        d.child(
+                                            div()
+                                                .id(("replacement", ix))
+                                                .flex_none()
+                                                .border_1()
+                                                .border_color(to_gpui(t.diff_inserted_line_bg))
+                                                .bg(to_gpui(t.diff_inserted_text_bg))
+                                                .child(new),
+                                        )
+                                    }),
+                                None => d.child(
+                                    div().flex_none().bg(to_gpui(t.find_match_highlight_bg)).child(p.inside),
+                                ),
+                            })
                             .child(div().flex_none().child(p.after)),
                     )
-                    .child(dismiss(gid, "Dismiss", cx))
+                    .when(replace_active, |d| {
+                        d.child(action("replace", icons::REPLACE, gid.clone(), "Replace", cx))
+                    })
+                    .child(action("dismiss", icons::CLOSE, gid, "Dismiss", cx))
                     .into_any_element()
             }
         }
@@ -882,9 +1260,44 @@ impl Render for SearchView {
             .on_action(cx.listener(|this, _: &ToggleRegex, _, cx| this.toggle_regex(cx)))
             .on_action(cx.listener(|this, _: &ToggleSearchDetails, _, cx| this.toggle_details(cx)))
             .on_action(cx.listener(|this, _: &CancelSearch, _, cx| this.cancel_search(cx)))
+            .on_action(cx.listener(|this, _: &TogglePreserveCase, _, cx| this.toggle_preserve_case(cx)))
+            .on_action(cx.listener(|this, _: &ReplaceAll, _, cx| this.replace_all(cx)))
             .child(self.title_bar(cx))
             .child(self.widgets(window, cx))
+            .children(self.confirm_bar(cx))
             .child(self.messages(cx))
             .child(div().flex_1().min_h_0().flex().flex_col().child(list))
+    }
+}
+
+impl crate::Workbench {
+    /// Apply a Replace from the Search view. A file that is open in an editor is edited through
+    /// the editor (one undo step) and then saved, like upstream's `ReplaceService.replace`, which
+    /// bulk-edits the text model and saves it; any other file is rewritten on disk. Tells the view
+    /// what happened so it can update its results.
+    pub(crate) fn apply_search_replace(&mut self, req: &ReplaceRequest, cx: &mut Context<Self>) {
+        let transforms = crate::model::SaveTransforms {
+            trim_trailing_whitespace: self.editor_settings.trim_trailing_whitespace,
+            insert_final_newline: self.editor_settings.insert_final_newline,
+        };
+        let mut outcomes = Vec::with_capacity(req.files.len());
+        for f in &req.files {
+            let outcome = match self.editors.open.iter_mut().find(|e| e.path == f.path) {
+                Some(e) => {
+                    let n = replace::replace_in_editor(&mut e.editor, &f.ranges, &req.pattern, req.preserve_case);
+                    let error = if n > 0 { e.save_with(transforms).err().map(|err| err.to_string()) } else { None };
+                    FileOutcome { path: f.path.clone(), replaced: n, error }
+                }
+                None => match replace::replace_in_file(&f.path, &f.ranges, &req.pattern, req.preserve_case) {
+                    Ok(n) => FileOutcome { path: f.path.clone(), replaced: n, error: None },
+                    Err(error) => FileOutcome { path: f.path.clone(), replaced: 0, error: Some(error) },
+                },
+            };
+            outcomes.push(outcome);
+        }
+        if let Some(search) = self.search.clone() {
+            search.update(cx, |v, cx| v.replace_finished(outcomes, cx));
+        }
+        cx.notify();
     }
 }

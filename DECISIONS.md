@@ -422,7 +422,7 @@ Refresh / Cancel, Clear Search Results, Collapse / Expand All. New theme fields:
 `list.activeSelection*`, `editor.findMatchHighlightBackground`, `search.resultsInfoForeground`,
 `badge.*`, `toolbar.hoverBackground`.
 
-**Not implemented:** replace (the chevron is shown disabled), the search editor / "Open in editor",
+**Not implemented:** replace (done later: ADR-0029), the search editor / "Open in editor",
 tree layout, open-editors and changed-files scopes, search history, keyboard navigation of the
 result list, context menus, file icon themes, notebook search, AI / semantic search, PCRE2-only regex
 features (look-around, backreferences: Rust `regex` syntax; invalid patterns show the engine's error),
@@ -574,3 +574,59 @@ Quick Open (Cmd+P) is built on a reusable Quick Pick so the Command Palette can 
   `preserveInput`, `search.quickOpen.includeHistory`, `search.quickOpen.history.filterSortOrder`.
 - History entries match contiguously only and the file results exclude them, as upstream does.
 - Not yet: symbol picks, open to the side, remove from history, file icons, a file watcher.
+
+## ADR-0029 — Replace in the Search view (2026-11-09)
+
+Find and replace across files, matching `searchView.ts` / `searchWidget.ts` / `replaceService.ts`.
+
+- **One replace-string model per upstream class.** `vsr-find::SearchReplacePattern` ports
+  `services/search/common/replace.ts` (not the editor's `replacePattern.ts`, which `FindModel` keeps
+  using; both share `build_replace_string_with_case_preserved`). It re-runs the search regex on the text
+  of one match to get its groups (`getReplaceString`), parses the replace string as a string (`\n`, `\t`,
+  `\\`, `$0` -> `$&`), applies Preserve Case to the whole template and then expands `$1`, `$&`, `$$`
+  like `String.replace`. So a non-regex search replaces literally, and Preserve Case with a regex
+  template (`newrege$1`) is cased before the groups are filled in: this differs from the editor Find in
+  exactly the way upstream's two classes differ. Deviations: Rust `regex` (no look-around), `$` inside text
+  inserted by `\U$1` stays literal. Smart case is folded in (`TextSearchQuery::effective_case_sensitive`).
+- **UI.** The chevron (full height, left of the inputs) opens the Replace row: input (placeholder
+  "Replace"), Preserve Case toggle (`preserve-case`, Alt+Cmd+P), Replace All button (`replace-all`,
+  Alt+Cmd+Enter), which is disabled ("Submit Search to Enable") whenever the shown results are not the
+  results of the query in the box (`setReplaceAllActionState`: off on typing, on when a search finishes with
+  results). Enter in the Replace input runs the search again. With a non-empty replace string every
+  match row shows the matched text struck through (`diffEditor.removedTextBackground`) followed by the
+  replacement (`insertedTextBackground`, `insertedLineBackground` border), per `searchview.css`. Hover
+  actions: match rows Replace (`replace`) and Dismiss; file rows Replace All and Dismiss. Upstream uses
+  the `replace` codicon for the file action too (`searchReplaceIcon`), `replace-all` is only the widget
+  button, so rows follow upstream.
+- **Confirmation.** The Replace All button asks "Replace N occurrences across M files with 'X'?" (all the
+  upstream message variants, the value cut to 10 lines) and afterwards shows "Replaced N occurrences
+  across M files with 'X'." in place of the result count. gpui-component has a `Dialog`, but it needs a
+  `Root` layer around the whole window (a change to `main.rs`), so the question is an inline bar under
+  the inputs with Replace / Cancel (Escape cancels). Per-file and per-match replace ask nothing, as
+  upstream. Headless tests click the bar's buttons.
+- **Applying.** The view never edits files: it emits `SearchEvent::Replace(ReplaceRequest)` (ranges +
+  pattern + preserve case) and the workbench (`Workbench::apply_search_replace`, in `search_view.rs`)
+  answers with `replace_finished`. A file that is open is edited through `Editor::replace_ranges` (one
+  undo step, Cmd+Z restores it) and then saved with the usual `files.*` save transforms: upstream's
+  `ReplaceService.replace` bulk-edits the text model and then calls `save` on it, so the file is NOT left
+  dirty (the editor is dirty again after Cmd+Z; the disk keeps the replaced text until the next save).
+  Any other file is rewritten on disk (`search/replace.rs`): UTF-8 only (anything else is reported and left
+  alone), the BOM and line endings are kept, replacement newlines follow the file's EOL. The replacement
+  of each range is computed from the text found there at apply time (the range text is run through the
+  pattern); a range that no longer matches is skipped, so a file edited since the search is not corrupted.
+- **Results afterwards.** Replace All and the file action remove the replaced files from the results
+  (upstream removes the replaced matches); a per-match replace removes that match and moves the other
+  ranges of the file (and patches the previews on the same line) the way the text moved; when that cannot
+  be derived from what the results hold (a multiline replacement or match on the same lines, or a preview
+  cut around its match) the search runs again. Files that fail stay and the message lists the errors.
+- **Settings.** There is no replace-related `search.*` setting upstream, so `WIRED_KEYS` does not change.
+- **Not implemented:** Replace in Files (Shift+Cmd+H), keyboard navigation of results (so no Shift+Cmd+1 on
+  a focused row), a multi-line Replace input (Ctrl+Enter inserts a newline upstream), replace history, the
+  replace preview diff editor, tree layout, notebook cells. Disk files are rewritten on the UI thread.
+- **Tests.** Ported: `services/search/test/common/replace.test.ts` (8 of 8) and the replace-string part of
+  `SearchModel > getReplaceString ...`; unit tests for per match / per file / all, CRLF, multibyte
+  (UTF-16 columns), BOM, stale ranges, multiline, regex groups and Preserve Case in `search/replace.rs`;
+  `Results::replaced_match` and the messages in `search/model.rs`; headless E2E (`search/e2e_tests.rs`):
+  Replace All with an open editor (disk updated, editor updated and saved, Cmd+Z restores and dirties),
+  cancelling the question and staleness, per-match and per-file replace, regex `(\w+)@` -> `$1#`, Preserve
+  Case, CRLF + multibyte on disk.

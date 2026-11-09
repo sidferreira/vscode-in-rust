@@ -264,6 +264,7 @@ impl Workbench {
         cx.subscribe_in(&view, window, |this, _, ev: &SearchEvent, window, cx| match ev {
             SearchEvent::Open { path, range } => this.open_at(path, *range, window, cx),
             SearchEvent::OpenSettings => this.open_settings(window, cx),
+            SearchEvent::Replace(req) => this.apply_search_replace(req, cx),
         })
         .detach();
         self.search = Some(view.clone());

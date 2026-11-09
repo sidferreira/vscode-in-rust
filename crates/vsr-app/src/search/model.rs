@@ -110,6 +110,14 @@ pub struct PreviewParts {
 }
 
 impl MatchRow {
+    /// The text of the match (its first line, for a multiline match): what a replace pattern is
+    /// run on to show the replacement.
+    pub fn matched_text(&self) -> &str {
+        let start = byte_at_utf16(&self.preview, self.start);
+        let end = byte_at_utf16(&self.preview, self.end).max(start);
+        &self.preview[start..end]
+    }
+
     pub fn parts(&self) -> PreviewParts {
         let start = byte_at_utf16(&self.preview, self.start);
         let end = byte_at_utf16(&self.preview, self.end).max(start);
@@ -200,6 +208,56 @@ impl Results {
     }
 
     /// Dismiss one match; a file left without matches disappears too.
+    /// Match `j` of file `i` was replaced with `new_text`: drop it and move the other matches of
+    /// the file the way the text moved (upstream keeps ranges in the text model's decorations).
+    /// Previews of matches on the same line show the new text. Returns `false` when that cannot
+    /// be done from what the results hold (a multiline replacement or match on the same lines,
+    /// or a preview that was cut around its match): the caller then searches again. The results
+    /// are not changed in that case.
+    pub fn replaced_match(&mut self, i: usize, j: usize, new_text: &str) -> bool {
+        let Some(file) = self.files.get_mut(i) else { return false };
+        let Some(old) = file.matches.get(j).map(|m| m.range) else { return false };
+        let new_lines = new_text.matches('\n').count();
+        let single = old.start_line == old.end_line && !new_text.contains(['\n', '\r']);
+        let touches = |m: &MatchRow| m.range.start_line <= old.end_line && m.range.end_line >= old.start_line;
+
+        for (k, m) in file.matches.iter().enumerate() {
+            if k == j || !touches(m) {
+                continue;
+            }
+            let uncut = m.start == m.range.start_column.saturating_sub(1);
+            if !single || m.range.start_line != m.range.end_line || !uncut {
+                return false;
+            }
+        }
+
+        let line_delta = new_lines as isize - (old.end_line - old.start_line) as isize;
+        let col_delta = utf16_len(new_text) as isize - (old.end_column as isize - old.start_column as isize);
+        let shift = |v: usize, d: isize| (v as isize + d).max(1) as usize;
+        file.matches.remove(j);
+        for m in &mut file.matches {
+            if touches(m) {
+                // single-line, on the replaced line (checked above)
+                let a = byte_at_utf16(&m.preview, old.start_column - 1);
+                let b = byte_at_utf16(&m.preview, old.end_column - 1).max(a);
+                m.preview = format!("{}{}{}", &m.preview[..a], new_text, &m.preview[b..]);
+                if m.range.start_column >= old.end_column {
+                    m.range.start_column = shift(m.range.start_column, col_delta);
+                    m.range.end_column = shift(m.range.end_column, col_delta);
+                    m.start = (m.start as isize + col_delta).max(0) as usize;
+                    m.end = (m.end as isize + col_delta).max(0) as usize;
+                }
+            } else if m.range.start_line > old.end_line {
+                m.range.start_line = shift(m.range.start_line, line_delta);
+                m.range.end_line = shift(m.range.end_line, line_delta);
+            }
+        }
+        if file.matches.is_empty() {
+            self.files.remove(i);
+        }
+        true
+    }
+
     pub fn remove_match(&mut self, i: usize, j: usize) {
         if let Some(f) = self.files.get_mut(i) {
             if j < f.matches.len() {
@@ -229,6 +287,30 @@ pub fn no_results_message(include: &str, exclude: &str) -> String {
             "No results found. Review your configured exclusions and check your gitignore files - ".to_string()
         }
     }
+}
+
+/// `buildReplaceAllConfirmationMessage`: "Replace 4 occurrences across 2 files with 'x'?". The
+/// replacement is shown cut to 10 lines.
+pub fn replace_all_confirmation_message(occurrences: usize, files: usize, replace_value: &str) -> String {
+    let shown = truncate_lines(replace_value);
+    let what = format!("{occurrences} {} across {files} {}", plural(occurrences, "occurrence"), plural(files, "file"));
+    if shown.is_empty() { format!("Replace {what}?") } else { format!("Replace {what} with '{shown}'?") }
+}
+
+/// `buildAfterReplaceAllMessage`: "Replaced 4 occurrences across 2 files with 'x'." (the whole
+/// replacement, not cut).
+pub fn after_replace_all_message(occurrences: usize, files: usize, replace_value: &str) -> String {
+    let what = format!("{occurrences} {} across {files} {}", plural(occurrences, "occurrence"), plural(files, "file"));
+    if replace_value.is_empty() { format!("Replaced {what}.") } else { format!("Replaced {what} with '{replace_value}'.") }
+}
+
+fn plural(n: usize, word: &str) -> String {
+    if n == 1 { word.to_string() } else { format!("{word}s") }
+}
+
+fn truncate_lines(value: &str) -> String {
+    let lines: Vec<&str> = value.split('\n').collect();
+    if lines.len() > 10 { format!("{}\n...", lines[..10].join("\n")) } else { value.to_string() }
 }
 
 pub const LIMIT_HIT_MESSAGE: &str =
@@ -291,5 +373,75 @@ mod tests {
         assert_eq!(result_count_message(6, 3), "6 results in 3 files");
         assert!(no_results_message("", "").starts_with("No results found. Review your configured exclusions"));
         assert_eq!(no_results_message("*.js", ""), "No results found in '*.js' - ");
+    }
+
+    #[test]
+    fn replacing_a_match_moves_the_other_matches_of_the_file() {
+        let root = PathBuf::from("/ws");
+        let mut r = Results::default();
+        // line 1: "alpha beta alpha" (matches at 1..6 and 12..17), line 3: "alpha"
+        let mut f = fm(&root, "a.txt", "alpha beta alpha", &[(0, 5), (11, 16)]);
+        f.matches.push(vsr_search::TextMatch {
+            line: 3,
+            preview: "alpha".into(),
+            ranges: vec![SearchRange::one_line(3, 1, 6)],
+            preview_ranges: vec![SearchRange::one_line(0, 0, 5)],
+        });
+        for (m, line) in f.matches.iter_mut().zip([1, 3]) {
+            m.line = line;
+        }
+        // the helper puts the first chunk on line 1 with ranges on line 1
+        r.add_file(&root, &f, true);
+        assert_eq!(r.count(), 3);
+
+        // replace the first with a longer text: the second match and its preview move right
+        assert!(r.replaced_match(0, 0, "ALPHA2"));
+        let m = &r.files[0].matches[0];
+        assert_eq!((m.range.start_column, m.range.end_column), (13, 18));
+        assert_eq!(m.preview, "ALPHA2 beta alpha");
+        assert_eq!((m.start, m.end), (12, 17));
+        assert_eq!(m.matched_text(), "alpha");
+        // the match on line 3 is untouched
+        assert_eq!(r.files[0].matches[1].range, SearchRange::one_line(3, 1, 6));
+
+        // a multiline replacement shifts the lines below
+        assert!(r.replaced_match(0, 0, "x\ny"));
+        assert_eq!(r.files[0].matches[0].range, SearchRange::one_line(4, 1, 6));
+        // a match on the same line as a multiline replacement cannot be moved from what the
+        // results hold: false, and the results stay as they were
+        let mut two = Results::default();
+        two.add_file(&root, &fm(&root, "b.txt", "alpha alpha", &[(0, 5), (6, 11)]), true);
+        assert!(!two.replaced_match(0, 0, "x\ny"));
+        assert_eq!(two.count(), 2);
+        // the last match of a file leaves the file
+        assert!(r.replaced_match(0, 0, ""));
+        assert_eq!(r.file_count(), 0);
+    }
+
+    #[test]
+    fn lines_below_a_multiline_replacement_move() {
+        let root = PathBuf::from("/ws");
+        let mut r = Results::default();
+        let mut f = fm(&root, "a.txt", "alpha", &[(0, 5)]);
+        f.matches.push(vsr_search::TextMatch {
+            line: 4,
+            preview: "alpha".into(),
+            ranges: vec![SearchRange::one_line(4, 1, 6)],
+            preview_ranges: vec![SearchRange::one_line(0, 0, 5)],
+        });
+        r.add_file(&root, &f, true);
+        assert!(r.replaced_match(0, 0, "a\nb\nc")); // one line became three
+        assert_eq!(r.files[0].matches[0].range, SearchRange::one_line(6, 1, 6));
+    }
+
+    #[test]
+    fn replace_all_messages_follow_upstream() {
+        assert_eq!(replace_all_confirmation_message(4, 2, "x"), "Replace 4 occurrences across 2 files with 'x'?");
+        assert_eq!(replace_all_confirmation_message(1, 1, "x"), "Replace 1 occurrence across 1 file with 'x'?");
+        assert_eq!(replace_all_confirmation_message(2, 1, ""), "Replace 2 occurrences across 1 file?");
+        assert_eq!(after_replace_all_message(4, 2, "x"), "Replaced 4 occurrences across 2 files with 'x'.");
+        assert_eq!(after_replace_all_message(1, 2, ""), "Replaced 1 occurrence across 2 files.");
+        let long = (1..=12).map(|i| i.to_string()).collect::<Vec<_>>().join("\n");
+        assert!(replace_all_confirmation_message(1, 1, &long).ends_with("10\n...'?"));
     }
 }

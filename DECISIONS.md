@@ -1062,6 +1062,62 @@ semantic highlighting, language configuration (brackets, comments, auto-closing)
 Association" entries of Change Language Mode. Tokenizing off the UI thread means the first paint of a big file
 shows plain text for a moment.
 
+## ADR-0040 — Session restore, hot exit and the Welcome page (2026-11-09)
+
+User's choice (2026-11-09): the Welcome page becomes the startup default, and unsaved text survives quitting.
+Code: `crates/vsr-app/src/session/` (`store`, `state`, `backup`, `settings`, `runtime`), `welcome.rs`,
+`editor_view/view_state.rs`. Upstream: `workingCopyBackupService/Tracker`, `editorPart`/`editorGroupModel`
+serialization, `gettingStarted`.
+
+- **Storage layout** (under the user data dir: `~/Library/Application Support/rscode`, or `RSCODE_USER_DATA_DIR`):
+  - `User/workspaceStorage/<key>/state.json`: per folder; `<key>` is a 32 hex digit hash of the folder path (the
+    first 128 bits of its SHA-256, `sha2`; stable across toolchains). Writes use `tempfile` (`persist` = rename).
+  - `User/globalStorage/recents.json`: recent files (200) and folders (50), shared by all folders. It seeds the
+    editor history, so Quick Open and the Welcome page share it.
+  - `Backups/<key>/<file key>.json` and `Backups/<key>/discarded/`: hot exit backups, below.
+  - Formats are documented in the module headers of `state.rs` and `backup.rs`. Every field has a default and
+    unknown fields are ignored, so a file from another build loads.
+- **State saved:** open tabs in order, which is active, the preview tab, activation order, per tab the first visible
+  line, the selection and the Alt+Z word wrap override, the side bar (visible, width, view) and the Search query and
+  options. Written 0.5 s ticks apart once a change has been stable for a tick (debounce), and synchronously on quit.
+- **Injection and tests.** The store is a gpui `Global` (`SessionStorage`) that only `main` installs. A workbench
+  without it (every test that does not install one) reads and writes nothing, so tests cannot reach the real user
+  data dir. The shutdown hook is `Workbench::persist_on_quit`, called by `Context::on_app_quit` (Cmd+Q) and the
+  window close hook, and by tests directly. A "restart" in a test is a second workbench on the same temp dir.
+- **Restore.** `window.restoreWindows: none` and `workbench.editor.restoreEditors: false` skip the tabs. With one
+  window `preserve`, `all`, `folders` and `one` are the same. `workbench.editor.restoreViewState` applies the saved
+  scroll and selection, and also reopening a closed file in the same run (`view_memory`). The scroll is applied
+  with a strict `scroll_to_item(Top)` at the next paint; a restored tab that was never shown keeps its saved line.
+  `workbench.startupEditor` runs only when no editor came back (as upstream).
+- **Hot exit (`files.hotExit`).** Default `onExit`: Cmd+Q and `workbench.action.quit` write backups and quit without
+  asking; closing the window asks (as upstream on macOS), then quits: rscode has one window (ADR-0019).
+  `onExitAndWindowClose` never asks. `off` always asks. The question is a bar above the status bar (Save All,
+  Don't Save, Cancel), not a modal dialog (there are none yet). **Before this work** a dirty buffer was lost on
+  quit without a word.
+- **Backups while editing.** A dirty editor is backed up once its text version has been the same for a tick (about a
+  second after the last edit, as upstream), with hot exit off too (crash recovery). At startup every backup is
+  restored, whatever the restore settings say: unsaved text is never skipped.
+- **Data safety rules** (the full list is in `backup.rs`): writes are atomic (temp file, fsync, rename); a backup is
+  deleted only when the buffer is saved or is back at the saved text, or equals the file at restore; a tab closed
+  with unsaved changes and Don't Save **move** the backup to `discarded/`, they never delete it; a state or backup
+  file that does not parse, has the wrong shape or fails its checksum is renamed `*.corrupt-<n>`, reported in the
+  status bar and never deleted or restored; restoring a backup does not touch the file. A restored buffer is the file
+  on disk with one undoable replace-all, so undo goes back to the disk text. If the file is gone the buffer starts
+  empty and saves it again. Known gap: a crash in the half second between a save and the next tick leaves a stale
+  backup that restores as a dirty buffer over the newer file (the text is not lost; the user sees it dirty).
+- **Welcome page** (`workbench.action.openWalkthrough`, "Help: Welcome"): an editor tab, rendered like the Settings
+  tab (not an `Editors` entry, so it is not restored; startup decides again). Heading "rscode", subtitle, Start
+  (Open File... is Quick Open), Recent (the last five existing files, click opens), "Show welcome page on startup"
+  (writes `workbench.startupEditor`: `none` / removed). Layout and colours follow `gettingStarted.css` and Dark
+  Modern. Left out: New File (no untitled files), Open Folder / Clone / remotes (no folder dialog), walkthroughs
+  and Help links (extensions, web). `workbench.welcomePage.*` are n/a for that reason.
+- **Settings.** Wired: `files.hotExit`, `window.restoreWindows`, `workbench.editor.restoreEditors`,
+  `workbench.editor.restoreViewState` (group "Session"), `workbench.startupEditor` now opens the page (group
+  "Welcome"). Still blocked: `window.restoreFullscreen`, `files.restoreUndoStack` (the undo stack is not stored).
+- **Tests.** Unit: store (hash, atomic write, quarantine), state round trips, backup store (round trip, damaged
+  files kept, discard), the debounce, settings. Headless E2E in `session/e2e_tests.rs` (scenarios in
+  `tests/e2e-scenarios/workbench.md`). Ports in `upstream/ports.toml`: `session-restore`, `hot-exit`, `welcome-page`.
+
 ## ADR-0039 — File watcher, live explorer, explorer file operations, save conflicts (2026-11-09)
 
 **Context.** The explorer was a read-only snapshot: folders were listed when first expanded, and nothing noticed

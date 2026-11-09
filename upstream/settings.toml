@@ -166,12 +166,6 @@ match = ["workbench.editor.mouseBackForwardToNavigate", "workbench.editor.swipeT
 
 [[rule]]
 status = "blocked"
-reason = "needs session restore of open editors"
-comment = "Open editors are not saved between runs (restoreEditors). Restoring their view state needs the same store."
-match = ["workbench.editor.restoreEditors", "workbench.editor.restoreViewState"]
-
-[[rule]]
-status = "blocked"
 reason = "needs untitled, binary, custom and large-file editors"
 comment = "rscode has no untitled files, binary editor, custom editor associations or large-file confirmation dialog yet."
 match = ["workbench.editor.untitled.labelFormat", "workbench.editor.defaultBinaryEditor", "workbench.editorAssociations",
@@ -231,9 +225,15 @@ match = ["window.nativeTabs", "window.newWindowDimensions", "window.zoomPerWindo
 
 [[rule]]
 status = "blocked"
-reason = "needs session restore of windows and window state"
-comment = "Restoring windows, editors and full screen state from the previous run needs the same store as hot exit (restoreEditors, ADR-0033)."
-match = ["window.restoreWindows", "window.restoreFullscreen"]
+reason = "needs window state (full screen) in the session store"
+comment = "window.restoreWindows is wired (one window: none against the rest, ADR-0040). Restoring the full screen state needs the window state saved with the session, and gpui-pre has no full screen query yet."
+match = ["window.restoreFullscreen"]
+
+[[rule]]
+status = "n/a"
+reason = "configures walkthroughs, which come from extensions and the web"
+comment = "The Welcome page of rscode (ADR-0040) has no walkthroughs, so the settings that open them on install, reduce their motion or switch the experimental onboarding do not apply."
+match = ["workbench.welcomePage.*"]
 
 [[rule]]
 status = "blocked"
@@ -430,9 +430,9 @@ match = ["files.watcherInclude"]
 
 [[rule]]
 status = "blocked"
-reason = "needs session restore (open editors and their state across runs)"
-comment = "hotExit keeps unsaved text across runs (backups) and restoreUndoStack keeps the undo history. Both need the same session store as workbench.editor.restoreEditors."
-match = ["files.hotExit", "files.restoreUndoStack"]
+reason = "needs the undo history saved with the backup"
+comment = "files.hotExit is wired (ADR-0040): unsaved text is backed up and restored. restoreUndoStack would also store the undo stack in the backup; rscode restores the text only, undo goes back to the file on disk."
+match = ["files.restoreUndoStack"]
 
 [[rule]]
 status = "blocked"

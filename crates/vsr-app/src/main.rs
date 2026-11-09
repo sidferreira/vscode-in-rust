@@ -19,10 +19,12 @@ mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
 mod search_view; // Search view (ADR-0023)
 mod syntax; // syntax highlighting glue (ADR-0038)
+mod session; // session restore, hot exit (ADR-0040)
 mod settings_view; // Settings editor (ADR-0017)
 mod text_layout;
 mod theme;
 mod ui;
+mod welcome; // the Welcome page tab (ADR-0040)
 mod window_title; // window.title and window.titleSeparator (the title bar and the OS window title)
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -40,7 +42,6 @@ use config::files::ReadonlyRules;
 use config::glob::ExcludeMatcher;
 use config::settings::{
     ActivityBarLocation, EditorGroupSettings, EditorSettings, LayoutSettings, OpenSource, ShowTabs, SideBarLocation,
-    StartupEditor, startup_editor,
 };
 use config::AppConfig;
 use editor_view::{EditorHost, EditorView};
@@ -65,6 +66,7 @@ fn main() {
         icons::install(cx);
         install_app_lifecycle(cx);
         AppConfig::install(cx, Some(settings_path())); // defaults + settings.json, live reload
+        cx.set_global(session::store::SessionStorage(Some(session::store::SessionStore::from_environment()))); // restore + hot exit
         settings_view::install(cx); // Cmd+, binding + component theme
         editor_view::init(cx); // editor key bindings
         search_view::init(cx); // Shift+Cmd+F and Search view bindings
@@ -91,17 +93,21 @@ fn main() {
             focus: !background_mode(),
             ..Default::default()
         };
-        gpui_kit::open_window(options, cx, |_, cx| {
-            cx.new(|cx| {
+        gpui_kit::open_window(options, cx, |window, cx| {
+            let wb = cx.new(|cx| {
                 Workbench::with_services(
                     root,
                     cx,
                     Box::new(explorer::watcher::NotifyWatcher::default()),
                     Box::new(explorer::trash::SystemTrash),
                 )
-            })
+            });
+            // The red window button: keep or ask about unsaved text, then close (and so quit).
+            let weak = wb.downgrade();
+            window.on_window_should_close(cx, move |_, cx| weak.update(cx, |wb, cx| wb.request_quit(true, cx)).unwrap_or(true));
+            wb
         })
-            .expect("failed to open window");
+        .expect("failed to open window");
         if !background_mode() {
             cx.activate(true);
         }
@@ -116,7 +122,7 @@ fn background_mode() -> bool {
 /// macOS app lifecycle (ADR-0019): Cmd+Q / "Quit rscode" menu, and quit when the
 /// last window closes (unlike the macOS default of staying alive in the Dock).
 fn install_app_lifecycle(cx: &mut App) {
-    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_action(|_: &Quit, cx| session::runtime::quit_app(cx)); // hot exit, or the save prompt
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
     cx.set_menus([Menu::new("rscode").items([MenuItem::action("Quit rscode", Quit)])]);
     cx.on_window_closed(|cx, _| {
@@ -139,6 +145,10 @@ impl EditorHost for Workbench {
     fn editor_host(&mut self) -> (&mut Editors, &mut EditorView) {
         (&mut self.editors, &mut self.editor_view)
     }
+
+    fn editor_closed(&mut self, path: &Path, dirty: bool) {
+        self.session_editor_closed(path, dirty);
+    }
 }
 
 struct Workbench {
@@ -156,6 +166,11 @@ struct Workbench {
     /// Settings editor tab (one instance) and whether it is the active tab.
     settings: Option<Entity<SettingsView>>,
     settings_active: bool,
+    /// The Welcome page tab (one instance, ADR-0040) and whether it is the active tab.
+    welcome_open: bool,
+    welcome_active: bool,
+    /// Session restore, hot exit and the quit prompt (ADR-0040).
+    session: session::Runtime,
     /// The editor settings in effect (fonts resolved), rebuilt when the configuration changes.
     editor_settings: EditorSettings,
     /// `files.exclude`.
@@ -227,6 +242,9 @@ impl Workbench {
             editor_view: EditorView::default(),
             settings: None,
             settings_active: false,
+            welcome_open: false,
+            welcome_active: false,
+            session: Default::default(),
             editor_settings,
             exclude,
             watcher_exclude,
@@ -260,16 +278,9 @@ impl Workbench {
             }
             Err(err) => eprintln!("rscode: file watcher: {err}"),
         }
-        // `workbench.startupEditor: readme` opens the folder's README (none if it has none).
-        if startup_editor(AppConfig::get(cx).configuration()) == StartupEditor::Readme {
-            for name in ["README.md", "README"] {
-                let p = root.join(name);
-                if p.is_file() {
-                    wb.open(&p);
-                    break;
-                }
-            }
-        }
+        // Session restore and hot exit (ADR-0040), then `workbench.startupEditor` when nothing came back.
+        wb.session_init(cx);
+        wb.open_startup_editor(cx);
         wb
     }
 
@@ -297,6 +308,7 @@ impl Workbench {
         let app = AppConfig::get(cx);
         let configuration = app.configuration();
         let affects_exclude = app.last_change().affects("files.exclude");
+        self.session_config_changed(cx);
         let new_exclude = affects_exclude
             .then(|| ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null)));
         if app.last_change().affects("files.watcherExclude") {
@@ -349,8 +361,12 @@ impl Workbench {
 
     fn open_with(&mut self, path: &Path, options: OpenOptions) {
         self.settings_active = false;
+        self.welcome_active = false;
+        let was_open = self.editors.index_of(path).is_some();
         if let Err(e) = self.editors.open_with(path, options) {
             self.error = Some(format!("{}: {e}", path.display()));
+        } else if !was_open {
+            self.apply_remembered_view_state(path); // workbench.editor.restoreViewState
         }
     }
 
@@ -443,10 +459,16 @@ impl Workbench {
             self.settings = Some(view);
         }
         self.settings_active = true;
+        self.welcome_active = false;
         if let Some(view) = &self.settings {
             view.update(cx, |v, cx| v.focus_search(window, cx));
         }
         cx.notify();
+    }
+
+    /// A text editor is the tab being shown (neither the Settings editor nor the Welcome page).
+    fn editor_surface_active(&self) -> bool {
+        !self.settings_active && !self.welcome_active
     }
 
     fn close_settings(&mut self) {
@@ -508,6 +530,7 @@ impl Workbench {
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| {
                         this.settings_active = true;
+                        this.welcome_active = false;
                         cx.notify();
                     }),
                 )
@@ -590,9 +613,11 @@ impl Workbench {
 
     fn close_tab(&mut self, index: usize) {
         if let Some(e) = self.editors.open.get(index) {
-            let path = e.path.clone();
+            let (path, dirty) = (e.path.clone(), e.is_dirty());
+            self.editor_view.remember(e);
             self.editors.close(index);
             self.editor_view.forget(&path);
+            self.session_editor_closed(&path, dirty);
         }
     }
 
@@ -636,7 +661,11 @@ impl Workbench {
             app_name: "rscode".into(),
             ..Default::default()
         };
-        if self.settings_active {
+        if self.welcome_showing() && !self.settings_active {
+            vars.active_editor_short = "Welcome".into();
+            vars.active_editor_medium = "Welcome".into();
+            vars.active_editor_long = "Welcome".into();
+        } else if self.settings_active {
             vars.active_editor_short = "Settings".into();
             vars.active_editor_medium = "Settings".into();
             vars.active_editor_long = "Settings".into();
@@ -1022,6 +1051,7 @@ impl Workbench {
                     if dy != 0.0 {
                         this.editors.step_active(if dy < 0.0 { 1 } else { -1 });
                         this.settings_active = false;
+                        this.welcome_active = false;
                         cx.notify();
                     }
                 }
@@ -1037,14 +1067,17 @@ impl Workbench {
                     .bg(to_gpui(t.border)),
             );
         let single = show_tabs == ShowTabs::Single;
+        if !single || self.welcome_showing() {
+            strip = strip.children(self.welcome_tab(cx));
+        }
         let highlight = self.editors.settings.highlight_modified_tabs;
         let labels = self.editors.tab_labels(&self.root, self.editors.settings.label_format);
         for (i, e) in self.editors.open.iter().enumerate() {
             // `workbench.editor.showTabs: single` shows only the active editor's tab.
-            if single && (self.editors.active != Some(i) || self.settings_active) {
+            if single && (self.editors.active != Some(i) || !self.editor_surface_active()) {
                 continue;
             }
-            let active = self.editors.active == Some(i) && !self.settings_active;
+            let active = self.editors.active == Some(i) && self.editor_surface_active();
             let fg = to_gpui(if active { t.tab_active_fg } else { t.tab_inactive_fg });
             let line = |d: Div, c| d.absolute().left_0().w_full().h(px(1.)).bg(to_gpui(c));
             // `workbench.editor.highlightModifiedTabs` marks a modified tab with a top border in
@@ -1151,6 +1184,7 @@ impl Workbench {
                     cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
                         this.editors.activate(i);
                         this.settings_active = false;
+                        this.welcome_active = false;
                         // A double click pins a preview (upstream: double click keeps the editor).
                         if let Some(path) = this.editors.open.get(i).map(|e| e.path.clone()).filter(|_| ev.click_count >= 2) {
                             this.editors.pin(&path);
@@ -1184,6 +1218,7 @@ impl Workbench {
             .filter(|p| self.editors.active_editor().is_some_and(|e| &e.path == p));
         let surface = match self.editors.active.and_then(|i| self.editors.open.get(i)) {
             _ if settings_surface.is_some() => settings_surface.unwrap().into_any_element(),
+            _ if self.welcome_showing() => self.welcome_surface(cx),
             Some(editor) => self.editor_view.element(editor, &t, &settings, cx).into_any_element(),
             None => div()
                 .size_full()
@@ -1253,9 +1288,10 @@ impl Render for Workbench {
         self.editors.pin_dirty_preview();
         self.auto_save_tick(window, cx);
         self.poll_syntax(cx);
+        self.session_render_hook(window, cx);
         // The OS window title and the dirty dot (macOS shows it in the close button).
         let title = self.window_title(cx);
-        let dirty = self.editors.active_editor().is_some_and(|e| e.is_dirty()) && !self.settings_active;
+        let dirty = self.editors.active_editor().is_some_and(|e| e.is_dirty()) && self.editor_surface_active();
         if self.applied_window_title.as_ref() != Some(&(title.clone(), dirty)) {
             window.set_window_title(&title);
             window.set_window_edited(dirty);
@@ -1346,6 +1382,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::ZoomOut, _, cx| this.zoom(Some(-1.0), cx)))
             .on_action(cx.listener(|this, _: &commands::ZoomReset, _, cx| this.zoom(None, cx)))
             .on_action(cx.listener(|this, _: &commands::ShowExplorer, _, cx| this.show_explorer(cx)))
+            .on_action(cx.listener(|this, _: &welcome::ShowWelcome, _, cx| this.open_welcome(cx)))
             .on_action(cx.listener(|this, _: &commands::ClearCommandHistory, _, cx| this.clear_command_history(cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleReadonlyInSession, _, cx| this.toggle_read_only_in_session(cx)))
             .on_action(cx.listener(|this, _: &language_mode::ChangeLanguageMode, window, cx| this.show_language_picker(window, cx)))
@@ -1376,6 +1413,7 @@ impl Render for Workbench {
             )
             .child(self.title_bar(&title, layout.command_center, cx))
             .child(middle)
+            .children(self.quit_prompt_bar(cx))
             .when(layout.status_bar_visible, |d| d.child(self.status_bar()))
             .children(self.quick.view())
             .children(self.lang.view())

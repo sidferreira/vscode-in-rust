@@ -27,6 +27,7 @@ mod decorations;
 pub(crate) mod find;
 mod minimap;
 pub(crate) mod wrap;
+mod view_state; // restoreViewState: scroll, selection, word wrap (ADR-0040)
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -74,6 +75,10 @@ pub fn init(cx: &mut App) {
 /// What the view needs from its owner: the documents and the view state.
 pub trait EditorHost: 'static {
     fn editor_host(&mut self) -> (&mut Editors, &mut EditorView);
+
+    /// An editor was closed by a command (Cmd+W); `dirty` says it had unsaved changes. The owner
+    /// keeps what its session needs (the backup of unsaved text, ADR-0040).
+    fn editor_closed(&mut self, _path: &std::path::Path, _dirty: bool) {}
 }
 
 #[derive(Default)]
@@ -104,6 +109,8 @@ pub struct EditorView {
     brackets: decorations::BracketCache,
     /// Alt+Z (`editor.action.toggleWordWrap`): per-document override of `editor.wordWrap`.
     wrap_override: HashMap<PathBuf, bool>,
+    /// View state of tabs closed in this run, for reopening them (`workbench.editor.restoreViewState`).
+    closed_views: HashMap<PathBuf, crate::session::state::ViewState>,
     /// The editor whose save was refused because its file changed on disk; the workbench shows
     /// the conflict bar until Overwrite or Revert (ADR-0039).
     pub save_conflict: Option<PathBuf>,
@@ -378,9 +385,11 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
     }
     match cmd {
         Command::CloseTab => {
-            if let Some(path) = editors.open.get(i).map(|e| e.path.clone()) {
+            if let Some((path, dirty)) = editors.open.get(i).map(|e| (e.path.clone(), e.is_dirty())) {
+                view.remember(&editors.open[i]);
                 editors.close(i);
                 view.forget(&path);
+                this.editor_closed(&path, dirty);
             }
         }
         _ => {

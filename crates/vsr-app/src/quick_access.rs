@@ -101,7 +101,7 @@ impl GotoLineModel for BufferModel<'_> {
 impl Workbench {
     /// The context keys the palette's preconditions read.
     pub(crate) fn context_keys(&self) -> ContextKeys {
-        commands::context_keys(self.editors.active_editor().is_some() && !self.settings_active, self.sidebar_visible)
+        commands::context_keys(self.editors.active_editor().is_some() && self.editor_surface_active(), self.sidebar_visible)
     }
 
     /// The prefix of the provider for `text`, with the context keys of the open picker.
@@ -139,7 +139,7 @@ impl Workbench {
         let model = self
             .editors
             .active_editor()
-            .filter(|_| !self.settings_active)
+            .filter(|_| self.editor_surface_active())
             .map(|e| BufferModel { buffer: e.buffer(), tab_size: self.editors.options.tab_size });
         parse_position(model.as_ref().map(|m| m as &dyn GotoLineModel), text, false)
     }
@@ -176,7 +176,7 @@ impl Workbench {
             return;
         };
         if scope == Scope::Editor {
-            if self.editors.active.is_none() || self.settings_active {
+            if self.editors.active.is_none() || !self.editor_surface_active() {
                 return;
             }
             self.editor_view.focus(window, cx);

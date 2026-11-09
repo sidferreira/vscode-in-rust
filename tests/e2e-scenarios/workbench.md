@@ -5,11 +5,11 @@ Suites (describe): Data Loss (insiders -> insiders); Data Loss (stable -> inside
 
 | # | scenario (it title) | suite | upstream file:line | steps (summary) | status | notes |
 |---|---|---|---|---|---|---|
-| 1 | verifies opened editors are restored | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:22` | Starts the app, opens www and app.js (kept) and an untitled file, restarts, and selects the three tabs to verify they were restored. | pending | Quick open (Cmd+P) and the Command Palette (`View: Keep Editor` is not registered yet) exist; still needs untitled files and session restore of tabs. |
-| 2 | verifies editors can save and restore | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:49` | Opens app.js, types text, waits for the dirty tab, saves, restarts and checks the contents include the text. | pending | Typing, dirty tab and save to disk are covered headlessly (`crates/vsr-app/src/editor_view/e2e.rs`: `typing_enter_undo_and_save`, `save_preserves_crlf_and_cmd_w_closes_the_tab`). Still needs restart and session restore of open editors. |
-| 3 | verifies that "hot exit" works for dirty files (without delay) | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:78` | Shared testHotExit helper: edits files, restarts without saving, and checks dirty content and tabs are restored. | blocked-on-feature hot exit / backup service |  |
-| 4 | verifies that "hot exit" works for dirty files (with delay) | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:82` | Same helper with a 2 second restart delay. | blocked-on-feature hot exit / backup service |  |
-| 5 | verifies that auto save triggers on shutdown | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:86` | Same helper with auto-save enabled; checks content is saved on shutdown. | blocked-on-feature hot exit / auto save | Skipped on remote Linux/Windows. |
+| 1 | verifies opened editors are restored | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:22` | Starts the app, opens www and app.js (kept) and an untitled file, restarts, and selects the three tabs to verify they were restored. | pending | Tab restore is covered headlessly (`session::e2e_tests::quitting_and_restarting_restores_tabs_active_scroll_and_selection`, ADR-0040); the scenario also restores an untitled file, which needs untitled files. |
+| 2 | verifies editors can save and restore | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:49` | Opens app.js, types text, waits for the dirty tab, saves, restarts and checks the contents include the text. | ready | `session::e2e_tests::saving_removes_the_backup_and_a_restart_shows_no_stale_text` (type, save, restart, content is on disk and nothing is dirty), with the typing and save coverage in `editor_view/e2e.rs`. |
+| 3 | verifies that "hot exit" works for dirty files (without delay) | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:78` | Shared testHotExit helper: edits files, restarts without saving, and checks dirty content and tabs are restored. | ready | `session::e2e_tests::a_dirty_buffer_survives_quit_and_restart_as_dirty_with_its_text` (quit with `request_quit`, restart on the same user data dir; tabs and dirty text come back). |
+| 4 | verifies that "hot exit" works for dirty files (with delay) | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:82` | Same helper with a 2 second restart delay. | ready | `session::e2e_tests::a_backup_is_written_after_a_quiet_delay_so_a_crash_loses_nothing` (the backup is written after a quiet second, a restart without the quit hook still restores the text). |
+| 5 | verifies that auto save triggers on shutdown | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:86` | Same helper with auto-save enabled; checks content is saved on shutdown. | pending | Skipped on remote Linux/Windows. Hot exit exists (ADR-0040); saving every dirty file when quitting with `files.autoSave` on is not implemented (the text is kept in backups instead). |
 | 6 | verifies opened editors are restored | Data Loss (stable -> insiders) | `workbench/data-loss.test.ts:153` | Launches a downloaded stable VS Code, opens editors, then opens the dev build on the same user data and verifies they are restored. | blocked-on-feature cross-version state migration (needs stable VS Code install) | Skips when stable build is unavailable. |
 | 7 | verifies that "hot exit" works for dirty files (without delay) | Data Loss (stable -> insiders) | `workbench/data-loss.test.ts:210` | Hot exit scenario starting from stable then restoring in insiders. | blocked-on-feature cross-version state migration |  |
 | 8 | verifies that "hot exit" works for dirty files (with delay) | Data Loss (stable -> insiders) | `workbench/data-loss.test.ts:214` | Same with 2 second delay. | blocked-on-feature cross-version state migration |  |
@@ -25,13 +25,11 @@ Suites (describe): Data Loss (insiders -> insiders); Data Loss (stable -> inside
 ## Soon vs far
 
 Near-term (ready / pending):
-- #1 verifies opened editors are restored [pending]
-- #2 verifies editors can save and restore [pending]
+- #1 verifies opened editors are restored [pending: untitled file]
+- #5 verifies that auto save triggers on shutdown [pending]
 - #9 verifies that application launches when user data directory has non-ascii characters [ready]
 
 Blocked, grouped by feature:
-- hot exit / backup service: #3, #4
-- hot exit / auto save: #5
 - cross-version state migration (needs stable VS Code install): #6
 - cross-version state migration: #7, #8
 - localization: #10
@@ -58,3 +56,23 @@ palette itself:
 | `closeOnFileDelete` closes a clean tab whose file is gone and keeps a dirty one; off keeps it | ready | `close_on_file_delete_closes_clean_tabs_and_keeps_dirty_ones`, `close_on_file_delete_off_keeps_the_tab` |
 | focus after closing the active tab follows the MRU list (or the right neighbour) | ready | model test `multiple_editors_closing_picks_next_from_mru_list`, `closing_the_active_tab_focuses_the_mru_editor_or_the_right_neighbour` |
 
+Session restore, hot exit and the Welcome page (ADR-0040, `crates/vsr-app/src/session/e2e_tests.rs`;
+a restart is a second workbench on the same injected user data dir):
+
+| scenario | status | test |
+|---|---|---|
+| quit and restart restores tabs, order, active tab, scroll and selection | ready | `quitting_and_restarting_restores_tabs_active_scroll_and_selection` |
+| preview flag, active tab and activation order survive; deleted files are skipped | ready | `preview_flag_active_and_mru_survive_a_restart`, `files_deleted_since_are_skipped_on_restore` |
+| side bar view, width and the Search query come back | ready | `the_side_bar_and_the_search_query_are_restored` |
+| `window.restoreWindows: none` and `restoreEditors: false` start empty (with the Welcome page) | ready | `restore_windows_none_and_restore_editors_off_start_empty` |
+| `restoreViewState`: a closed file reopens at its scroll and selection; off does not | ready | `a_closed_file_reopens_at_its_view_state_and_restore_view_state_off_does_not` |
+| a damaged state file is kept aside and the start is clean | ready | `a_damaged_state_file_is_kept_aside_and_the_start_is_clean` |
+| dirty buffer: Cmd+Q does not ask, restart restores it dirty with its text; undo goes back to the file | ready | `a_dirty_buffer_survives_quit_and_restart_as_dirty_with_its_text` |
+| backup after a quiet delay (crash safety); saving or undoing to clean removes it | ready | `a_backup_is_written_after_a_quiet_delay_...`, `saving_removes_the_backup_...`, `undoing_back_to_the_saved_text_drops_the_backup` |
+| closing a dirty tab moves its backup to `discarded/` (never deleted) | ready | `a_tab_closed_with_unsaved_changes_moves_its_backup_aside_instead_of_deleting_it` |
+| a damaged backup is kept aside, the others restore; a deleted file's text restores | ready | `a_damaged_backup_is_kept_aside_and_the_rest_restore`, `a_backup_of_a_file_deleted_since_restores_...` |
+| unsaved text restores even when editors are not restored; an identical backup is dropped | ready | `unsaved_text_restores_even_when_editors_are_not_restored`, `a_backup_equal_to_the_file_is_dropped` |
+| `files.hotExit: off` asks (Cancel, Save All, Don't Save); window close asks with `onExit` only | ready | `hot_exit_off_asks_and_cancel_keeps_the_app_open`, `hot_exit_off_save_all_saves_then_quits`, `hot_exit_off_dont_save_discards_but_keeps_the_text_aside`, `window_close_asks_with_on_exit_but_not_with_on_exit_and_window_close` |
+| nothing restored: the Welcome tab shows; clicking a recent file opens it; Open File... is Quick Open | ready | `with_nothing_restored_the_welcome_tab_shows_and_a_recent_file_opens_on_click`, `welcome_open_file_opens_quick_open` (`config/e2e.rs`: `startup_editor_default_is_the_welcome_page`, `startup_editor_none_opens_nothing`) |
+| "Show welcome page on startup" writes `workbench.startupEditor`; `Help: Welcome` opens the page | ready | `the_show_on_startup_checkbox_writes_workbench_startup_editor`, `help_welcome_is_a_registered_command_that_opens_the_page` |
+| a workbench with no installed store reads and writes nothing | ready | `a_workbench_without_an_installed_store_writes_nothing` |

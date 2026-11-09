@@ -339,8 +339,7 @@ impl Editors {
         let bytes = fs::read(path)?;
         let text = String::from_utf8_lossy(&bytes);
         let mut editor = OpenEditor::from_text(path, &text, self.options, self.default_eol, self.read_only.is_read_only(path));
-        let language = self.guess_language(path, &text);
-        editor.set_language(&self.syntax, &language, false, self.max_tokenization_line_length);
+        self.init_language(&mut editor, &text);
 
         let target = self.target_index();
         let preview_index = self.preview.as_deref().and_then(|p| self.index_of(p));
@@ -373,6 +372,12 @@ impl Editors {
         self.enforce_limit();
         self.touch_history(path);
         Ok(())
+    }
+
+    /// Gives a new editor its language (from the file name and first line) and tokenizer.
+    pub fn init_language(&self, editor: &mut OpenEditor, text: &str) {
+        let language = self.guess_language(&editor.path, text);
+        editor.set_language(&self.syntax, &language, false, self.max_tokenization_line_length);
     }
 
     /// The language of a file: `files.associations`, the file name and extension, then the first

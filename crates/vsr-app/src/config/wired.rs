@@ -26,7 +26,11 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "window.zoomLevel",
         ],
     ),
-    ("Startup", &["workbench.startupEditor"]),
+    ("Welcome", &["workbench.startupEditor"]),
+    (
+        "Session",
+        &["window.restoreWindows", "workbench.editor.restoreEditors", "workbench.editor.restoreViewState", "files.hotExit"],
+    ),
     ("Explorer", &["files.exclude"]),
     (
         "Editor text",
@@ -203,7 +207,9 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     }
     out.push_str("## Known differences from VS Code\n\n");
     out.push_str("- Out-of-range numbers are clamped to the schema's minimum and maximum (as `editorOptions.ts` does); a value of the wrong type or outside an enum falls back to the default.\n");
-    out.push_str("- `workbench.startupEditor` is read once, at startup (as upstream). `welcomePage`, `welcomePageInEmptyWorkbench`, `newUntitledFile`, `terminal` and `agentSessionsWelcomePage` open nothing: there is no Welcome page, untitled file or terminal yet (ADR-0035).\n");
+    out.push_str("- `workbench.startupEditor` is read once, at startup (as upstream), and only when no editor was restored. `welcomePage` (the default) opens the Welcome page (ADR-0040); `readme` opens the folder's README. `welcomePageInEmptyWorkbench` (rscode always has a folder), `newUntitledFile` (no untitled files), `terminal` and `agentSessionsWelcomePage` open nothing. The Welcome page's \"Show welcome page on startup\" checkbox writes this setting.\n");
+    out.push_str("- Session restore (ADR-0040): the tabs of a folder (order, active, preview), their scroll position and selection, the side bar and the Search query come back when the same folder is opened again. `window.restoreWindows: none` and `workbench.editor.restoreEditors: false` start with nothing restored; with one window, `preserve`, `all`, `folders` and `one` all restore. `workbench.editor.restoreViewState` also restores a file's scroll and selection when it is reopened after being closed in the same run.\n");
+    out.push_str("- `files.hotExit` (ADR-0040): `onExit` (default) keeps unsaved text in backups when quitting (Cmd+Q) and restores it, dirty, on the next start; closing the window asks (Save All, Don't Save, Cancel). `onExitAndWindowClose` never asks. `off` always asks. Unsaved text is also backed up one second after the last edit (crash safety) and always restored, whatever the restore settings say. `files.restoreUndoStack` is not implemented: undo goes back to the file on disk.\n");
     out.push_str("- `window.zoomLevel` scales the editor text only (1.2 per level, as upstream). The title bar, side bars and tabs keep their pixel sizes until the UI has a whole-window scale (ADR-0035).\n");
     out.push_str("- `editor.cursorBlinking`: `smooth`, `phase` and `expand` blink like `blink`; `solid` does not blink.\n");
     out.push_str("- `editor.lineNumbers: interval` shows a number on every 10th line and on the caret line.\n");

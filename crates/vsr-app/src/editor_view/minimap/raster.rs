@@ -230,6 +230,7 @@ pub fn render_lines_colored<'a>(p: &RasterParams, lines: impl Iterator<Item = (&
     canvas
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_line(
     canvas: &mut Canvas,
     renderer: &CharRenderer,

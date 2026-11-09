@@ -511,7 +511,7 @@ impl Grammar {
         Some((m.captures, scanner.rule_ids[m.index]))
     }
 
-    fn match_injections(&self, text: &str, is_first: bool, pos: usize, stack: &StateStack, anchor_pos: i64, cache: &mut ScanCache) -> Option<(Vec<(usize, usize)>, RuleId, bool)> {
+    fn match_injections(&self, text: &str, is_first: bool, pos: usize, stack: &StateStack, anchor_pos: i64, cache: &mut ScanCache) -> Option<(Captured, RuleId, bool)> {
         let names = self.scope_names(stack.content_scopes());
         let refs: Vec<&str> = names.iter().map(|s| &**s).collect();
         let mut best_rating = usize::MAX;
@@ -604,6 +604,9 @@ impl Grammar {
         }
     }
 }
+
+/// The capture groups of a match, as byte ranges.
+type Captured = Vec<(usize, usize)>;
 
 struct Tokens {
     out: Vec<Token>,

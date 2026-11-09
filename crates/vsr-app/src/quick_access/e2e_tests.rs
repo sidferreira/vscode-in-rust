@@ -151,7 +151,7 @@ fn recently_used_commands_come_first(cx: &mut TestAppContext) {
     open_palette(cx);
     let first_time = rows(&wb, cx);
     assert!(!first_time.iter().any(|r| r.starts_with("--")), "no history, no separators: {first_time:?}");
-    assert_eq!(first_time[0], "Clear Command History", "alphabetical: {first_time:?}");
+    assert_eq!(first_time[0], "Change Language Mode", "alphabetical: {first_time:?}");
 
     type_text(cx, "show explorer");
     cx.simulate_keystrokes("enter");
@@ -164,7 +164,7 @@ fn recently_used_commands_come_first(cx: &mut TestAppContext) {
     open_palette(cx);
     let r = rows(&wb, cx);
     assert_eq!(&r[..4], ["--recently used", "View: Toggle Primary Side Bar Visibility", "View: Show Explorer", "--other commands"], "{r:?}");
-    assert_eq!(r[4], "Clear Command History");
+    assert_eq!(r[4], "Change Language Mode");
 
     // The history does not reorder an unrelated filter, and an unused match has no separator.
     type_text(cx, "settings");

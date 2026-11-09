@@ -210,11 +210,10 @@ impl OpenEditor {
     pub fn save_with(&mut self, transforms: SaveTransforms) -> io::Result<()> {
         let cursors: Vec<Position> = if transforms.auto_save { vec![self.editor.selection().active] } else { Vec::new() };
         if transforms.trim_trailing_whitespace {
-            if transforms.keep_in_regex_and_strings && self.syntax.is_some() {
+            self.sync_syntax();
+            if let (true, Some(doc)) = (transforms.keep_in_regex_and_strings, self.syntax.as_ref()) {
                 // `files.trimTrailingWhitespaceInRegexAndStrings: false`: whitespace inside a string
                 // or a regular expression stays (and so does a line with no accurate tokens yet).
-                self.sync_syntax();
-                let doc = self.syntax.as_ref().expect("checked above");
                 let buffer_lines: Vec<String> = (1..=self.editor.buffer().line_count()).map(|l| self.editor.buffer().line_content(l).to_string()).collect();
                 self.editor.trim_trailing_whitespace_unless(&cursors, |line, offset| doc.keeps_trailing_whitespace(line, &buffer_lines[line - 1], offset));
             } else {

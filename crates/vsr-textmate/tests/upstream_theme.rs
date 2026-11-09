@@ -230,7 +230,8 @@ fn str_arr_cmp_works() {
         Ordering::Greater => 1,
     };
     let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let cases: Vec<(Option<Vec<String>>, Option<Vec<String>>, i32)> = vec![
+    type Arr = Option<Vec<String>>;
+    let cases: Vec<(Arr, Arr, i32)> = vec![
         (None, None, 0),
         (None, Some(v(&[])), -1),
         (None, Some(v(&["a"])), -1),

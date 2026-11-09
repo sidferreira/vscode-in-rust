@@ -7328,6 +7328,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vsr-syntax"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "vsr-languages",
+ "vsr-textmate",
+]
+
+[[package]]
 name = "vsr-text"
 version = "0.1.0"
 

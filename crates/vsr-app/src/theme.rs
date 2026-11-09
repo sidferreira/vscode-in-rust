@@ -54,6 +54,37 @@ pub struct Theme {
     pub list_hover_bg: Rgba8,
     pub list_active_bg: Rgba8,
     pub error_fg: Rgba8,
+    // ---- Settings editor (settingsEditor2) ----
+    pub foreground: Rgba8,                    // foreground
+    pub description_fg: Rgba8,                // descriptionForeground
+    pub focus_border: Rgba8,                  // focusBorder
+    pub settings_header_fg: Rgba8,            // settings.headerForeground
+    pub settings_modified_indicator: Rgba8,   // settings.modifiedItemIndicator
+    pub settings_focused_row_bg: Rgba8,       // settings.focusedRowBackground (list.hoverBackground @ 60%)
+    pub settings_row_hover_bg: Rgba8,         // settings.rowHoverBackground (list.hoverBackground @ 30%)
+    pub settings_dropdown_bg: Rgba8,          // settings.dropdownBackground
+    pub settings_dropdown_border: Rgba8,      // settings.dropdownBorder
+    pub settings_dropdown_fg: Rgba8,          // dropdown.foreground
+    pub settings_dropdown_list_bg: Rgba8,     // dropdown.listBackground
+    pub settings_checkbox_bg: Rgba8,          // settings.checkboxBackground (checkbox.background)
+    pub settings_checkbox_border: Rgba8,      // settings.checkboxBorder (checkbox.border)
+    pub settings_checkbox_fg: Rgba8,          // settings.checkboxForeground (checkbox.foreground)
+    pub settings_text_input_bg: Rgba8,        // settings.textInputBackground (input.background)
+    pub settings_number_input_bg: Rgba8,      // settings.numberInputBackground (input.background)
+    pub input_fg: Rgba8,                      // input.foreground
+    pub input_border: Rgba8,                  // input.border
+    pub input_placeholder_fg: Rgba8,          // input.placeholderForeground
+    pub settings_header_border: Rgba8,        // settings.headerBorder (panel.border)
+    pub text_link_fg: Rgba8,                  // textLink.foreground
+    pub text_link_active_fg: Rgba8,           // textLink.activeForeground
+    pub text_preformat_fg: Rgba8,             // textPreformat.foreground
+    pub text_preformat_bg: Rgba8,             // textPreformat.background
+    pub setting_error_fg: Rgba8,              // errorForeground
+    pub validation_error_bg: Rgba8,           // inputValidation.errorBackground
+    pub validation_error_border: Rgba8,       // inputValidation.errorBorder
+    pub menu_bg: Rgba8,                       // menu.background
+    pub menu_selection_bg: Rgba8,             // menu.selectionBackground
+    pub menu_border: Rgba8,                   // menu.border
 }
 
 impl Theme {
@@ -75,6 +106,36 @@ impl Theme {
             list_hover_bg: c("#2A2D2E"),
             list_active_bg: c("#37373D"),
             error_fg: c("#F14C4C"),
+            foreground: c("#CCCCCC"),
+            description_fg: c("#9D9D9D"),
+            focus_border: c("#0078D4"),
+            settings_header_fg: c("#FFFFFF"),
+            settings_modified_indicator: c("#BB800966"),
+            settings_focused_row_bg: c("#2A2D2E99"),
+            settings_row_hover_bg: c("#2A2D2E4D"),
+            settings_dropdown_bg: c("#313131"),
+            settings_dropdown_border: c("#3C3C3C"),
+            settings_dropdown_fg: c("#CCCCCC"),
+            settings_dropdown_list_bg: c("#1F1F1F"),
+            settings_checkbox_bg: c("#313131"),
+            settings_checkbox_border: c("#3C3C3C"),
+            settings_checkbox_fg: c("#CCCCCC"),
+            settings_text_input_bg: c("#313131"),
+            settings_number_input_bg: c("#313131"),
+            input_fg: c("#CCCCCC"),
+            input_border: c("#3C3C3C"),
+            input_placeholder_fg: c("#989898"),
+            settings_header_border: c("#2B2B2B"),
+            text_link_fg: c("#4DAAFC"),
+            text_link_active_fg: c("#4DAAFC"),
+            text_preformat_fg: c("#D0D0D0"),
+            text_preformat_bg: c("#3C3C3C"),
+            setting_error_fg: c("#F85149"),
+            validation_error_bg: c("#5A1D1D"),
+            validation_error_border: c("#BE1100"),
+            menu_bg: c("#1F1F1F"),
+            menu_selection_bg: c("#0078D4"),
+            menu_border: c("#454545"),
         }
     }
 }

@@ -68,12 +68,16 @@ upstream = [
   "src/vs/workbench/services/themes/common/themeConfiguration.ts",
   "src/vs/workbench/services/themes/common/hostColorSchemeService.ts",
   "src/vs/workbench/services/themes/common/workbenchThemeService.ts",
+  "src/vs/workbench/services/themes/browser/workbenchThemeService.ts",
+  "src/vs/workbench/contrib/themes/browser/themes.contribution.ts",
   "src/vs/workbench/services/themes/test/common/colorThemeData.test.ts",
   "src/vs/workbench/services/themes/test/common/workbenchThemeService.test.ts",
 ]
 rust = [
   "crates/vsr-theme/src/theme.rs",
   "crates/vsr-theme/src/selection.rs",
+  "crates/vsr-app/src/theme_service.rs",
+  "crates/vsr-app/src/theme_picker.rs",
   "crates/vsr-theme/tests/upstream_workbench_theme_service.rs",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"

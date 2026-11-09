@@ -183,7 +183,7 @@ impl ColorRegistry {
                 (ColorScheme::HighContrastDark, "hcDark"),
                 (ColorScheme::HighContrastLight, "hcLight"),
             ] {
-                d.0[scheme.index()] = entry.get(name).map(|v| parse_value(v)).transpose().map_err(|e| format!("{key}.{name}: {e}"))?.flatten();
+                d.0[scheme.index()] = entry.get(name).map(parse_value).transpose().map_err(|e| format!("{key}.{name}: {e}"))?.flatten();
             }
             defaults.insert(key.clone(), d);
         }

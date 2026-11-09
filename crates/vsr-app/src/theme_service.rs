@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use gpui_kit::component::theme::{Theme as ComponentTheme, ThemeMode};
+use gpui_kit::component::theme::{Theme as ComponentTheme, ThemeMode, ThemeRegistry};
 use gpui_kit::*;
 use serde_json::Value;
 use vsr_settings::Configuration;
@@ -120,6 +120,7 @@ impl ThemeService {
 
     /// The active colour theme with the user's customisations: token colours for the highlighter,
     /// any colour key by name.
+    #[allow(dead_code)] // API for the syntax highlighter and tests
     pub fn color_theme(cx: &App) -> Option<&ColorTheme> {
         cx.try_global::<ThemeService>().map(|s| &s.active)
     }
@@ -127,11 +128,6 @@ impl ThemeService {
     /// The settings id of the theme that is showing (a preview counts).
     pub fn active_settings_id(cx: &App) -> Option<String> {
         cx.try_global::<ThemeService>().map(|s| s.active.settings_id().to_string())
-    }
-
-    /// The settings id the configuration selects now (what Esc on the picker returns to).
-    pub fn configured_settings_id(cx: &App) -> Option<String> {
-        cx.try_global::<ThemeService>().map(|s| s.configured().map(|t| t.settings_id.to_string()).unwrap_or_default())
     }
 
     /// The themes the picker lists, sorted by label.
@@ -145,12 +141,19 @@ impl ThemeService {
         cx.try_global::<ThemeService>().map_or(COLOR_THEME, |s| s.settings.color_theme_setting_id(s.host))
     }
 
+    /// The colour mode the system asks for (`None` unless `window.autoDetectColorScheme` or a high contrast OS mode is on).
+    pub fn preferred_scheme(cx: &App) -> Option<ColorScheme> {
+        cx.try_global::<ThemeService>().and_then(|s| s.settings.preferred_color_scheme(s.host))
+    }
+
     /// Changes whenever the painted theme changes.
+    #[allow(dead_code)] // API for the syntax highlighter and tests
     pub fn generation(cx: &App) -> u64 {
         cx.try_global::<ThemeService>().map_or(0, |s| s.generation)
     }
 
     /// The last problem loading a theme (the previous theme stays).
+    #[allow(dead_code)] // API for the syntax highlighter and tests
     pub fn error(cx: &App) -> Option<String> {
         cx.try_global::<ThemeService>().and_then(|s| s.error.clone())
     }
@@ -167,6 +170,7 @@ impl ThemeService {
     }
 
     /// The system colour scheme including high contrast (not detected on macOS; for tests).
+    #[allow(dead_code)] // API for the syntax highlighter and tests
     pub fn set_host_color_scheme(cx: &mut App, host: HostColorScheme) {
         Self::ensure_installed(cx);
         cx.update_global::<ThemeService, _>(|svc, cx| svc.set_host(host, cx));
@@ -246,11 +250,14 @@ impl ThemeService {
 
 /// Aligns the component library's theme (used by its text input) with the active theme.
 pub fn sync_component_theme(t: &Theme, scheme: ColorScheme, cx: &mut App) {
+    if !cx.has_global::<ThemeRegistry>() {
+        return; // gpui_kit::init has not run (some headless tests): nothing to align
+    }
     ComponentTheme::change(if scheme.is_dark() { ThemeMode::Dark } else { ThemeMode::Light }, None, cx);
     let theme = ComponentTheme::global_mut(cx);
     theme.foreground = to_gpui(t.input_fg);
     theme.muted_foreground = to_gpui(t.input_placeholder_fg);
-    theme.caret = to_gpui(t.cursor);
+    theme.caret = to_gpui(t.foreground);
     theme.selection = to_gpui(t.selection_bg);
 }
 

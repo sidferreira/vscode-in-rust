@@ -20,7 +20,10 @@ mod search_view; // Search view (ADR-0023)
 mod settings_view; // Settings editor (ADR-0017)
 mod text_layout;
 mod theme;
+mod theme_picker; // Preferences: Color Theme (ADR-0037)
 mod theme_service;
+#[cfg(test)]
+mod theme_e2e;
 mod ui;
 mod window_title; // window.title and window.titleSeparator (the title bar and the OS window title)
 
@@ -1349,6 +1352,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::ShowCommands, window, cx| this.show_quick_access(">", window, cx)))
             .on_action(cx.listener(|this, _: &commands::GoToLine, window, cx| this.show_quick_access(":", window, cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
+            .on_action(cx.listener(|this, _: &theme_picker::SelectTheme, window, cx| this.show_theme_picker(window, cx)))
             .on_action(cx.listener(|this, _: &commands::ZoomIn, _, cx| this.zoom(Some(1.0), cx)))
             .on_action(cx.listener(|this, _: &commands::ZoomOut, _, cx| this.zoom(Some(-1.0), cx)))
             .on_action(cx.listener(|this, _: &commands::ZoomReset, _, cx| this.zoom(None, cx)))

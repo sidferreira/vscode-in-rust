@@ -348,12 +348,10 @@ pub fn parse_css(css: &str) -> Option<Color> {
     if css.starts_with('#') {
         return parse_hex(css);
     }
-    let (args, with_alpha) = if let Some(rest) = css.strip_prefix("rgba(") {
-        (rest.strip_suffix(')')?, true)
-    } else if let Some(rest) = css.strip_prefix("rgb(") {
-        (rest.strip_suffix(')')?, false)
-    } else {
-        return None;
+    let (args, with_alpha) = match (css.strip_prefix("rgba("), css.strip_prefix("rgb(")) {
+        (Some(rest), _) => (rest.strip_suffix(')')?, true),
+        (None, Some(rest)) => (rest.strip_suffix(')')?, false),
+        _ => return None,
     };
     let parts: Vec<&str> = args.split(',').map(str::trim_start).collect();
     if parts.len() != if with_alpha { 4 } else { 3 } {

@@ -37,13 +37,13 @@ fn returns_unknown_ids_unchanged() {
 fn restores_only_for_preferred_color_scheme_changes() {
     // upstream: WorkbenchThemeService > restores only for preferred color scheme changes
     let mut settings = ThemeSettings { detect_color_scheme: false, detect_high_contrast: true, ..ThemeSettings::default() };
-    let mut results = Vec::new();
-
     // (host.dark, host.highContrast) now vs. the previous value passed in.
-    results.push(settings.is_preferred_color_scheme_change(host(false, false), host(true, false)));
-    results.push(settings.is_preferred_color_scheme_change(host(true, false), host(true, true)));
-    results.push(settings.is_preferred_color_scheme_change(host(true, true), host(false, true)));
-    results.push(settings.is_preferred_color_scheme_change(host(false, true), host(false, false)));
+    let mut results = vec![
+        settings.is_preferred_color_scheme_change(host(false, false), host(true, false)),
+        settings.is_preferred_color_scheme_change(host(true, false), host(true, true)),
+        settings.is_preferred_color_scheme_change(host(true, true), host(false, true)),
+        settings.is_preferred_color_scheme_change(host(false, true), host(false, false)),
+    ];
 
     settings.detect_color_scheme = true;
     results.push(settings.is_preferred_color_scheme_change(host(false, false), host(true, false)));

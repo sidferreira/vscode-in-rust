@@ -29,9 +29,13 @@ scripts/cargo-firewall-fetch     # fetch deps through the package firewall
 | `vsr-commands` | command registry (`CommandsRegistry`, palette metadata, preconditions, history, key binding labels) (UI-free) | `src/vs/platform/commands`, `src/vs/platform/actions`, `src/vs/platform/contextkey` |
 | `vsr-find` | editor Find / Replace model: matches, N of M, next/prev, replace one/all (UI-free) | `src/vs/editor/contrib/find/browser/{findModel,findState,replacePattern}.ts` |
 | `vsr-settings` | settings registry, `settings.json`, effective configuration (defaults + user, change events) | `src/vs/platform/configuration/common/*`, `workbench/contrib/preferences` |
+| `vsr-theme` | VS Code colour themes from their JSON (include chains, token colours, customisations), colour registry defaults, theme selection (UI-free) | `src/vs/workbench/services/themes`, `src/vs/platform/theme`, `src/vs/base/common/color.ts`, `extensions/theme-defaults` |
 | `vsr-app` | native workbench window (gpui via gpui-kit); `RSCODE_USER_DATA_DIR=<dir>` redirects settings.json to `<dir>/User/` | `src/vs/workbench/browser/layout.ts`, `dark_modern.json` |
 
 ## Third-party assets
+- **Colour themes** (`crates/vsr-theme/assets/themes/*.json`): the ten themes of VS Code's built-in `theme-defaults`
+  extension, copied unchanged from [microsoft/vscode](https://github.com/microsoft/vscode), MIT,
+  Copyright (c) 2015 - present Microsoft Corporation ([license](crates/vsr-theme/assets/themes/LICENSE.txt)).
 - **Codicons** (`crates/vsr-app/assets/codicon.ttf`) by Microsoft, from
   [microsoft/vscode-codicons](https://github.com/microsoft/vscode-codicons) (`@vscode/codicons` 0.0.46-49),
   licensed [CC BY 4.0](crates/vsr-app/assets/codicon-LICENSE.txt). Modified: 'm' mapped to

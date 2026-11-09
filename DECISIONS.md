@@ -393,7 +393,21 @@ counts ranges and sets `limit_hit`.
 (`**/node_modules`, `**/bower_components`, `**/*.code-search`), `files.exclude` (`.git .svn .hg .jj
 .DS_Store Thumbs.db`), `useIgnoreFiles` true, `useGlobalIgnoreFiles` false, `useParentIgnoreFiles`
 false, `followSymlinks` true, `smartCase` false, `maxResults` 20000, `searchOnType` true, debounce 300 ms.
-`search_view::current_settings` is the single TODO hook for the configuration service.
+
+**Settings wiring (2026-11-09).** `search_view::current_settings` reads the live `AppConfig` (defaults when no
+configuration is installed). `config::settings::search_settings` maps `Configuration` to `SearchSettings`:
+`files.exclude` and `search.exclude` come from `get_value`, which already merges the default map with the user's
+(objects deep-merge, a `false` turns a default off); entries whose value is an object (`when`) are ignored by search.
+`search.maxResults` is registered `["number","null"]` (unvalidated): null is unlimited. `search.collapseResults` is
+matched by its camelCase value. Eleven keys are in `WIRED_KEYS` ("Search" group): `search.exclude`,
+`useIgnoreFiles`, `useGlobalIgnoreFiles`, `useParentIgnoreFiles`, `followSymlinks`, `smartCase`, `maxResults`,
+`searchOnType`, `searchOnTypeDebouncePeriod`, `collapseResults`, `showLineNumbers` (a line number before each match
+row). `files.exclude` stays under Explorer; search reads it too. The view observes the global
+(`on_config_changed`): a change that affects what a search finds (exclude globs, ignore-file flags, symlinks,
+smart case, `maxResults`) re-runs a non-empty query; the other keys just apply to the next search or the display.
+Headless tests in `search/e2e_tests.rs` use a temp settings file: `search.exclude` hides `docs/` and re-runs,
+`smartCase` makes "Alpha" case-sensitive, `searchOnType: false` waits for Enter, `maxResults` limits and re-runs.
+`showLineNumbers` is not covered by a test (it is one label in the row).
 
 **View** (`vsr-app/src/search_view.rs`, state in `search/model.rs`). Query box with Match Case,
 Whole Word and Regex toggles inside it (Alt+Cmd+C/W/R), "files to include/exclude" behind the
@@ -421,10 +435,28 @@ foreign thread, so worker threads must not send per file; results are flushed fr
 task (and at most every 100 ms), which also keeps the tests deterministic.
 
 **Performance** (release, `crates/vsr-search/tests/perf.rs`, ignored by default, vscode-original/src:
-13,719 files; other agents were building concurrently): `function` 40,530 results in 6,269 files in
-1.65 s; `registerSingleton` 1,200 in 413 files 1.75 s; regex `\bclass\s+\w+Service\b` 1,866 in 1,315
-files 1.76 s. Excludes and CRLF mode were ruled out as the cost; the time is nearly constant across
-queries, so it is walk/IO bound. Room to improve: skip glob matching when no globs are set, tune threads.
+13,719 files). Target: well under 0.5 s for a literal query. **Not met on this machine, and no
+in-process change can meet it.** Commands: `UPSTREAM_CLONE=<clone> cargo test -p vsr-search --release
+--test perf -- --ignored --nocapture`, three runs per version, medians:
+
+| version | `function` (40,530 results) | `registerSingleton` (1,200) | regex `\bclass\s+\w+Service\b` (1,866) |
+|---|---|---|---|
+| before: per-thread `Searcher`, callback behind a `Mutex` | 1.69 s (runs 1.71, 1.69, 0.25) | 1.72 s (1.72, 1.84, 0.16) | 1.76 s (1.76, 1.82, 0.17) |
+| after: matches streamed over a channel to the caller | 1.57 s (1.57, 1.73, 0.23) | 1.79 s (1.77, 1.97, 1.79) | 1.75 s (1.75, 1.84, 1.74) |
+
+The runs are bimodal: 1.6 to 2.0 s, or 0.16 to 0.25 s when the machine is in a fast state, with the
+same code and files. Probe on the same tree (a temporary test, removed): directory walk only 44 ms;
+`metadata` of every file 64 ms; `open()` of the 13,719 distinct files 1.66 s (about 120 us each; the
+same on a second pass; 8 threads do not shorten it); `open()` of one file 13,719 times 0.30 s. So the
+time is spent in the kernel's per-open work on this Mac (an Endpoint Security client, Santa, is
+installed; probably it is that), not in the walk or the matching. Other tools in the slow state, same
+tree: embedded ripgrep (`rg -c function`) 1.66 to 1.80 s, `git grep -c function` 1.64 to 1.68 s.
+Tried and not kept: `memory_map(MmapChoice::auto())` (needs `unsafe`, a file truncated during a search
+can SIGBUS, and it did not help: `function` 1.60, 0.16, 1.73 s). Excludes and CRLF mode are not the
+cost (perf also prints the time without the settings excludes). Kept for design reasons: the walk runs
+on a helper thread and matches stream over a channel, so `on_file` runs on the caller's thread (no
+`Send` bound, no callback lock on the workers). Tests: a pre-cancelled search walks nothing,
+a parallel walk streams every file, `max_results` stops at exactly the limit.
 
 ## ADR-0024 — Background runs of the real app; safe .app bundle updates (2026-11-09)
 

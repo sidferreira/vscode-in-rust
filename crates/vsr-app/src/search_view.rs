@@ -38,6 +38,8 @@ use vsr_search::{
     split_pattern_input,
 };
 
+use crate::config::AppConfig;
+use crate::config::settings::search_settings;
 use crate::icons;
 use crate::theme::Theme;
 use crate::ui::to_gpui;
@@ -75,12 +77,23 @@ pub enum SearchEvent {
 
 impl EventEmitter<SearchEvent> for SearchView {}
 
-/// Where the search settings come from.
-///
-/// TODO(search-settings): read `search.*` / `files.exclude` from the `Configuration` global once
-/// the configuration service is merged, and rebuild on change. Until then upstream defaults.
-pub fn current_settings(_cx: &App) -> SearchSettings {
-    SearchSettings::default()
+/// The search settings from the live configuration (`search.*`, `files.exclude`). Without a
+/// configuration (tests that install none) the upstream defaults apply.
+pub fn current_settings(cx: &App) -> SearchSettings {
+    cx.try_global::<AppConfig>().map_or_else(SearchSettings::default, |c| search_settings(c.configuration()))
+}
+
+/// Whether a change of settings changes what a search finds (the folders and files searched, the
+/// ignore rules, symlinks, smart case, the result limit). Other settings only affect the next
+/// search or how results are shown.
+fn searches_differ(a: &SearchSettings, b: &SearchSettings) -> bool {
+    a.exclude_globs(false) != b.exclude_globs(false)
+        || a.use_ignore_files != b.use_ignore_files
+        || a.use_global_ignore_files != b.use_global_ignore_files
+        || a.use_parent_ignore_files != b.use_parent_ignore_files
+        || a.follow_symlinks != b.follow_symlinks
+        || a.smart_case != b.smart_case
+        || a.max_results != b.max_results
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -137,6 +150,7 @@ impl SearchView {
                 _ => {}
             }));
         }
+        subs.push(cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)));
         Self {
             theme: Theme::dark_modern(),
             root,
@@ -195,6 +209,26 @@ impl SearchView {
     }
 
     // ---- searching -------------------------------------------------------------------------
+
+    /// The configuration changed. Takes the new `search.*` / `files.exclude` values; when one of
+    /// them changes what a search finds and a query is set, the query runs again.
+    fn on_config_changed(&mut self, cx: &mut Context<Self>) {
+        let change = AppConfig::get(cx).last_change().clone();
+        if !(change.affects("search") || change.affects("files")) {
+            return;
+        }
+        let fresh = current_settings(cx);
+        if fresh == self.settings {
+            return;
+        }
+        let rerun = searches_differ(&self.settings, &fresh);
+        self.settings = fresh;
+        if rerun && !self.query_text(cx).is_empty() {
+            self.start_search(cx);
+        } else {
+            cx.notify();
+        }
+    }
 
     /// Search on type (`search.searchOnType`), after `searchOnTypeDebouncePeriod`.
     fn schedule(&mut self, cx: &mut Context<Self>) {
@@ -791,6 +825,16 @@ impl SearchView {
                 let gid = format!("sr-match-{ix}");
                 base(("sr-match", ix))
                     .pl(px(32.))
+                    .when(self.settings.show_line_numbers, |d| {
+                        d.child(
+                            div()
+                                .flex_none()
+                                .mr(px(8.))
+                                .text_size(px(12.))
+                                .opacity(0.7)
+                                .child(m.range.start_line.to_string()),
+                        )
+                    })
                     .child(
                         div()
                             .flex_1()

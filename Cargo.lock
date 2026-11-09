@@ -7244,6 +7244,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vsr-commands"
+version = "0.1.0"
+
+[[package]]
 name = "vsr-editor"
 version = "0.1.0"
 dependencies = [

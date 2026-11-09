@@ -808,7 +808,7 @@ group, so the tab model is upstream's `EditorGroupModel` for that group.
   code navigation yet, so nothing opens from it), `openPositioning`, `focusRecentEditorAfterClose`,
   `closeOnFileDelete`, `limit.enabled`, `limit.value`, `limit.excludeDirty`, `highlightModifiedTabs`,
   `labelFormat`, `scrollToSwitchTabs`, `empty.hint`.
-- **Deferred (`upstream/settings.toml`, status n/a with a `not yet:` reason, for the user to review):**
+- **Deferred (`upstream/settings.toml`, status `blocked` with a "needs …" reason (separate from n/a), for the user to review):**
   editor splits and groups (`closeEmptyGroups`, `revealIfOpen`, `openSideBySideDirection`, ...),
   navigation history (`mouseBackForwardToNavigate`, `swipeToNavigate`, `navigationScope`), session
   restore (`restoreEditors`, `restoreViewState`: the Cmd+W path in `editor_view.rs` drops the scroll state

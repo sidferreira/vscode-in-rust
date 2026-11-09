@@ -965,8 +965,8 @@ Code: `crates/vsr-app/src/session/` (`store`, `state`, `backup`, `settings`, `ru
 serialization, `gettingStarted`.
 
 - **Storage layout** (under the user data dir: `~/Library/Application Support/rscode`, or `RSCODE_USER_DATA_DIR`):
-  - `User/workspaceStorage/<key>/state.json`: per folder; `<key>` is a 32 hex digit hash of the folder path (two
-    FNV-1a 64 runs; stable across toolchains, unlike `DefaultHasher`).
+  - `User/workspaceStorage/<key>/state.json`: per folder; `<key>` is a 32 hex digit hash of the folder path (the
+    first 128 bits of its SHA-256, `sha2`; stable across toolchains). Writes use `tempfile` (`persist` = rename).
   - `User/globalStorage/recents.json`: recent files (200) and folders (50), shared by all folders. It seeds the
     editor history, so Quick Open and the Welcome page share it.
   - `Backups/<key>/<file key>.json` and `Backups/<key>/discarded/`: hot exit backups, below.
@@ -1012,3 +1012,40 @@ serialization, `gettingStarted`.
 - **Tests.** Unit: store (hash, atomic write, quarantine), state round trips, backup store (round trip, damaged
   files kept, discard), the debounce, settings. Headless E2E in `session/e2e_tests.rs` (scenarios in
   `tests/e2e-scenarios/workbench.md`). Ports in `upstream/ports.toml`: `session-restore`, `hot-exit`, `welcome-page`.
+
+## ADR-0039 — File watcher, live explorer, explorer file operations, save conflicts (2026-11-09)
+
+**Context.** The explorer was a read-only snapshot: folders were listed when first expanded, and nothing noticed
+files created, renamed or deleted outside the app. Open editors were polled for existence only (ADR-0033), so an
+edit made by another program was never seen. The explorer had no create, rename or delete. Blocked settings:
+`files.watcherExclude`, `files.saveConflictResolution`, `files.enableTrash`.
+
+**Decision.**
+- `explorer/watcher.rs`: a recursive `notify` 8.2.1 watcher (FSEvents) behind a `FileWatcher` trait. Raw events
+  are coalesced for 100 ms into batches of paths. `files.watcherExclude` defaults to upstream's object-store globs
+  (a user map replaces the default). `Workbench::new` takes no watcher (tests); the app uses `with_services`.
+- Live refresh: a batch re-lists the folders the tree has loaded, forgets folders that are gone (and their
+  expansion), reloads clean editors whose file changed, and closes editors of deleted files when
+  `workbench.editor.closeOnFileDelete` is on. Renames need no pairing: the parent folders are re-listed.
+- Save conflicts: an editor remembers the file's modification time when its buffer last matched the disk. A save
+  of a dirty editor whose file changed refuses under `askUser` and shows the conflict bar (upstream's
+  `staleSaveError` text, with Overwrite and Revert; Compare waits for a diff editor). `overwriteFileOnDisk` saves.
+  Auto save never overwrites a changed file.
+- `explorer/names.rs`: upstream `validateFileName` (messages as plain text) and `incrementFileName` (simple and
+  smart), with the upstream tests ported.
+- `explorer/trash.rs`: delete to the macOS Trash through `NSFileManager trashItemAtURL` (the `trash` crate with
+  `DeleteMethod::NsFileManager`). The crate's default method drives Finder through `osascript`, which is not used.
+  The `Trash` trait has a real, a refusing (`NoTrash`, the default of `Workbench::new`) and a fake implementation.
+- `explorer/workbench.rs`: create, rename and delete on the disk, then the tree and the open editors follow.
+
+**Consequences.**
+- `files.watcherExclude` and `files.saveConflictResolution` are wired. `files.enableTrash` is honoured by the
+  workbench operation, but no command or key reaches it yet, so it stays blocked.
+- Not done: the inline name input and its keys, the explorer context menu, the `explorer.*` view settings
+  (`sortOrder`, `compactFolders`, `autoReveal`, `incrementalNaming`, `confirmDelete`), copy, paste and duplicate,
+  `watcherInclude`, and Compare on the conflict bar.
+- Tests never start a real watcher or touch the Trash: the watcher is a `FakeWatcher` the test drives, and the
+  Trash is a `FakeTrash` that moves into a test folder. One real-FSEvents test is `#[ignore]`d.
+- Renaming a folder collapses it (its expansion is not carried to the new path).
+- Watched paths are compared as given; a workspace reached through a symbolic link does not match FSEvents'
+  resolved paths yet.

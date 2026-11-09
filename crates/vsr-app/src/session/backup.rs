@@ -10,7 +10,7 @@
 //!   "format": 1,
 //!   "path": "/Users/me/project/a.rs",   // the file the text belongs to
 //!   "text": "...the whole buffer, with its own line breaks...",
-//!   "checksum": "<16 hex digits>",      // FNV-1a 64 of text; a mismatch means a damaged file
+//!   "checksum": "<64 hex digits>",      // SHA-256 of text; a mismatch means a damaged file
 //!   "base": { "mtime_ms": 1700000000000, "size": 1234 },  // the file on disk when the backup was made
 //!   "saved_at_ms": 1700000001234
 //! }
@@ -38,7 +38,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::store::{fnv1a64, path_key, quarantine, write_atomic};
+use super::store::{path_key, quarantine, sha256_hex, write_atomic};
 
 pub const BACKUP_FORMAT: u32 = 1;
 
@@ -59,7 +59,7 @@ pub struct Backup {
 }
 
 pub fn checksum(text: &str) -> String {
-    format!("{:016x}", fnv1a64(text.as_bytes(), 0))
+    sha256_hex(text.as_bytes())
 }
 
 fn now_ms() -> u128 {

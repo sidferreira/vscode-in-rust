@@ -12,8 +12,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
-use vsr_editor::{Editor, EditorOptions};
+use vsr_editor::{Editor, EditorOptions, Selection};
 use vsr_text::{DefaultEol, Eol, Position, TextBuffer};
 
 use crate::config::glob::ExcludeMatcher;
@@ -70,6 +71,14 @@ pub struct OpenEditor {
     /// Set for this session by the toggle commands; wins over the settings (upstream
     /// `sessionReadonlyOverrides`).
     session_read_only: Option<bool>,
+    /// The file's modification time when the buffer last matched the disk (opened, saved or
+    /// reloaded). A different time on disk means the file changed under the editor (ADR-0039).
+    disk_stamp: Option<SystemTime>,
+}
+
+/// The modification time of `path`, if it exists.
+pub fn disk_stamp(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 impl OpenEditor {
@@ -86,7 +95,37 @@ impl OpenEditor {
             editor: Editor::new(TextBuffer::new(text, default_eol, true), options),
             config_read_only,
             session_read_only: None,
+            disk_stamp: disk_stamp(path),
         }
+    }
+
+    /// Whether the file on disk changed since the buffer last matched it. A file that is gone is
+    /// not a change here (`closeOnFileDelete` handles it).
+    pub fn disk_changed(&self) -> bool {
+        disk_stamp(&self.path).is_some_and(|now| Some(now) != self.disk_stamp)
+    }
+
+    /// Replace the text with `text` from disk, as a clean buffer, keeping the caret where it was
+    /// (clamped to the new text). The undo history starts over.
+    pub fn reload(&mut self, text: &str, default_eol: DefaultEol) {
+        let options = self.editor.options();
+        let caret = self.editor.selection();
+        let mut editor = Editor::new(TextBuffer::new(text, default_eol, true), options);
+        let buffer = editor.buffer();
+        let selection = Selection {
+            anchor: buffer.validate_position(caret.anchor),
+            active: buffer.validate_position(caret.active),
+        };
+        editor.set_selection(selection);
+        self.editor = editor;
+        self.disk_stamp = disk_stamp(&self.path);
+    }
+
+    /// The file moved or was renamed to `path`: the editor follows it.
+    #[allow(dead_code)] // called by `Editors::follow_rename`, which the explorer's rename uses (ADR-0039)
+    pub fn follow(&mut self, path: PathBuf) {
+        self.title = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+        self.path = path;
     }
 
     /// Whether edits are refused: the session override, else the settings.
@@ -132,6 +171,7 @@ impl OpenEditor {
         }
         fs::write(&self.path, self.editor.buffer().value())?;
         self.editor.mark_saved();
+        self.disk_stamp = disk_stamp(&self.path);
         Ok(())
     }
 }
@@ -339,6 +379,32 @@ impl Editors {
             other => other,
         };
         editor
+    }
+
+    /// A file or folder was renamed from `from` to `to`: the open editors, the MRU list, the history
+    /// and the preview that name it, or something inside it, follow the new path.
+    #[allow(dead_code)] // the explorer's rename calls this once its UI does (ADR-0039)
+    pub fn follow_rename(&mut self, from: &Path, to: &Path) {
+        let moved = |p: &Path| -> Option<PathBuf> {
+            if p == from {
+                Some(to.to_path_buf())
+            } else {
+                p.strip_prefix(from).ok().map(|rest| to.join(rest))
+            }
+        };
+        for e in &mut self.open {
+            if let Some(new) = moved(&e.path) {
+                e.follow(new);
+            }
+        }
+        for p in self.mru.iter_mut().chain(self.history.iter_mut()) {
+            if let Some(new) = moved(p) {
+                *p = new;
+            }
+        }
+        if let Some(p) = self.preview.as_mut().and_then(|p| moved(p)) {
+            self.preview = Some(p);
+        }
     }
 
     /// Close the editors whose files are gone (`workbench.editor.closeOnFileDelete`). Editors with

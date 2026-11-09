@@ -23,47 +23,32 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use gpui_kit::Global;
 use serde::de::DeserializeOwned;
 
-/// 64-bit FNV-1a. Stable across Rust versions and platforms, which an on-disk key needs
-/// (`std::hash::DefaultHasher` is documented as not stable).
-pub fn fnv1a64(bytes: &[u8], seed: u64) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64 ^ seed;
-    for &b in bytes {
-        hash ^= u64::from(b);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
+/// SHA-256 of `bytes` as lower-case hex (stable on every platform and toolchain, which an
+/// on-disk key needs).
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// A 32 hex digit key (two FNV-1a runs with different seeds) for a path.
+/// A 32 hex digit key (the first 128 bits of the SHA-256) for a path.
 pub fn path_key(path: &Path) -> String {
-    let text = path.to_string_lossy();
-    let bytes = text.as_bytes();
-    format!("{:016x}{:016x}", fnv1a64(bytes, 0), fnv1a64(bytes, 0x9e37_79b9_7f4a_7c15))
+    sha256_hex(path.to_string_lossy().as_bytes())[..32].to_string()
 }
 
-static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Writes `bytes` to `path` atomically: temp file next to it, fsync, rename over it.
+/// Writes `bytes` to `path` atomically: a temp file in the same directory (`tempfile`), fsync,
+/// then rename over it. The temp file is removed if anything fails.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no parent directory"))?;
     fs::create_dir_all(dir)?;
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let temp = dir.join(format!(".{name}.tmp-{}-{}", std::process::id(), TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)));
-    let result = (|| {
-        let mut file = fs::File::create(&temp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        fs::rename(&temp, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp); // our own temp file, never user data
-    }
-    result
+    let mut temp = tempfile::Builder::new().prefix(".tmp-").tempfile_in(dir)?;
+    temp.write_all(bytes)?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map_err(|e| e.error)?;
+    Ok(())
 }
 
 /// Moves a file that could not be read aside as `<name>.corrupt-<n>` (the first free `n`), so it is
@@ -170,9 +155,9 @@ mod tests {
         assert_eq!(path_key(Path::new("/a/b")), path_key(Path::new("/a/b")));
         assert_ne!(path_key(Path::new("/a/b")), path_key(Path::new("/a/c")));
         assert_eq!(path_key(Path::new("/a/b")).len(), 32);
-        // Pinned values: the key names directories on disk, so the hash must never change.
-        assert_eq!(fnv1a64(b"", 0), 0xcbf2_9ce4_8422_2325);
-        assert_eq!(fnv1a64(b"a", 0), 0xaf63_dc4c_8601_ec8c);
+        // Pinned: the key names directories on disk, so it must never change.
+        assert_eq!(sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(path_key(Path::new("/a/b")), sha256_hex(b"/a/b")[..32]);
     }
 
     #[test]
@@ -208,7 +193,7 @@ mod tests {
         assert!(write_atomic(&blocked, b"new").is_err());
         assert!(blocked.is_dir());
         assert_eq!(fs::read_to_string(&file).unwrap(), "old");
-        let leftovers = fs::read_dir(&dir).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".tmp-")).count();
+        let leftovers = fs::read_dir(&dir).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains("tmp-")).count();
         assert_eq!(leftovers, 0);
     }
 

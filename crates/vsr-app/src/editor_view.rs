@@ -111,6 +111,9 @@ pub struct EditorView {
     wrap_override: HashMap<PathBuf, bool>,
     /// View state of tabs closed in this run, for reopening them (`workbench.editor.restoreViewState`).
     closed_views: HashMap<PathBuf, crate::session::state::ViewState>,
+    /// The editor whose save was refused because its file changed on disk; the workbench shows
+    /// the conflict bar until Overwrite or Revert (ADR-0039).
+    pub save_conflict: Option<PathBuf>,
     /// The advance of one character as shaped at the last paint (0 until measured).
     measured_char_w: Rc<Cell<f32>>,
     /// Tests: the viewport width in columns, instead of measuring the painted size.
@@ -397,8 +400,14 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
             let page = view.rows_per_page();
             match cmd {
                 Command::Save => {
-                    if let Err(err) = e.save_with(view.cfg.save_transforms(false)) {
+                    // `files.saveConflictResolution: askUser`: a file changed on disk is not
+                    // overwritten; the conflict bar asks (ADR-0039).
+                    if e.disk_changed() && view.cfg.save_conflict_ask {
+                        view.save_conflict = Some(e.path.clone());
+                    } else if let Err(err) = e.save_with(view.cfg.save_transforms(false)) {
                         eprintln!("rscode: save {}: {err}", e.path.display());
+                    } else {
+                        view.save_conflict = None;
                     }
                 }
                 Command::ToggleWordWrap => {

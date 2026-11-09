@@ -296,13 +296,13 @@ fn cmd_w_remembers_the_view_state_and_a_reopen_before_the_next_tick_does_not_del
     assert!(!dirty_of(&wb, vcx, "a.txt"));
     let v = view_of_active(&wb, vcx);
     assert_eq!(v.top_line, 90, "scroll is back after a Cmd+W close");
-    assert_eq!(v.selection.unwrap().active, (50, 2));
+    assert_eq!(v.selection.unwrap().active, (50, 3), "the caret after the typed K");
     tick(vcx);
     assert!(!env.backups().exists(&env.root.join("a.txt")));
     let discarded = env.data.join(format!("Backups/{}/discarded", path_key(&env.root)));
     let kept: Vec<_> = fs::read_dir(discarded).unwrap().collect();
     assert_eq!(kept.len(), 1, "the dropped text was moved aside, not deleted by the clean reopened buffer");
-    assert!(fs::read_to_string(kept[0].as_ref().unwrap().path()).unwrap().contains("Kline 50"));
+    assert!(fs::read_to_string(kept[0].as_ref().unwrap().path()).unwrap().contains("lKine 50"));
 }
 
 #[gpui_kit::test]
@@ -413,7 +413,7 @@ fn a_tab_closed_with_unsaved_changes_moves_its_backup_aside_instead_of_deleting_
     type_in_active(&wb, vcx, "KEEPME ");
     tick(vcx);
     tick(vcx);
-    wb.update(vcx, |wb, cx| wb.close_tab(0));
+    wb.update(vcx, |wb, _| wb.close_tab(0));
     tick(vcx);
     assert!(!env.backups().exists(&env.root.join("a.txt")), "it does not come back as a tab");
     let discarded: Vec<_> = fs::read_dir(env.data.join(format!("Backups/{}/discarded", path_key(&env.root)))).unwrap().collect();

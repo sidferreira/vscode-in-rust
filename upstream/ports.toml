@@ -511,3 +511,26 @@ upstream = [
 rust = ["crates/vsr-app/src/welcome.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Welcome page tab (ADR-0040): heading, Start (Open File... opens Quick Open), Recent files, Show welcome page on startup (workbench.startupEditor), command workbench.action.openWalkthrough (Help: Welcome). Not ported: walkthroughs and steps, New File, Open Folder, Clone, remote links, recent folders, Help links, videos, the experimental onboarding."
+
+[[port]]
+id = "explorer-file-operations"
+status = "partial"
+upstream = [
+  "src/vs/workbench/contrib/files/browser/fileActions.ts",
+  "src/vs/workbench/contrib/files/test/browser/fileActions.test.ts",
+  "src/vs/workbench/contrib/files/browser/explorerService.ts",
+]
+rust = ["crates/vsr-app/src/explorer/names.rs", "crates/vsr-app/src/explorer/ops.rs", "crates/vsr-app/src/explorer/workbench.rs", "crates/vsr-app/src/explorer/trash.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Explorer create file/folder, rename, delete (ADR-0039). validateFileName messages (plain text, no Markdown), incrementFileName simple and smart (ported tests in names.rs). Delete goes to the macOS Trash through NSFileManager behind a Trash trait. Not ported yet: the inline name input and its keys, the context menu and key bindings, copy/paste/duplicate, explorer.confirmDelete, explorer.sortOrder and the other explorer.* view settings, and the Compare action of the save conflict bar."
+
+[[port]]
+id = "file-watcher"
+status = "partial"
+upstream = [
+  "src/vs/platform/files/node/watcher/**",
+  "src/vs/workbench/contrib/files/browser/editors/textFileSaveErrorHandler.ts",
+]
+rust = ["crates/vsr-app/src/explorer/watcher.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Recursive notify (FSEvents) watcher behind a FileWatcher trait, events coalesced for 100 ms, files.watcherExclude with upstream's defaults, live tree refresh with expanded folders kept, clean editors reload from disk, dirty editors show the save conflict bar (Overwrite, Revert; Compare needs the diff editor). Not ported: watcherInclude, the parcel and nodejs watcher backends, the watcher's error and restart handling."

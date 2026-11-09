@@ -9,6 +9,7 @@ mod autosave; // files.autoSave triggers (ADR-0034)
 mod commands; // command registry + Command Palette (ADR-0030)
 mod config;
 mod editor_view;
+mod explorer; // file watcher, explorer file operations (ADR-0039)
 mod icons;
 mod keymap;
 mod model;
@@ -24,9 +25,13 @@ mod ui;
 mod welcome; // the Welcome page tab (ADR-0040)
 mod window_title; // window.title and window.titleSeparator (the title bar and the OS window title)
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 
+use futures::StreamExt;
+use explorer::trash::Trash;
+use explorer::watcher::FileWatcher;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -46,8 +51,6 @@ use ui::to_gpui;
 
 actions!(rscode, [Quit]);
 
-/// How often open files are checked for `workbench.editor.closeOnFileDelete`.
-const CLOSE_ON_DELETE_POLL: std::time::Duration = std::time::Duration::from_secs(1);
 
 fn main() {
     let root = std::env::args()
@@ -88,7 +91,14 @@ fn main() {
             ..Default::default()
         };
         gpui_kit::open_window(options, cx, |window, cx| {
-            let wb = cx.new(|cx| Workbench::new(root, cx));
+            let wb = cx.new(|cx| {
+                Workbench::with_services(
+                    root,
+                    cx,
+                    Box::new(explorer::watcher::NotifyWatcher::default()),
+                    Box::new(explorer::trash::SystemTrash),
+                )
+            });
             // The red window button: keep or ask about unsaved text, then close (and so quit).
             let weak = wb.downgrade();
             window.on_window_should_close(cx, move |_, cx| weak.update(cx, |wb, cx| wb.request_quit(true, cx)).unwrap_or(true));
@@ -162,6 +172,13 @@ struct Workbench {
     editor_settings: EditorSettings,
     /// `files.exclude`.
     exclude: ExcludeMatcher,
+    /// `files.watcherExclude`: the changes the watcher ignores (ADR-0039).
+    watcher_exclude: ExcludeMatcher,
+    /// Keeps the file watcher running (dropping it stops the events).
+    _watcher: Box<dyn FileWatcher>,
+    /// Where `files.enableTrash` deletes go (ADR-0039).
+    #[allow(dead_code)] // read by the explorer's delete, which the explorer UI calls next
+    trash: Box<dyn Trash>,
     /// Installed font families, read once when first needed.
     installed_fonts: Option<HashSet<String>>,
     _config_sub: Subscription,
@@ -180,13 +197,25 @@ struct Workbench {
 }
 
 impl Workbench {
+    /// A workbench without a file watcher or Trash (tests and embedders). The app uses
+    /// `with_services`.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn new(root: PathBuf, cx: &mut Context<Self>) -> Self {
+        Self::with_services(root, cx, Box::new(explorer::watcher::NoWatcher), Box::new(explorer::trash::NoTrash))
+    }
+
+    /// A workbench that reports changes on disk under `root` from `watcher`, and deletes to `trash`
+    /// (ADR-0039).
+    fn with_services(root: PathBuf, cx: &mut Context<Self>, mut watcher: Box<dyn FileWatcher>, trash: Box<dyn Trash>) -> Self {
         if !cx.has_global::<AppConfig>() {
             AppConfig::install(cx, None); // in memory: tests and embedders that set no file
         }
         commands::ensure_installed(cx);
         let configuration = AppConfig::get(cx).configuration();
         let exclude = ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null));
+        let watcher_exclude = ExcludeMatcher::from_value(&explorer::watcher::watcher_exclude_value(
+            configuration.get_value("files.watcherExclude"),
+        ));
         let editor_settings = EditorSettings::from_configuration(configuration);
         let editors = Editors {
             options: editor_settings.editor_options(),
@@ -213,6 +242,9 @@ impl Workbench {
             session: Default::default(),
             editor_settings,
             exclude,
+            watcher_exclude,
+            _watcher: Box::new(explorer::watcher::NoWatcher),
+            trash,
             installed_fonts: None,
             _config_sub: cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)),
             applied_window_title: None,
@@ -225,16 +257,20 @@ impl Workbench {
         };
         wb.resolve_editor_font(cx);
         wb.children.insert(root.clone(), wb.list(&root));
-        // `workbench.editor.closeOnFileDelete`: no file watcher yet, so existence is polled.
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor().timer(CLOSE_ON_DELETE_POLL).await;
-                if this.update(cx, |wb, cx| wb.close_deleted_files(cx)).is_err() {
-                    break;
-                }
+        match watcher.watch(&root) {
+            Ok(mut changes) => {
+                wb._watcher = watcher;
+                cx.spawn(async move |this, cx| {
+                    while let Some(paths) = changes.next().await {
+                        if this.update(cx, |wb, cx| wb.on_disk_changes(paths, cx)).is_err() {
+                            break;
+                        }
+                    }
+                })
+                .detach();
             }
-        })
-        .detach();
+            Err(err) => eprintln!("rscode: file watcher: {err}"),
+        }
         // Session restore and hot exit (ADR-0040), then `workbench.startupEditor` when nothing came back.
         wb.session_init(cx);
         wb.open_startup_editor(cx);
@@ -268,6 +304,11 @@ impl Workbench {
         self.session_config_changed(cx);
         let new_exclude = affects_exclude
             .then(|| ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null)));
+        if app.last_change().affects("files.watcherExclude") {
+            self.watcher_exclude = ExcludeMatcher::from_value(&explorer::watcher::watcher_exclude_value(
+                configuration.get_value("files.watcherExclude"),
+            ));
+        }
         let new_settings = EditorSettings::from_configuration(configuration);
         self.editors.apply_settings(EditorGroupSettings::from_configuration(configuration));
         self.editors.default_eol = new_settings.eol;
@@ -493,6 +534,58 @@ impl Workbench {
                     }),
                 ),
         )
+    }
+
+    /// The file system changed under the workspace (ADR-0039): re-list the folders the tree shows,
+    /// forget the listings of folders that are gone, reload clean editors whose file changed, and
+    /// close the editors of files that are gone (`closeOnFileDelete`).
+    fn on_disk_changes(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let paths = explorer::watcher::filter_changes(paths, &self.root, &self.watcher_exclude);
+        if paths.is_empty() {
+            return;
+        }
+        let parents: BTreeSet<PathBuf> = paths.iter().filter_map(|p| p.parent().map(Path::to_path_buf)).collect();
+        for dir in parents {
+            self.refresh_dir(&dir);
+        }
+        for p in paths.iter().filter(|p| !p.exists()) {
+            self.forget_tree(p);
+        }
+        self.reload_clean_editors(&paths);
+        self.close_deleted_files(cx);
+        cx.notify();
+    }
+
+    /// An editor with no unsaved changes whose file changed on disk shows the new text. A dirty
+    /// editor keeps its text; its save asks what to do (`files.saveConflictResolution`).
+    fn reload_clean_editors(&mut self, paths: &[PathBuf]) {
+        let default_eol = self.editors.default_eol;
+        for e in &mut self.editors.open {
+            if e.is_dirty() || !paths.contains(&e.path) || !e.disk_changed() {
+                continue;
+            }
+            if let Ok(bytes) = fs::read(&e.path) {
+                e.reload(&String::from_utf8_lossy(&bytes), default_eol);
+            }
+        }
+    }
+
+    /// The conflict bar's actions (ADR-0039): Overwrite saves the buffer over the file on disk;
+    /// Revert replaces the buffer with the file on disk.
+    fn resolve_save_conflict(&mut self, overwrite: bool, cx: &mut Context<Self>) {
+        let Some(path) = self.editor_view.save_conflict.take() else { return };
+        if let Some(index) = self.editors.index_of(&path) {
+            if overwrite {
+                let transforms = self.editor_settings.save_transforms(false);
+                if let Err(err) = self.editors.open[index].save_with(transforms) {
+                    eprintln!("rscode: save {}: {err}", path.display());
+                }
+            } else if let Ok(bytes) = fs::read(&path) {
+                let default_eol = self.editors.default_eol;
+                self.editors.open[index].reload(&String::from_utf8_lossy(&bytes), default_eol);
+            }
+        }
+        cx.notify();
     }
 
     /// `workbench.editor.closeOnFileDelete`: close the editors whose file is gone (a dirty one
@@ -1110,6 +1203,11 @@ impl Workbench {
         let t = self.theme.clone();
         let settings = self.editor_settings.clone();
         let settings_surface = self.settings.clone().filter(|_| self.settings_active);
+        let conflict = self
+            .editor_view
+            .save_conflict
+            .clone()
+            .filter(|p| self.editors.active_editor().is_some_and(|e| &e.path == p));
         let surface = match self.editors.active.and_then(|i| self.editors.open.get(i)) {
             _ if settings_surface.is_some() => settings_surface.unwrap().into_any_element(),
             _ if self.welcome_showing() => self.welcome_surface(cx),
@@ -1134,7 +1232,44 @@ impl Workbench {
             .bg(to_gpui(t.editor_bg))
             .debug_selector(|| "editor-group".to_string())
             .when(show_tabs != ShowTabs::None, |d| d.child(self.tab_strip(cx, show_tabs)))
+            .when_some(conflict, |d, path| d.child(self.conflict_bar(&path, cx)))
             .child(div().flex_1().min_h_0().overflow_hidden().child(surface))
+    }
+
+    /// The save conflict bar (upstream `textFileSaveErrorHandler`, `staleSaveError`): the file
+    /// changed on disk while the editor had unsaved changes. Compare is not available yet (it needs
+    /// the diff editor).
+    fn conflict_bar(&self, path: &Path, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = &self.theme;
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let button = |id: &'static str, label: &'static str, overwrite: bool| {
+            div()
+                .id(id)
+                .flex_none()
+                .px(px(8.))
+                .py(px(2.))
+                .rounded(px(2.))
+                .text_size(px(12.))
+                .bg(to_gpui(t.list_active_bg))
+                .cursor_pointer()
+                .child(label)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.resolve_save_conflict(overwrite, cx)))
+        };
+        div()
+            .flex_none()
+            .px(px(8.))
+            .py(px(4.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .bg(to_gpui(t.editor_bg))
+            .text_size(px(12.))
+            .text_color(to_gpui(t.tab_inactive_fg))
+            .child(div().flex_1().min_w_0().child(format!(
+                "Failed to save '{name}': The content of the file is newer. Please compare your version with the file contents or overwrite the content of the file with your changes."
+            )))
+            .child(button("save-conflict-overwrite", "Overwrite", true))
+            .child(button("save-conflict-revert", "Revert", false))
     }
 }
 

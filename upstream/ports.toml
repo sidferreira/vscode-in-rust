@@ -158,6 +158,9 @@ upstream = [
   "src/vs/workbench/services/search/test/common/queryBuilder.test.ts",
   "src/vs/workbench/services/search/test/browser/queryBuilder.test.ts",
   "src/vs/base/common/glob.ts",
+  "src/vs/editor/common/model/textModelSearch.ts",
+  "src/vs/workbench/contrib/search/browser/search.common.contribution.ts",
+  "src/vs/workbench/contrib/files/browser/files.contribution.ts",
 ]
 rust = [
   "crates/vsr-search/src/engine.rs",

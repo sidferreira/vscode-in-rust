@@ -2072,6 +2072,98 @@ view reading `editors.decorations_for` / `diagnostics.markers_for`. Also open: E
 scanning of `~/.vscode/extensions`, `$activateByEvent` for `onLanguage:`/`workspaceContains:` from the
 document model, bundling the Code-OSS host (ADR-0060), activation timing out.
 
+## ADR-0066 — The workbench owns the extension host on a worker thread; the UI reads snapshots (2026-11-10)
+
+`vsr-exthost`'s `ExtensionHost` blocks: `boot` waits up to 30 s, `activate_by_event` / `execute_contributed_command`
+wait for the host's reply while serving its requests. None of that may run on the gpui thread, so
+`vsr-app/src/extensions/worker.rs` owns the host on a thread of its own and talks to the workbench over channels.
+
+- **UI → host** (`ToHost`, a `std::sync::mpsc`): open / change / close a document, the active editor, a selection,
+  configuration layers, `Run { command, args }`, `Shutdown`. Only differences are sent: `Workbench::ext_sync` (every
+  frame, from `render`) compares each open editor's version with what it last sent.
+- **Host → UI** (`FromHost`, a `futures` unbounded channel awaited by one `cx.spawn_in` task, so nothing polls):
+  `Ready` (extensions loaded, contributed commands), a `Snapshot`, configuration updates to write, save requests,
+  `AppCommand` (an extension runs a workbench command; the host thread waits up to 10 s for the answer, the UI never
+  waits), `Problem`, `Exited`. A `Snapshot` is a clone of what the UI paints (status entries, decorations per file,
+  markers per file, counts, registered commands, activation errors) and is sent only when it changed.
+- **Start**: on the first frame, when `Workbench.ext.autostart` is set (the app sets it; tests start the host themselves
+  so no existing test boots Node). `RSCODE_CODE_OSS` (+ `RSCODE_NODE`) must resolve (`Launch::from_env`), otherwise
+  extensions are off, quietly: no error, no dialog. A build that fails to start is reported in the status bar's error
+  slot. `RSCODE_EXTENSIONS_DIR` replaces `~/.vscode/extensions` (empty turns it off), `RSCODE_EXTENSIONS_DEV` adds
+  folders that override installed copies. No setting yet: the settings are generated from upstream's registry and a
+  host-location setting is not upstream's, so the `settings-port` gates do not apply. The host's files go to
+  `<user data dir>/ExtensionHost`.
+- **Quit**: `persist_on_quit` calls `ext_shutdown` (`Terminate`, 2 s grace, then the process is killed) and the
+  channel's drop also shuts the thread down. Commands the host contributed are unregistered when it exits.
+- Failure is visible: a failed boot, a failed command, a timed-out call and an activation error all reach
+  `Workbench.error` (and `ext.problems`).
+
+## ADR-0067 — Painting extension output: status bar, decorations, squiggles, palette (2026-11-10)
+
+- **Status bar** (`status.rs`): entries of `MainThreadStatusBar` in display order, left ones after the problem counters
+  and right ones before the position. `$(icon)` text maps the codicons we have glyphs for (error, warning, check, bell,
+  gear, sync, ...) and drops the rest; tooltip (string or markdown value), colour and background (CSS or
+  `ThemeColor`), and the click command (the entry's `command` id and arguments) are honoured. The problem counters
+  now show `diagnostics.counts()` instead of the constant 0 / 0.
+- **Decorations** (`paint.rs`, pure; `paint_ui.rs`, gpui): from a `Snapshot` and a colour resolver to per-line
+  `LinePaint`: `backgroundColor`, `border` / `borderColor` / `borderWidth`, `isWholeLine`, `after.contentText` with
+  `color` / `backgroundColor` / `margin` / `fontStyle`, `light` / `dark` variants by theme scheme, instance
+  `renderOptions` over the type's. Colours: `#rgb[a]`, `#rrggbb[aa]`, `rgb()` / `rgba()`, a few names and
+  `ThemeColor { id }` through the active colour theme. Multi-line ranges split per line. The model is built once per
+  snapshot / theme / document version / font size and handed to the editor view (`EditorView.ext_paint`); `rows()`
+  draws whole-line boxes behind the row and range boxes, squiggles and after-text inside the text box. Every element has
+  a `debug_selector` (`ext-box:<line>:<col>`, `ext-after:<line>`, `ext-squiggle:<line>:<col>:<severity>`).
+  Not painted yet: `color` of the range, `before`, `outline*`, `textDecoration`, gutter icons, overview ruler marks,
+  hover messages.
+- **Diagnostics**: markers of every owner for the file, error / warning / info as wavy underlines in
+  `editorError.foreground` / `editorWarning.foreground` / `editorInfo.foreground` (hints are not drawn); an empty range
+  covers one character.
+- **Commands**: `contributes.commands` become `Handler::Extension` entries in the workbench registry on `Ready`
+  (title and category, `f1` unless the manifest hides it with a `commandPalette` menu `when: false`), so the palette
+  lists them and a pick runs them. `execute_command` sends `Run`; the worker fires `onCommand:<id>` first, like the
+  command service. Commands an extension registers without contributing them also run (`snapshot.commands`).
+  `Execution::Extension` is new beside `Dispatch`.
+
+## ADR-0068 — Feeding the host: documents, editors, selections, configuration, saves (2026-11-10)
+
+- The app has a text buffer, not a change log, so a version change sends the whole new text (line breaks normalised to
+  `\n`) and the worker reduces it to one edit with `app_sync::replace_diff` (common prefix and suffix, 1-based `char`
+  columns) before `$acceptModelChanged`. Whole-text per change costs O(document) per keystroke; fine for now, and the
+  edit the host sees is minimal.
+- Every open file is an editor in the host (`show_editor`), the active one is switched with a
+  `$acceptDocumentsAndEditorsDelta { newActiveEditor }` (`activate_editor`; `None` when a non-text tab shows), closed tabs
+  send `removedDocuments` / `removedEditors` (`close_document`), the active editor's selection goes through
+  `ExtHostEditors.$acceptEditorPropertiesChanged` (`set_selection`). New in `vsr-exthost/src/app_sync.rs`: additive
+  `impl`s, `resource_key`, `replace_diff`. Not mirrored: language changes of an open document, visible ranges, editor
+  options (tab size), untitled documents, astral-plane columns (ADR-0065).
+- Configuration: `on_config_changed` sends `layers(registry, configuration)` with the affected keys
+  (`$acceptConfigurationChanged`); `WorkspaceConfiguration.update` / `remove` from an extension are written with
+  `AppConfig::set_value`. Workspace and workspace-folder targets have no settings file yet, so they are written to the
+  user's settings. A write echoes back to the host as a change, as upstream does.
+- `$trySaveDocument` makes the workbench save the editor of that file with the same transforms and conflict handling
+  as Cmd+S (`save_with`).
+
+## ADR-0069 — Extension discovery and activation events (2026-11-10)
+
+- **Discovery** (`vsr-exthost/src/discovery.rs`, read-only, never writes below `~/.vscode`): a root with a
+  `package.json` is one extension (a development checkout), any other root is a folder of extensions. Skips: folders
+  named in `.obsolete`, platform builds for another platform (`-linux-x64`, `-darwin-x64` on arm64, ...), an
+  `engines.vscode` newer than the build's version (read from the Code-OSS `package.json`), and older versions of the
+  same id. A later root overrides an earlier one, so a development path beats the installed copy. `extensions.json` is
+  not read: the folder listing plus `.obsolete` says the same thing for what we need.
+- `%key%` strings are localised from `package.nls.json` (string or `{ message }`), and the implicit activation events the
+  upstream scanner adds are added: `onCommand:<id>` for each contributed command and `onLanguage:<id>` for each
+  contributed language. Not done: extension packs / dependencies resolution, `extensionKind`, ESM entry points.
+- **Events** (`activation.rs`, pure): `ActivationEvent::parse`, `matches` (exact, and a bare `onLanguage`), `EventIndex`
+  (declared events to extension ids, `is_declared`, `workspace_contains`). The worker fires only declared events, once
+  each: `onStartupFinished` after `$startExtensionHost` (which itself runs `*`), `workspaceContains:<glob>` after
+  matching the pattern against the workspace folder (a plain path is looked up, a glob uses the `files.exclude` matcher
+  over at most 20,000 entries, skipping `node_modules` and hidden folders), `onLanguage:<id>` when a document with that
+  language is opened, `onCommand:<id>` before a command runs. Other events (`onView:`, `onUri`, ...) are declared but
+  never fired.
+- Trust: `RSCODE_EXTENSIONS_DEV` is an explicit opt-in; a workspace folder never contributes extensions on its own.
+  Running whatever is in `~/.vscode/extensions` is the default the task asked for; `RSCODE_EXTENSIONS_DIR=` turns it off.
+
 ## ADR-0072 — Language provider registry on the main side: selector scoring, `LanguageFeatureRegistry<T>`, `MainThreadLanguageFeatures` (2026-11-10)
 
 Lives in `vsr-exthost::language_features` (UI-free; no new crate, because the handler must be reachable

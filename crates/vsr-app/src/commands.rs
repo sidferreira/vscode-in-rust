@@ -51,6 +51,8 @@ pub enum Scope {
 pub enum Handler {
     /// Dispatch a gpui action.
     Action { action: Box<dyn Action>, scope: Scope },
+    /// A command an extension contributes: the extension host runs it (ADR-0067).
+    Extension,
 }
 
 /// The command service state: registry, Command Palette history, Quick Access providers.
@@ -65,6 +67,8 @@ impl Global for Commands {}
 /// What the workbench must do to run a command.
 pub enum Execution {
     Dispatch { action: Box<dyn Action>, scope: Scope },
+    /// Ask the extension host to run it.
+    Extension,
 }
 
 impl Commands {
@@ -80,6 +84,7 @@ impl Commands {
     pub fn execution(&self, id: &str) -> Option<Execution> {
         match self.registry.handler(id)? {
             Handler::Action { action, scope } => Some(Execution::Dispatch { action: action.boxed_clone(), scope: *scope }),
+            Handler::Extension => Some(Execution::Extension),
         }
     }
 }
@@ -137,7 +142,7 @@ pub fn keybinding_of_command(id: &str, cx: &App) -> Vec<Vec<String>> {
     let Some(commands) = cx.try_global::<Commands>() else { return Vec::new() };
     match commands.registry.handler(id) {
         Some(Handler::Action { action, .. }) => keybinding_of(&**action, cx),
-        None => Vec::new(),
+        Some(Handler::Extension) | None => Vec::new(),
     }
 }
 

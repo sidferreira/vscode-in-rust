@@ -125,6 +125,8 @@ pub struct EditorView {
     pub save_conflict: Option<PathBuf>,
     /// The advance of one character as shaped at the last paint (0 until measured).
     measured_char_w: Rc<Cell<f32>>,
+    /// What extensions decorate and flag in the active document (ADR-0067), set by the workbench.
+    pub ext_paint: Option<Rc<crate::extensions::paint::PathPaint>>,
     /// Tests: the viewport width in columns, instead of measuring the painted size.
     #[cfg(test)]
     pub(crate) viewport_columns_override: Option<usize>,
@@ -351,7 +353,7 @@ impl EditorView {
                 }
                 let find = view.find.highlights(e, &theme);
                 let pair = view.brackets.get(&e.path, e.buffer(), e.editor.version(), e.editor.selection().active, cfg.match_brackets);
-                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator, fold_paint, scroll_extra)
+                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator, fold_paint, scroll_extra, view.ext_paint.as_deref())
             }),
         )
         .track_scroll(&scroll);
@@ -1042,6 +1044,7 @@ fn rows(
     wrap_indicator: Option<usize>,
     fold_paint: folding::Paint,
     scroll_extra: f32,
+    ext: Option<&crate::extensions::paint::PathPaint>,
 ) -> Vec<AnyElement> {
     e.sync_syntax(); // tokens follow the buffer (ADR-0038)
     let buf = e.buffer();
@@ -1118,7 +1121,10 @@ fn rows(
                     .filter_map(|(from, to)| seg.clip(from, to))
                     .collect()
             });
-            let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty() || !bracket_cols.is_empty() || !occurrence_cols.is_empty() || !controls.is_empty())
+            // What extensions decorate and flag on this line (ADR-0067).
+            let ext_line = ext.and_then(|p| p.line(line));
+            let ext_shaped = ext_line.is_some_and(|l| !l.boxes.is_empty() || !l.after.is_empty() || !l.squiggles.is_empty());
+            let shaped = (ext_shaped || selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty() || !bracket_cols.is_empty() || !occurrence_cols.is_empty() || !controls.is_empty())
                 .then(|| shape(window, cfg, &expanded))
                 .flatten();
             // The x of model column `col` (clamped to this row's part of the line).
@@ -1138,6 +1144,9 @@ fn rows(
                     sel_box = if cfg.rounded_selection { sel_box.rounded(px(3.)) } else { sel_box };
                     text_box = text_box.child(sel_box.debug_selector(|| format!("selection:{line}")));
                 }
+            }
+            if let Some(l) = ext_line {
+                text_box = crate::extensions::paint_ui::in_text(text_box, l, line, lh, buf.line_max_column(line), seg.last, &|a, b| seg.clip(a, b), &x_at);
             }
             // Find matches over the selection: the current one in its own color.
             if let Some(f) = find {
@@ -1274,6 +1283,9 @@ fn rows(
                 row = row.child(
                     div().absolute().top_0().bottom_0().left(px(gutter)).right_0().bg(to_gpui(f.colors.range_highlight_bg)),
                 );
+            }
+            if let Some(l) = ext_line {
+                row = crate::extensions::paint_ui::whole_line(row, l, line, gutter, lh);
             }
             // Indent guides (`editor.guides.indentation`): one per indent level of the line.
             if cfg.guides_indentation {

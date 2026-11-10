@@ -11,6 +11,7 @@ mod commands; // command registry + Command Palette (ADR-0030)
 mod config;
 mod editor_view;
 mod explorer; // file watcher, explorer file operations (ADR-0039)
+mod extensions; // the extension host in the workbench (ADR-0066)
 mod icons;
 mod keymap;
 mod language_mode; // Change Language Mode, syntax repaint poll (ADR-0038)
@@ -112,6 +113,7 @@ fn main() {
                 )
             });
             // The red window button: keep or ask about unsaved text, then close (and so quit).
+            wb.update(cx, |wb, _| wb.ext.autostart = true); // the extension host starts on the first frame
             let weak = wb.downgrade();
             window.on_window_should_close(cx, move |_, cx| weak.update(cx, |wb, cx| wb.request_quit(true, cx)).unwrap_or(true));
             wb
@@ -215,6 +217,8 @@ struct Workbench {
     focus: Option<FocusHandle>,
     /// `files.autoSave` timers and triggers (ADR-0034).
     auto_save: autosave::AutoSaveState,
+    /// The extension host and what it shows (ADR-0066); off without a Code-OSS build.
+    ext: extensions::Extensions,
     branch: Option<String>,
     error: Option<String>,
 }
@@ -290,6 +294,7 @@ impl Workbench {
             lang: Default::default(),
             focus: None,
             auto_save: Default::default(),
+            ext: Default::default(),
             branch: git_branch(&root),
             error: None,
         };
@@ -391,6 +396,7 @@ impl Workbench {
         self.editors.default_eol = new_settings.eol;
         self.editors.apply_read_only(ReadonlyRules::from_configuration(configuration, &self.root));
         self.apply_language_settings(cx);
+        self.ext_config_changed(cx);
 
         if new_settings.font_families != self.editor_settings.font_families {
             self.editor_settings = new_settings;
@@ -794,7 +800,7 @@ impl Workbench {
         )
     }
 
-    fn status_bar(&self) -> impl IntoElement {
+    fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = &self.theme;
         let fg = to_gpui(t.status_bar_fg);
         let icon = |c: char| {
@@ -809,19 +815,29 @@ impl Workbench {
         if let Some(b) = &self.branch {
             left = left.child(item().child(icon(icons::GIT_BRANCH)).child(b.clone()));
         }
+        // The problem counters: what the extensions' diagnostics add up to.
+        let (errors, warnings) = self.ext.snapshot.counts;
         left = left.child(
             item()
+                .debug_selector(|| "status-problems".to_string())
                 .child(icon(icons::ERROR))
-                .child("0")
+                .child(errors.to_string())
                 .child(div().w(px(6.)))
                 .child(icon(icons::WARNING))
-                .child("0"),
+                .child(warnings.to_string()),
         );
+        let ext_items = self.ext_status_items(cx);
+        for it in ext_items.iter().filter(|i| i.align_left) {
+            left = left.child(self.ext_status_item(it, cx));
+        }
         if let Some(err) = &self.error {
             left = left.child(item().text_color(to_gpui(t.error_fg)).child(err.clone()));
         }
 
         let mut right = div().flex().items_center().h_full();
+        for it in ext_items.iter().filter(|i| !i.align_left) {
+            right = right.child(self.ext_status_item(it, cx));
+        }
         if let Some(e) = self.editors.active_editor() {
             right = right
                 .child(item().id("status-position").child(editor_view::cursor_status(e)))
@@ -1284,6 +1300,7 @@ impl Render for Workbench {
         self.auto_save_tick(window, cx);
         self.poll_syntax(cx);
         self.session_render_hook(window, cx);
+        self.ext_render_hook(window, cx);
         // The OS window title and the dirty dot (macOS shows it in the close button).
         let title = self.window_title(cx);
         let dirty = self.editors.active_editor().is_some_and(|e| e.is_dirty()) && self.editor_surface_active();
@@ -1435,7 +1452,7 @@ impl Render for Workbench {
             .child(middle)
             .children(self.quit_prompt_bar(cx))
             .children(self.close_prompt_bar(cx))
-            .when(layout.status_bar_visible, |d| d.child(self.status_bar()))
+            .when(layout.status_bar_visible, |d| d.child(self.status_bar(cx)))
             .children(self.quick.view())
             .children(self.lang.view())
     }

@@ -65,7 +65,7 @@ pub fn overlay<T: EditorHost>(
             let mut out = Vec::new();
             for line in range.filter_map(|i| lines_rows.get(i).copied()) {
                 let row = e.editor.view_lines().map_or(line - 1, |v| v.first_view_line_of(line));
-                for el in super::rows(e, &theme_rows, &cfg_rows, gutter, row..row + 1, window, false, false, None, None, None, fold_paint, 0.0) {
+                for el in super::rows(e, &theme_rows, &cfg_rows, gutter, row..row + 1, window, false, false, None, None, None, fold_paint, 0.0, None) {
                     out.push(div().debug_selector(move || format!("sticky:{line}")).child(el).into_any_element());
                 }
             }

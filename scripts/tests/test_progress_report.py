@@ -136,6 +136,17 @@ class ScenarioTest(unittest.TestCase):
         row = pr.parse_scenario_text("y", text)
         self.assertEqual((row["ready"], row["pending"], row["blocked"]), (1, 1, 1))
 
+    def test_every_table_is_counted_with_its_own_status_column(self):
+        # as tests/e2e-scenarios/search.md: the status column moves between the two tables
+        text = ("| # | scenario | suite | file | steps | status | notes |\n|---|---|---|---|---|---|---|\n"
+                "| 1 | a | s | f | st | ready | n |\n| 2 | b | s | f | st | pending | n |\n\n"
+                "Settings checks.\n\n"
+                "| # | scenario | setting(s) | status | test |\n|---|---|---|---|---|\n"
+                "| 3 | c | x.y | ready | t |\n| 4 | d | x.z | blocked | t |\n")
+        row = pr.parse_scenario_text("z", text)
+        self.assertEqual((row["ready"], row["pending"], row["blocked"], row["other"]), (2, 1, 1, 0))
+        self.assertEqual(row["total"], 4)
+
 
 class DecisionsAndPortsTest(unittest.TestCase):
     def test_adr_count_and_latest_first(self):

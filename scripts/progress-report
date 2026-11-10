@@ -100,7 +100,8 @@ def scenario_bucket(status):
 
 
 def parse_scenario_text(name, text):
-    """One e2e scenario file: the table whose header has a `status` column."""
+    """One e2e scenario file: every table whose header has a `status` column (a file may have
+    several tables, each with the status column in its own position)."""
     heading = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), name)
     title = re.sub(r"\s+e2e scenarios\s*$", "", heading, flags=re.I)
     counts = collections.Counter()
@@ -109,12 +110,12 @@ def parse_scenario_text(name, text):
         if not line.startswith("|"):
             continue
         cells = split_row(line)
-        if status_idx is None:
+        if cells and not cells[0].isdigit():
             lowered = [c.lower() for c in cells]
-            if "status" in lowered:
+            if "status" in lowered:  # a table header: its own status column
                 status_idx = lowered.index("status")
             continue
-        if cells and cells[0].isdigit() and len(cells) > status_idx:
+        if status_idx is not None and cells and len(cells) > status_idx:
             counts[scenario_bucket(cells[status_idx])] += 1
     row = {"area": name, "title": title}
     for key in ("ready", "pending", "blocked", "other"):

@@ -78,3 +78,19 @@ a restart is a second workbench on the same injected user data dir):
 | nothing restored: the Welcome tab shows; clicking a recent file opens it; Open File... is Quick Open | ready | `with_nothing_restored_the_welcome_tab_shows_and_a_recent_file_opens_on_click`, `welcome_open_file_opens_quick_open` (`config/e2e.rs`: `startup_editor_default_is_the_welcome_page`, `startup_editor_none_opens_nothing`) |
 | "Show welcome page on startup" writes `workbench.startupEditor`; `Help: Welcome` opens the page | ready | `the_show_on_startup_checkbox_writes_workbench_startup_editor`, `help_welcome_is_a_registered_command_that_opens_the_page` |
 | a workbench with no installed store reads and writes nothing | ready | `a_workbench_without_an_installed_store_writes_nothing` |
+
+Breadcrumbs (ADR-0047, `crates/vsr-app/src/breadcrumbs/e2e_tests.rs`; the file path part only, the
+symbol part is blocked on document symbols):
+
+| scenario | status | test |
+|---|---|---|
+| the bar under the tab strip shows `src › main.rs` for the active file | ready | `the_bar_shows_the_path_of_the_active_file` |
+| clicking `src` opens a dropdown listing its siblings, with `src` selected | ready | `clicking_a_crumb_lists_its_siblings_with_the_crumb_selected` |
+| accepting a folder lists its entries; accepting a file opens it and closes the dropdown | ready | `accepting_a_folder_lists_its_entries_and_accepting_a_file_opens_it` |
+| `breadcrumbs.filePath: last` shows only the file name; `off` hides the bar | ready | `file_path_last_shows_only_the_file_name`, `file_path_off_hides_the_bar` |
+| `breadcrumbs.enabled: false` hides the bar | ready | `breadcrumbs_enabled_false_hides_the_bar` |
+| the bar takes `breadcrumb.*` colours from the colour theme | ready | `the_bar_takes_its_colours_from_the_colour_theme` |
+| Shift+Cmd+; focuses the last crumb; Left/Right move; Escape gives focus back | ready | `cmd_shift_semicolon_focuses_the_last_crumb_and_arrows_move_between_crumbs` |
+| Shift+Cmd+. focuses the last crumb and opens its dropdown | ready | `cmd_shift_period_focuses_and_opens_the_dropdown_of_the_last_crumb` |
+| files outside the workspace show their absolute path; sort order and `files.exclude` in the dropdown | ready | model tests `file_outside_the_root_shows_its_absolute_path`, `children_sort_folders_first_then_by_name`, `list_children_applies_files_exclude` (`breadcrumbs/model.rs`) |
+| `breadcrumbs.showFiles` and the other symbol settings | blocked-on-feature document symbols | (none: needs the outline provider) |

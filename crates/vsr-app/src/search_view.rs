@@ -45,8 +45,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use vsr_find::SearchReplacePattern;
 use vsr_search::{
-    CollapseResults, FileMatch, SearchComplete, SearchOptions, SearchSettings, TextSearchQuery, search,
-    split_pattern_input,
+    CollapseResults, FileMatch, SearchComplete, SearchOptions, SearchSettings, TextSearchQuery, search, split_pattern_input,
 };
 
 use crate::config::AppConfig;
@@ -212,6 +211,7 @@ impl SearchView {
             _ => {}
         }));
         subs.push(cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)));
+        let sort_order = settings.sort_order;
         Self {
             theme: crate::theme_service::ThemeService::theme(cx),
             root,
@@ -233,7 +233,7 @@ impl SearchView {
             confirm: None,
             pending: None,
             after_replace: None,
-            results: Results::default(),
+            results: Results { sort: sort_order, ..Results::default() },
             rows: Vec::new(),
             scroll: UniformListScrollHandle::new(),
             status: Status::Idle,
@@ -307,6 +307,15 @@ impl SearchView {
         self.query.update(cx, |s, cx| s.focus(window, cx));
     }
 
+    /// The seed of `search.seedOnFocus` / `search.seedWithNearestWord` for the active editor: the
+    /// selection (on focus), or else the word at the caret (with no selection). `None` when
+    /// neither applies. Replaces the query text when there is a seed.
+    pub fn seed_query(&self, seed: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = seed {
+            self.query.update(cx, |s, cx| s.set_value(text, window, cx));
+        }
+    }
+
     // ---- searching -------------------------------------------------------------------------
 
     /// The configuration changed. Takes the new `search.*` / `files.exclude` values; when one of
@@ -321,6 +330,10 @@ impl SearchView {
             return;
         }
         let rerun = searches_differ(&self.settings, &fresh);
+        if fresh.sort_order != self.settings.sort_order {
+            self.results.set_sort(fresh.sort_order);
+            self.rebuild_rows();
+        }
         self.settings = fresh;
         if rerun && !self.query_text(cx).is_empty() {
             self.start_search(cx);

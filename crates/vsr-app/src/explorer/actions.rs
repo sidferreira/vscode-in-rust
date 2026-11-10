@@ -26,6 +26,8 @@ actions!(
         CancelDelete,
         CollapseAll,
         RefreshAll,
+        CopyPath,
+        CopyRelativePath,
     ]
 );
 
@@ -45,5 +47,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("delete", MoveFileToTrash, Some(KEY_CONTEXT)),
         KeyBinding::new("cmd-alt-backspace", DeleteFile, Some(KEY_CONTEXT)),
         KeyBinding::new("escape", CancelDelete, Some(KEY_CONTEXT)),
+        KeyBinding::new("alt-cmd-c", CopyPath, Some(KEY_CONTEXT)),
+        KeyBinding::new("shift-alt-cmd-c", CopyRelativePath, Some(KEY_CONTEXT)),
     ]);
 }

@@ -36,7 +36,32 @@ pub struct SearchSettings {
     pub show_line_numbers: bool,
     /// `search.collapseResults` (`auto`, `alwaysCollapse`, `alwaysExpand`).
     pub collapse_results: CollapseResults,
+    /// `search.ripgrep.maxThreads` (0 = automatic).
+    pub threads: usize,
+    /// `search.sortOrder`: how the file rows of the results are ordered.
+    pub sort_order: ResultSortOrder,
+    /// `search.seedOnFocus`: the query takes the editor's selection when the Search view is focused.
+    pub seed_on_focus: bool,
+    /// `search.seedWithNearestWord`: with no selection, the query takes the word at the caret.
+    pub seed_with_nearest_word: bool,
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ResultSortOrder {
+    /// By folder, then file name.
+    #[default]
+    Default,
+    FileNames,
+    /// By the file's extension, then by path.
+    Type,
+    /// Most recently modified first.
+    Modified,
+    /// Files with more matches first.
+    CountDescending,
+    /// Files with fewer matches first.
+    CountAscending,
+}
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CollapseResults {
@@ -71,6 +96,10 @@ impl Default for SearchSettings {
             search_on_type_debounce_ms: 300,
             show_line_numbers: false,
             collapse_results: CollapseResults::AlwaysExpand,
+            threads: 0,
+            sort_order: ResultSortOrder::Default,
+            seed_on_focus: false,
+            seed_with_nearest_word: false,
         }
     }
 }
@@ -112,6 +141,8 @@ mod tests {
         let g = s.exclude_globs(false);
         assert!(g.contains(&"**/node_modules".to_string()) && g.contains(&"**/.git".to_string()));
         assert!(!s.exclude_globs(true).contains(&"**/node_modules".to_string()));
+        assert_eq!((s.threads, s.sort_order), (0, ResultSortOrder::Default));
+        assert!(!s.seed_on_focus && !s.seed_with_nearest_word);
     }
 
     #[test]

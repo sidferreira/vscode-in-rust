@@ -1018,7 +1018,15 @@ impl Workbench {
                 .into_any_element();
         }
         let body = match self.view {
-            ActivityView::Explorer => self.explorer(cx).into_any_element(),
+            // The Explorer tree, with the Outline section under it (ADR-0092).
+            ActivityView::Explorer => div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(self.explorer(cx))
+                .child(self.outline_section(cx))
+                .into_any_element(),
             _ => div()
                 .px(px(20.))
                 .text_size(px(12.))

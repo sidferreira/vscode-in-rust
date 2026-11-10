@@ -2644,3 +2644,37 @@ lives on the worker:
   `breadcrumbs.showEditorType` stays blocked as before (custom editors).
 - **Not done**: the Outline view in the Explorer (follow cursor, sort and filter actions, refresh with
   the debounce, the empty state), symbol icons in the bar, and the `Go to Symbol` 'outline view' sync.
+
+## ADR-0092 — The Outline view: a section under the Explorer tree, rows from the model, the click selects the symbol (2026-11-10)
+
+Upstream: `outlinePane.ts` (the view, its messages, `collapsed: true` by default) and `documentSymbolsTree.ts`
+(rows, icons). The view is a section under the Explorer tree in the side bar (`side_bar()`), not a view
+container of its own.
+
+- **Rows are pure.** `outline::view::rows` turns the model into `OutlineRow`s (depth first, through
+  `visible_children` with the `show<Kind>` filter, so the filter, sort and expansion live in one place).
+  Expansion is `collapseItems` XOR a toggled set keyed by the node's stable id, per document. Every
+  behaviour test asserts on these rows; the section only draws them.
+- **Status.** `status_of` decides the empty states, with upstream's words: no editor showing a file, or
+  no provider (none answered, or no host runs), gives "The active editor cannot provide outline
+  information."; a host that is still answering gives "Loading document symbols for '<file>'..."; a
+  provider that answered with nothing gives "No symbols found in document '<file>'". The answer count per
+  document is kept by `OutlineState` (`answered`), since empty groups are dropped by the model.
+- **Icons.** `symbol_glyph` is upstream's `SymbolKinds.toIcon` table as codicon code points; an unknown
+  kind shows the property icon, as upstream.
+- **Click.** A symbol row selects its `selection_range` in its editor (`Workbench::select_symbol`, the
+  helper Go to Symbol uses too, with its own open source). A group row toggles. The chevron toggles
+  without selecting.
+- **Coordinates are 1-based.** `vsr_text::Position` and `Selection` start at 1:1 (a fresh editor reports
+  1:1), and the symbol ranges are 1-based. The earlier conversions subtracted 1 before selecting (Go to
+  Symbol, and the breadcrumbs' accept), and the breadcrumbs' caret added 1; the tests had pinned the
+  shifted values. All three now pass the values through. The breadcrumbs tests' expected positions moved
+  by one.
+- **Section state.** Closed at start (upstream), opened by its header. The state is in memory; it is not
+  kept per workspace yet (step 2 decides that).
+- **Settings.** `outline.collapseItems` is wired (`alwaysCollapse` starts every item closed; a chevron
+  flips one). `outline.icons` and the rest follow in the next steps.
+
+Tests: `outline/view.rs` unit tests (rows, collapse, the kind filter, groups, status, glyphs) and
+`outline/e2e_tests.rs` headless tests through the workbench (rows after the debounce, the section's
+header, the selection by click, the chevron and collapseItems, the empty states, a refresh after an edit).

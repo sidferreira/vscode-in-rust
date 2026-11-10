@@ -14,7 +14,9 @@
 #[cfg(test)]
 mod e2e_tests;
 pub mod goto;
+pub mod view; // the Outline view under the Explorer tree (ADR-0092)
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -40,12 +42,17 @@ pub struct OutlineState {
     seen: Option<(PathBuf, u64)>,
     /// The request waiting for the debounce, with the time it becomes due.
     due: Option<(PathBuf, u64, Instant)>,
+    /// How many providers answered for each document's last delivered version (0: none has a
+    /// provider, the view says so).
+    answered: HashMap<String, usize>,
+    /// The Outline view's state (section open, toggled items).
+    pub view: view::ViewState,
     /// Answers given in-process when no host runs (tests only).
     #[cfg(test)]
     pub fake: Option<FakeSource>,
 }
 
-fn key(path: &Path) -> String {
+pub(crate) fn key(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
@@ -74,7 +81,17 @@ impl OutlineState {
     /// The providers answered for `path` at `version`. False when that request is no longer
     /// wanted (a newer version was asked for).
     pub fn deliver(&mut self, path: &Path, version: u64, groups: Vec<ProviderSymbols>) -> bool {
-        self.service.deliver(&key(path), version, groups).is_some()
+        let providers = groups.len();
+        let accepted = self.service.deliver(&key(path), version, groups).is_some();
+        if accepted {
+            self.answered.insert(key(path), providers);
+        }
+        accepted
+    }
+
+    /// How many providers answered for the last delivered version of `path`; `None` before any answer.
+    pub fn answered(&self, path: &Path) -> Option<usize> {
+        self.answered.get(&key(path)).copied()
     }
 
     /// The outline of `path` as last delivered, whatever its version (breadcrumbs keep showing

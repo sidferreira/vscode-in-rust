@@ -16,11 +16,21 @@ use vsr_exthost::language_features::outline::ProviderSymbols;
 
 use crate::Workbench;
 use crate::config::AppConfig;
+use super::view;
 
 /// A workbench over `<tmp>/proj` (`src/main.rs`, `src/lib.rs`), settings in a temp file.
 fn workbench<'a>(
     cx: &'a mut TestAppContext,
     name: &str,
+) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
+    workbench_with(cx, name, "{}")
+}
+
+/// [`workbench`] with `settings_json` as the user's settings.
+fn workbench_with<'a>(
+    cx: &'a mut TestAppContext,
+    name: &str,
+    settings_json: &str,
 ) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -34,6 +44,7 @@ fn workbench<'a>(
     fs::write(proj.join("src/main.rs"), "fn main() {}\n").unwrap();
     fs::write(proj.join("src/lib.rs"), "pub fn lib() {}\n").unwrap();
     let settings = dir.join("settings.json");
+    fs::write(&settings, settings_json).unwrap();
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::icons::install(cx);
@@ -247,7 +258,7 @@ fn go_to_symbol_lists_the_symbols_of_the_file_and_enter_selects_one(cx: &mut Tes
     cx.run_until_parked();
     assert_eq!(picker_labels(&wb, cx), ["beta"]);
 
-    // Enter on the row selects the symbol's selection range (line 2, columns 4..8, 0-based 1:3..1:7).
+    // Enter on the row selects the symbol's selection range (line 2, columns 4..8, 1-based).
     let p = wb
         .read_with(cx, |wb, _| wb.quick.picker().cloned())
         .expect("the picker is open");
@@ -267,6 +278,179 @@ fn go_to_symbol_lists_the_symbols_of_the_file_and_enter_selects_one(cx: &mut Tes
             wb.editors.active_editor().map(|e| e.editor.selection())
         })
         .expect("an editor is active");
-    assert_eq!((sel.anchor.line, sel.anchor.column), (1, 3));
-    assert_eq!((sel.active.line, sel.active.column), (1, 7));
+    assert_eq!((sel.anchor.line, sel.anchor.column), (2, 4));
+    assert_eq!((sel.active.line, sel.active.column), (2, 8));
+}
+
+/// A `class Point` (lines 1-3) with a field `x` (line 2), and a function `main` on line 5.
+fn nested_symbols() -> Vec<ProviderSymbols> {
+    let sym = |name: &str, kind: u32, range: Range, children: Vec<DocumentSymbol>| DocumentSymbol {
+        name: name.into(),
+        detail: String::new(),
+        kind,
+        tags: vec![],
+        container_name: None,
+        range,
+        selection_range: range,
+        children,
+    };
+    let x = sym("x", 7, Range::new(2, 3, 2, 8), vec![]);
+    let point = sym("Point", 4, Range::new(1, 1, 3, 2), vec![x]);
+    let main = sym("main", 11, Range::new(5, 1, 5, 14), vec![]);
+    vec![ProviderSymbols::new(Some("fake"), vec![point, main])]
+}
+
+/// The rows of the Outline view as (name, depth).
+fn view_rows(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> Vec<(String, usize)> {
+    wb.read_with(cx, |wb, app| wb.outline_rows(app).into_iter().map(|r| (r.name, r.depth)).collect())
+}
+
+fn view_row_id(wb: &Entity<Workbench>, cx: &mut VisualTestContext, name: &str) -> String {
+    wb.read_with(cx, |wb, app| wb.outline_rows(app).into_iter().find(|r| r.name == name).expect("the row").id)
+}
+
+/// Debug selectors are `&'static str`; a test leaks the few it needs.
+fn selector(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
+}
+
+fn click(cx: &mut VisualTestContext, key: &'static str) {
+    let at = cx.debug_bounds(key).unwrap_or_else(|| panic!("{key} is on screen")).center();
+    cx.simulate_mouse_move(at, None, Default::default());
+    cx.simulate_click(at, Default::default());
+    cx.run_until_parked();
+}
+
+/// Asks for the symbols of the open file, as the debounce does after a change.
+fn ask(wb: &Entity<Workbench>, cx: &mut VisualTestContext) {
+    wb.update(cx, |wb, _| wb.outline_sync_at(Instant::now() + Duration::from_secs(1)));
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn the_view_lists_the_symbols_of_the_active_file_depth_first(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-rows");
+    open(&wb, cx, &proj.join("src/main.rs"));
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    ask(&wb, cx);
+    assert_eq!(
+        view_rows(&wb, cx),
+        [("Point".to_string(), 0), ("x".to_string(), 1), ("main".to_string(), 0)],
+        "children follow their parent, expanded by default"
+    );
+    let status = wb.read_with(cx, |wb, app| wb.outline_status(app));
+    assert_eq!(status, view::OutlineStatus::Rows);
+}
+
+#[gpui::test]
+fn the_section_opens_from_its_header_and_draws_its_rows(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-section");
+    open(&wb, cx, &proj.join("src/main.rs"));
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    ask(&wb, cx);
+    let main = view_row_id(&wb, cx, "main");
+    let row = selector(format!("outline-row:{main}"));
+    assert!(cx.debug_bounds(row).is_none(), "the section starts collapsed, as upstream's");
+
+    click(cx, "outline-header");
+    assert!(wb.read_with(cx, |wb, _| wb.outline.view.open));
+    assert!(cx.debug_bounds(row).is_some(), "the open section draws the row");
+
+    click(cx, "outline-header");
+    assert!(cx.debug_bounds(row).is_none(), "a second click closes it");
+}
+
+#[gpui::test]
+fn clicking_a_symbol_selects_its_range_in_the_editor(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-select");
+    fs::write(proj.join("src/main.rs"), "struct Point {\n    x: u8,\n}\n\nfn main() {}\n").unwrap();
+    open(&wb, cx, &proj.join("src/main.rs"));
+    // `main`'s name is at line 5, columns 4..8 (1-based, as the symbols and the editor are).
+    wb.update(cx, |wb, _| {
+        wb.outline.fake = Some(Box::new(|_| {
+            let main = DocumentSymbol {
+                name: "main".into(),
+                detail: String::new(),
+                kind: 11,
+                tags: vec![],
+                container_name: None,
+                range: Range::new(5, 1, 5, 14),
+                selection_range: Range::new(5, 4, 5, 8),
+                children: vec![],
+            };
+            vec![ProviderSymbols::new(Some("fake"), vec![main])]
+        }))
+    });
+    ask(&wb, cx);
+    click(cx, "outline-header");
+    let main = view_row_id(&wb, cx, "main");
+    click(cx, selector(format!("outline-row:{main}")));
+    let sel = wb.read_with(cx, |wb, _| wb.editors.active_editor().map(|e| e.editor.selection())).expect("an editor");
+    assert_eq!((sel.anchor.line, sel.anchor.column), (5, 4));
+    assert_eq!((sel.active.line, sel.active.column), (5, 8));
+}
+
+#[gpui::test]
+fn collapse_items_always_collapse_starts_items_closed_and_the_chevron_opens_them(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench_with(cx, "view-collapse", r#"{"outline.collapseItems": "alwaysCollapse"}"#);
+    open(&wb, cx, &proj.join("src/main.rs"));
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    ask(&wb, cx);
+    assert_eq!(view_rows(&wb, cx), [("Point".to_string(), 0), ("main".to_string(), 0)]);
+
+    click(cx, "outline-header");
+    let point = view_row_id(&wb, cx, "Point");
+    click(cx, selector(format!("outline-toggle:{point}")));
+    assert_eq!(
+        view_rows(&wb, cx),
+        [("Point".to_string(), 0), ("x".to_string(), 1), ("main".to_string(), 0)],
+        "the chevron expands the item"
+    );
+    click(cx, selector(format!("outline-toggle:{point}")));
+    assert_eq!(view_rows(&wb, cx), [("Point".to_string(), 0), ("main".to_string(), 0)], "and collapses it again");
+}
+
+#[gpui::test]
+fn the_view_says_why_it_is_empty(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-empty");
+    let status = |wb: &Entity<Workbench>, cx: &mut VisualTestContext| wb.read_with(cx, |wb, app| wb.outline_status(app));
+    assert_eq!(status(&wb, cx), view::OutlineStatus::NoEditor, "no editor shows a file");
+
+    open(&wb, cx, &proj.join("src/main.rs"));
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| Vec::new())));
+    ask(&wb, cx);
+    assert_eq!(status(&wb, cx), view::OutlineStatus::NoProvider, "no provider answered");
+
+    wb.update(cx, |wb, _| {
+        wb.outline.fake = Some(Box::new(|_| vec![ProviderSymbols::new(Some("fake"), Vec::new())]));
+    });
+    let other = proj.join("src/lib.rs");
+    open(&wb, cx, &other);
+    ask(&wb, cx);
+    assert_eq!(status(&wb, cx), view::OutlineStatus::NoSymbols("lib.rs".into()), "a provider with no symbols");
+}
+
+#[gpui::test]
+fn an_edit_refreshes_the_rows_after_the_debounce(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-refresh");
+    open(&wb, cx, &proj.join("src/main.rs"));
+    let answers = Rc::new(Cell::new(0u32));
+    let counter = Rc::clone(&answers);
+    wb.update(cx, |wb, _| {
+        wb.outline.fake = Some(Box::new(move |_| {
+            counter.set(counter.get() + 1);
+            if counter.get() == 1 { main_symbol() } else { nested_symbols() }
+        }));
+    });
+    ask(&wb, cx);
+    assert_eq!(view_rows(&wb, cx), [("main".to_string(), 0)]);
+    wb.update(cx, |wb, cx| {
+        let i = wb.editors.active.expect("a file is open");
+        wb.editors.open[i].editor.set_cursor(vsr_editor::Position::new(0, 0), false);
+        wb.editors.open[i].editor.type_text("// ");
+        cx.notify();
+    });
+    cx.run_until_parked();
+    ask(&wb, cx);
+    assert_eq!(view_rows(&wb, cx).len(), 3, "the new answer replaces the rows");
 }

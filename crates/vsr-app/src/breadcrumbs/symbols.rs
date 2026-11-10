@@ -57,13 +57,13 @@ pub struct SymbolCrumb {
     pub node: NodeId,
 }
 
-/// The symbols containing `cursor` (a 0-based editor position), from the outermost. Empty when
+/// The symbols containing `cursor` (a 1-based editor position, as `Selection` reports), from the outermost. Empty when
 /// no symbol contains it.
 pub fn crumbs(model: &OutlineModel, cursor: (usize, usize), mode: SymbolPath) -> Vec<SymbolCrumb> {
     if mode == SymbolPath::Off {
         return Vec::new();
     }
-    let pos = Position::new(cursor.0 as u32 + 1, cursor.1 as u32 + 1);
+    let pos = Position::new(cursor.0 as u32, cursor.1 as u32);
     let Some(inner) = model.item_enclosing(pos, None) else {
         return Vec::new();
     };

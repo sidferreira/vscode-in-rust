@@ -1653,3 +1653,27 @@ constant (`DEFAULT_LIGHT`) when wanted.
 **Tests.** The default-theme golden test is `the_default_theme_is_dark_2026_with_the_colours_of_its_json`.
 Tests that check Dark Modern's token colours pin `workbench.colorTheme` to Dark Modern in their settings file
 instead of depending on the default.
+
+## ADR-0050 — Activity bar: compact layout and icon click behaviour (2026-11-10)
+
+**Context.** The Activity Bar group (`workbench.activityBar.*`) had three todo settings. `location` was wired
+already. Upstream 1.147 defines the compact layout in `ActivitybarPart` (default 48px wide with 48px items and
+24px icons; compact 36px, 28px, 16px) and the click behaviour in `paneCompositeBar.ts`
+(`iconClickBehavior`, `toggle` hides the side bar when the shown view's icon is clicked, `focus` keeps it open).
+
+**Decision.**
+
+- `workbench.activityBar.compact` applies to location `default` only (as its description says). The bar and
+  its items take the compact sizes (`metrics::ACTIVITY_BAR_COMPACT_*`); the layout's width and the sash
+  drag (`activity_bar_width`) use the same width.
+- `workbench.activityBar.iconClickBehavior: focus` keeps the side bar open when the shown view's icon is clicked.
+  rscode does not move keyboard focus into the view on that click yet (upstream focuses the view); it is a
+  follow-up with the focus handles of the side bar views.
+- `workbench.activityBar.autoHide` is `blocked`: it hides a horizontal bar when one view container is
+  shown, and rscode always has four.
+- The activity icons carry a debug selector `activity:<n>` (headless tests click them).
+
+**Tests.** `config/e2e.rs`: `activity_bar_compact_narrows_the_bar_live`,
+`activity_bar_icon_click_focus_keeps_the_side_bar_open`. The upstream test titles are cited in comments; the
+unit ports (`activitybarPart.test.ts`) are not ported, so the references are "Upstream source" comments.
+

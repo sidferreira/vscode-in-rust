@@ -723,6 +723,11 @@ pub struct LayoutSettings {
     pub command_center: bool,
     /// `window.density.editorTabHeight`: compact tabs are shorter (22px, default 35px).
     pub compact_tabs: bool,
+    /// `workbench.activityBar.compact`: smaller items and a narrower bar, location `default` only.
+    pub activity_bar_compact: bool,
+    /// `workbench.activityBar.iconClickBehavior: focus`: clicking the icon of the shown view keeps
+    /// the side bar open (`toggle`, the default, hides it).
+    pub activity_bar_click_focus: bool,
 }
 
 /// `workbench.startupEditor`: what opens when the app starts with no editor restored. `WelcomePage`
@@ -769,6 +774,8 @@ impl LayoutSettings {
             sash_size: sash_size(c),
             command_center: c.get_bool("window.commandCenter").unwrap_or(true),
             compact_tabs: c.get_enum::<TabHeight>("window.density.editorTabHeight") == Some(TabHeight::Compact),
+            activity_bar_compact: c.get_bool("workbench.activityBar.compact").unwrap_or(false),
+            activity_bar_click_focus: c.get_str("workbench.activityBar.iconClickBehavior") == Some("focus"),
         }
     }
 }
@@ -987,6 +994,8 @@ mod tests {
             sash_size: 4.0,
             command_center: true,
             compact_tabs: false,
+            activity_bar_compact: false,
+            activity_bar_click_focus: false,
         });
     }
 

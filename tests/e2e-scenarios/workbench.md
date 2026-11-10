@@ -94,3 +94,13 @@ symbol part is blocked on document symbols):
 | Shift+Cmd+. focuses the last crumb and opens its dropdown | ready | `cmd_shift_period_focuses_and_opens_the_dropdown_of_the_last_crumb` |
 | files outside the workspace show their absolute path; sort order and `files.exclude` in the dropdown | ready | model tests `file_outside_the_root_shows_its_absolute_path`, `children_sort_folders_first_then_by_name`, `list_children_applies_files_exclude` (`breadcrumbs/model.rs`) |
 | `breadcrumbs.showFiles` and the other symbol settings | blocked-on-feature document symbols | (none: needs the outline provider) |
+
+### Activity bar settings (ADR-0050)
+
+Headless (`crates/vsr-app/src/config/e2e.rs`). Checked on the laid-out boxes, `activity-bar`, `activity:<n>` and `side-bar`.
+
+| scenario | status | test |
+|---|---|---|
+| `workbench.activityBar.compact` narrows the default bar to 36px with 28px items, live; the strip locations keep their size | ready | `activity_bar_compact_narrows_the_bar_live` |
+| `workbench.activityBar.iconClickBehavior: toggle` hides the side bar on a click of the shown view's icon; `focus` keeps it open | ready | `activity_bar_icon_click_focus_keeps_the_side_bar_open` |
+| `workbench.activityBar.autoHide` | blocked | see `upstream/settings.toml` (needs view containers that can be hidden) |

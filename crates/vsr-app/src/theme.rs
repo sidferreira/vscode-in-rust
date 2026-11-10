@@ -199,6 +199,11 @@ pub mod metrics {
     /// Width of the command center search box in the title bar (`window.commandCenter`).
     pub const COMMAND_CENTER_WIDTH: f32 = 420.0;
     pub const ACTIVITY_BAR_WIDTH: f32 = 48.0;
+    /// `workbench.activityBar.compact` (location `default`): width, item height and icon size
+    /// (upstream `ActivitybarPart`: 36, 28, 16; the default is 48, 48, 24).
+    pub const ACTIVITY_BAR_COMPACT_WIDTH: f32 = 36.0;
+    pub const ACTIVITY_BAR_COMPACT_ITEM_HEIGHT: f32 = 28.0;
+    pub const ACTIVITY_BAR_COMPACT_ICON_SIZE: f32 = 16.0;
     pub const SIDEBAR_WIDTH: f32 = 260.0;
     pub const TAB_HEIGHT: f32 = 35.0;
     pub const STATUS_BAR_HEIGHT: f32 = 22.0;

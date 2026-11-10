@@ -11,6 +11,8 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         &[
             "workbench.sideBar.location",
             "workbench.activityBar.location",
+            "workbench.activityBar.compact",
+            "workbench.activityBar.iconClickBehavior",
             "workbench.statusBar.visible",
             "workbench.editor.showTabs",
             "workbench.tree.indent",

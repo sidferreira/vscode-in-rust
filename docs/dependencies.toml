@@ -161,12 +161,12 @@ needs = []
 [[node]]
 id = "ext-host-p1"
 title = "Extension host P1: main-thread shapes for ErrorLens"
-status = "in-progress"
+status = "done"
 effort = "M"
 effort_source = "extensions-compat §4 (P1)"
 needs = ["ext-host-p0"]
 scenarios = ["extension host"]
-note = "P1 is the first milestone (ErrorLens). Owned by the extension host worktree; HANDOFF lists the next steps."
+note = "Done (ADR-0062..0065): vsr-exthost serves commands, configuration, status bar, decorations, diagnostics and documents against the real host, tested with an ErrorLens-like fixture. Not yet wired into the gpui workbench."
 
 [[node]]
 id = "editor-scrollbar"
@@ -627,7 +627,7 @@ status = "todo"
 effort = "XL"
 effort_source = "guess"
 needs = ["cargo-proxy-token"]
-note = "INFERRED edge: the webview needs a new crate (wry or WKWebView), which is blocked by the cargo token (HANDOFF item 1). Confirm before trusting the ~199 settings behind it. extensions-compat §4 says P6 (Claude Code) is blocked on the webview service; its XL is Claude Code's effort, not this node's."
+note = "INFERRED edge: the webview needs a new crate (wry or WKWebView), which is blocked by the cargo token (HANDOFF item 1). Confirm before trusting the ~199 settings behind it: objc, objc2 and cocoa are already in Cargo.lock, so a raw WKWebView embedded via Objective-C calls may avoid a new crate (harder than wry, not strictly token-blocked). extensions-compat §4 says P6 (Claude Code) is blocked on the webview service; its XL is Claude Code's effort, not this node's."
 
 [[node]]
 id = "browser-view"

@@ -29,8 +29,8 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 54 | every ADR cited by a node exists (latest ADR-0061) |
-| upstream/ports.toml entries | 47 | not nodes (file ports, not features): partial 44, planned 1, ported 2 |
+| ADR headings in DECISIONS.md | 58 | every ADR cited by a node exists (latest ADR-0065) |
+| upstream/ports.toml entries | 48 | not nodes (file ports, not features): partial 45, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 174.
 
@@ -60,7 +60,7 @@ flowchart LR
   n_breadcrumbs["Breadcrumbs: path bar and dropdown (ADR-0047) (done)"]:::done
   n_editor_tabs["Editor tabs: preview, MRU, placement, limit (ADR-0033) (done)"]:::done
   n_code_folding["Code folding and sticky scroll (ADR-0042) (done)"]:::done
-  n_ext_host_p1["Extension host P1: main-thread shapes for ErrorLens (in-progress)"]:::inprogress
+  n_ext_host_p1["Extension host P1: main-thread shapes for ErrorLens (done)"]:::done
   n_editor_scrollbar["Editor scrollbar (vertical and horizontal) (in-progress)"]:::inprogress
   n_overview_ruler_glyph_margin["Decoration lanes: overview ruler and glyph margin (in-progress)"]:::inprogress
   n_sash_grippers["Sash grippers (the drawn handle on a sash) (in-progress)"]:::inprogress
@@ -292,33 +292,24 @@ flowchart LR
 
 | # | node | title | effort | dep settings unblocked (+not yet) | todo settings unblocked (+not yet) | scenarios unblocked (+not yet) | extensions unblocked (+not yet) | directly needed by |
 |---|---|---|---|---|---|---|---|---|
-| 1 | custom-editors | Custom editors (editor types per file) | L (guess) | 5 (+6) | 78 (+0) | 7 (+0) | 0 (+0) | diff-editor, non-text-editors, notebook-editor |
-| 2 | native-window-chrome | Native title bar, full screen and first-mouse click | L (guess) | 11 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | multi-window |
-| 3 | untitled-editors | Untitled editors (new files) | M (guess) | 11 (+6) | 0 (+0) | 0 (+0) | 0 (+0) | language-detection, non-text-editors, search-editor |
-| 4 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | M (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 5 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
-| 6 | accessibility-tree | Accessibility tree from gpui (screen readers) | L (guess) | 4 (+0) | 0 (+0) | 4 (+0) | 0 (+0) | - |
-| 7 | editor-groups | Editor splits and editor groups | L (guess) | 7 (+0) | 3 (+0) | 0 (+0) | 0 (+0) | - |
-| 8 | bracket-pair-model | Bracket pair model (guides and colourisation over the whole buffer) | L (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 9 | gpui-text-rendering | gpui text system gaps (letter spacing, font variation axes, smoothing) | M (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 10 | link-opener | External browser and URI openers | M (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+2) | link-detection, uri-handler |
-| 11 | scroll-capture | Scroll capture on the editor surface (wheel zoom, sensitivity, middle click) | S (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 12 | multi-root-workspaces | Multi-root workspaces | XL (guess) | 2 (+0) | 0 (+0) | 3 (+0) | 0 (+0) | - |
+| 1 | lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | M (guess) | 189 (+284) | 0 (+0) | 4 (+0) | 1 (+8) | color-decorators, completion-suggest, document-symbols, ext-emmet, ext-kotlin, ext-merge-conflict, ext-oxc, ext-php, ext-ts-features, ext-xml, folding-providers, formatting-providers, lsp-client, markdown-features, navigation-providers, refactor-code-actions, semantic-highlighting, smart-select, workspace-symbols |
+| 2 | child-process-main | Child processes on the main side (spawn, stdio) | S (guess) | 12 (+226) | 34 (+0) | 0 (+0) | 0 (+7) | debugger-dap, ext-claude-code, ext-kotlin, ext-php, ext-ts-features, ext-xml, lsp-client |
+| 3 | custom-editors | Custom editors (editor types per file) | L (guess) | 5 (+6) | 78 (+0) | 7 (+0) | 0 (+0) | diff-editor, non-text-editors, notebook-editor |
+| 4 | native-window-chrome | Native title bar, full screen and first-mouse click | L (guess) | 11 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | multi-window |
+| 5 | untitled-editors | Untitled editors (new files) | M (guess) | 11 (+6) | 0 (+0) | 0 (+0) | 0 (+0) | language-detection, non-text-editors, search-editor |
+| 6 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | M (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 7 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
+| 8 | accessibility-tree | Accessibility tree from gpui (screen readers) | L (guess) | 4 (+0) | 0 (+0) | 4 (+0) | 0 (+0) | - |
+| 9 | editor-groups | Editor splits and editor groups | L (guess) | 7 (+0) | 3 (+0) | 0 (+0) | 0 (+0) | - |
+| 10 | bracket-pair-model | Bracket pair model (guides and colourisation over the whole buffer) | L (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 11 | gpui-text-rendering | gpui text system gaps (letter spacing, font variation axes, smoothing) | M (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 12 | link-opener | External browser and URI openers | M (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+2) | link-detection, uri-handler |
 
-Top 12 of 55 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
+Top 12 of 63 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
 
 ### Waiting on in-progress work
 
-| node | title | waiting on (in progress) | free dep settings | free scenarios |
-|---|---|---|---|---|
-| auth-providers | Authentication providers (GitHub sign-in, secret storage) | ext-host-p1 | 0 | 0 |
-| child-process-main | Child processes on the main side (spawn, stdio) | ext-host-p1 | 0 | 0 |
-| diagnostics-model | Diagnostics store (problems reported by language features) | ext-host-p1 | 1 | 3 |
-| extension-marketplace | Extension marketplace and install | ext-host-p1 | 0 | 1 |
-| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | ext-host-p1 | 189 | 4 |
-| proposed-api-gating | Proposed API allowlist (product config) | ext-host-p1 | 0 | 0 |
-| text-decorations | TextEditorDecorationType (after and before text, gutter) | ext-host-p1 | 0 | 0 |
-| workspace-fs-api | workspace.fs and file system provider API (ext host) | ext-host-p1 | 2 | 0 |
+None.
 
 ## Every node
 
@@ -334,7 +325,7 @@ Top 12 of 55 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 | builtin-lsp-css-html-json | Built-in CSS, HTML and JSON language features | todo | extension | M (guess) | lsp-client | 130 (+0) | 130 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | cargo-proxy-token | Cargo proxy token in the agent shell | blocked-external | feature | - | - | 0 (+0) | 1 (+0) | 67 (+131) | 0 | 7 (+56) | 0 (+5) |
 | chat-agents | AI chat, agents, copilot and AI search | blocked-external | feature | - | - | 3 (+0) | 3 (+0) | 0 (+0) | 22 | 22 (+0) | 0 (+1) |
-| child-process-main | Child processes on the main side (spawn, stdio) | todo | feature | S (guess) | ext-host-p1 | 0 (+0) | 0 (+0) | 238 (+34) | 0 | 0 (+0) | 0 (+7) |
+| child-process-main | Child processes on the main side (spawn, stdio) | todo | feature | S (guess) | ext-host-p1 | 0 (+0) | 12 (+34) | 226 (+0) | 0 | 0 (+0) | 0 (+7) |
 | code-folding | Code folding and sticky scroll (ADR-0042) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | color-decorators | Colour decorators (document colour provider) | todo | feature | S (guess) | lang-providers-main | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | command-palette-suggestions | Suggested commands in the Command Palette | todo | feature | S (guess) | command-registry | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -367,7 +358,7 @@ Top 12 of 55 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 | ext-errorlens | ErrorLens | todo | extension | M (source) | ext-host-p1, text-decorations, diagnostics-model | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-gitlens | GitLens | todo | extension | XL (source) | ext-host-p1, webview-service, tree-views, integrated-terminal, tasks-runner, git-scm | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 434 (+57) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
-| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | in-progress | feature | M (source) | ext-host-p0 | 0 (+0) | 434 (+57) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
+| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 434 (+57) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
 | ext-kotlin | Kotlin (LSP, runtime server download, DAP) | todo | extension | L (source) | lsp-client, lang-providers-main, child-process-main, debugger-dap | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-merge-conflict | Merge conflict (CodeLens and decorations, built-in) | todo | extension | S (guess) | lang-providers-main, text-decorations | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-oxc | oxc (LSP over stdio) | todo | extension | L (source) | lsp-client, lang-providers-main, workspace-fs-api | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -448,7 +439,7 @@ Top 12 of 55 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 | unusual-line-terminators | Unusual line terminator prompts | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | uri-handler | URI handler and env.openExternal (auth callbacks) | todo | feature | S (guess) | ext-host-p1, link-opener | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+2) |
 | user-profiles | User profiles | todo | feature | L (guess) | multi-window | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| view-containers | View containers that can be hidden | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 2 (+0) | 0 | 0 (+0) | 0 (+2) |
+| view-containers | View containers that can be hidden | todo | feature | M (guess) | - | 1 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+2) |
 | view-header-actions | View header actions shown on hover and focus | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | webview-service | Webview service (embedded web view, wry or WKWebView) | todo | feature | XL (guess) | cargo-proxy-token | 0 (+0) | 1 (+0) | 54 (+0) | 0 | 7 (+0) | 0 (+4) |
 | window-without-folder | Windows without a folder | todo | feature | S (guess) | multi-window | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |

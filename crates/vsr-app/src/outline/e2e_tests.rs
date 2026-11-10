@@ -196,6 +196,10 @@ fn the_extension_hosts_symbols_reach_the_outline(cx: &mut TestAppContext) {
         });
         if let Some(names) = names.filter(|n| !n.is_empty()) {
             assert_eq!(names, ["alpha", "beta", "Point", "x"]);
+            // The view draws the same symbols, every item open by default (ADR-0092).
+            let rows = wb.read_with(cx, |wb, app| wb.outline_rows(app).into_iter().map(|r| r.name).collect::<Vec<_>>());
+            assert_eq!(rows, names, "the Outline view lists the host's symbols");
+            assert_eq!(wb.read_with(cx, |wb, app| wb.outline_status(app)), view::OutlineStatus::Rows);
             return;
         }
         assert!(Instant::now() < deadline, "the host answered no symbols");

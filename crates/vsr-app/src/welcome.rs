@@ -10,7 +10,7 @@
 //! the "Show welcome page on startup" checkbox at the bottom) with the colours of the active
 //! theme. What upstream has and this page leaves out, and why:
 //!
-//! - New File...: this page does not create a file. File: New Untitled Text File (Cmd+N) does (ADR-0058).
+//! - New File...: opens an untitled text, the command File: New Untitled Text File (Cmd+N) runs (ADR-0058, ADR-0074).
 //! - Open Folder... / Clone Git Repository / Connect to...: no folder dialog, no git clone, no remotes.
 //! - Walkthroughs, Help links, videos: they come from extensions and the web. The `workbench.welcomePage.*`
 //!   settings only configure those, so none of them applies.
@@ -186,6 +186,10 @@ impl Workbench {
             .flex()
             .flex_col()
             .child(heading("Start"))
+            .child(action("welcome:new-file", icons::NEW_FILE, "New File...").on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.new_untitled(window, cx)),
+            ))
             .child(action("welcome:open-file", icons::GO_TO_FILE, "Open File...").on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.show_quick_open(window, cx)),

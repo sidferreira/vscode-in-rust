@@ -913,3 +913,14 @@ fn on_focus_change_saves_a_dirty_tab_on_close_without_asking(cx: &mut TestAppCon
     assert!(!bar_up(vcx));
     assert!(fs::read_to_string(env.root.join("a.txt")).unwrap().starts_with("FOCUS line 1"));
 }
+
+#[gpui_kit::test]
+fn welcome_new_file_opens_an_untitled_text_as_cmd_n_does(cx: &mut TestAppContext) {
+    let env = env("welcome-new-file", None);
+    let (wb, vcx) = start(cx, &env);
+    assert!(wb.read_with(vcx, |wb, _| wb.welcome_showing()));
+    click(vcx, "welcome:new-file");
+    assert!(!wb.read_with(vcx, |wb, _| wb.welcome_showing()), "the untitled text is shown");
+    let active = wb.read_with(vcx, |wb, _| wb.editors.active_editor().map(|e| e.path.clone()));
+    assert_eq!(active, Some(crate::model::untitled_key("Untitled-1")));
+}

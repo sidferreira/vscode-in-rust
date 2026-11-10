@@ -813,7 +813,7 @@ notes = "The extension host wire format in Rust (ADR-0060): the 13-byte Persiste
 
 [[port]]
 id = "exthost-proxy-ids"
-status = "ported"
+status = "partial"
 upstream = [
   "src/vs/workbench/api/common/extHost.protocol.ts",
   "src/vs/workbench/services/extensions/common/proxyIdentifier.ts",

@@ -1688,7 +1688,7 @@ get real replies (an `undefined` reply to those makes the host log an unhandled 
 - `$startExtensionHost` did not answer in a probe with no extensions and `autoStart: true`; not
   investigated (the host starts itself), noted for P1.
 
-**Reproducing:** `scripts/build-codeoss-exthost [DEST]` runs the steps above (it only ever writes to a
+**Reproducing:** `scripts/build-codeoss-exthost [DEST]` (re-run end to end into a second fresh folder, then `handshake_real_host` passed against it) runs the steps above (it only ever writes to a
 fresh folder), then `RSCODE_CODE_OSS=<DEST> cargo test -p vsr-rpc --test handshake_real_host`. Without
 `RSCODE_CODE_OSS` that test skips; `handshake_fake_host.rs` (a Node stand-in written independently of
 the Rust code) always runs where `node` is on PATH and skips otherwise.
@@ -1701,7 +1701,7 @@ host asks for it, with the recording handler as the guide.
 ## ADR-0061 — `vsr-rpc`: framing, codec, id table and handshake driver (2026-11-10)
 
 New crate `crates/vsr-rpc`, UI-free, no async runtime, no new dependencies (only `serde_json`, already
-in `Cargo.lock`: the cargo proxy token is not available to agents, ADR-0045 note).
+in `Cargo.lock`: the cargo proxy token is not available to agents, HANDOFF.md item 1).
 
 - **`framing`**: the 13-byte-header frames of `PersistentProtocol` (`ipc.net.ts`): `TYPE u8 | ID u32be
   | ACK u32be | LEN u32be`. `FrameReader` cuts a byte stream into frames; `Protocol` is the sans-IO

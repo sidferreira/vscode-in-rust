@@ -16,7 +16,8 @@
 //! `VSCODE_EXTHOST_IPC_HOOK` set: it connects to a Unix socket we listen on (the `IPCExtHostConnection`
 //! branch of `extensionHostProcess.ts`), so no Electron and no `process.send` handle passing.
 //! Needs a Code-OSS build of the pinned commit (`out/` from `node build/next/index.ts transpile`,
-//! see ADR-0060); this module never builds one.
+//! see ADR-0060); this module never builds one. Set `RSCODE_RPC_TRACE=1` to print every message
+//! [`Host::request`] receives.
 
 use crate::codec::{Arg, Reply};
 use crate::framing::{Frame, FrameReader, Protocol};

@@ -1467,3 +1467,45 @@ would want.
   `pending` or `unit`.
 - `.gitignore` edits are seen when the folder is listed again. There is no watch on `.gitignore`
   files, and the global gitignore and `.git/info/exclude` are not read.
+
+## ADR-0048 — Explorer sort options, auto-reveal exclusions and the small P1 settings groups (2026-11-10)
+
+**Context.** The P1 groups `explorer.sort`, `explorer.auto`, `explorer.confirm`, `editor.default`,
+`editor.scroll`, `workbench.sash`, `workbench.commandPalette`, `search.use`, `search.quickOpen` and
+`outline` / `search.searchEditor` were the next in `settings-port next`. Most of their settings need a
+missing feature, so the policy has to say what each one waits for.
+
+**Decision.**
+- **Wired**: `explorer.sortOrderLexicographicOptions` and `explorer.sortOrderReverse`
+  (`explorer/sort.rs`; reverse swaps the two entries before comparing, as upstream does, so folders
+  move too). `explorer.autoRevealExclude` (`explorer/view.rs::reveal_excluded`: the file and each folder
+  up to the root are matched, a `when` clause checks the siblings on disk; the default excludes
+  `node_modules` and `bower_components`). `workbench.sash.size` (the side bar sash's drag area, clamped
+  to 1 to 20 pixels).
+- **Blocked** (each names what it waits for): `explorer.autoOpenDroppedFile` and
+  `explorer.confirmDragAndDrop` (drag and drop), `explorer.confirmPasteNative` (paste),
+  `explorer.confirmUndo` (undo), `editor.defaultColorDecorators` (colour decorators),
+  `editor.defaultFormatter` and `editor.defaultFoldingRangeProvider` (extension host providers),
+  `editor.scrollPredominantAxis` and `editor.scrollOnMiddleClick` (the editor surface must capture the
+  wheel and the pointer), `outline.*` (document symbols), `search.searchEditor.*` (the Search Editor),
+  `search.useReplacePreview` (Replace Preview), `search.quickOpen.includeSymbols` (workspace symbols),
+  `workbench.commandPalette.experimental.suggestCommands` (a suggested list),
+  `workbench.sash.hoverDelay` (configurable hover delay) and `autoHideGrippers` / `autoHideGrippersDelay`
+  (sash grippers).
+- **n/a**: `workbench.commandPalette.experimental.enableNaturalLanguageSearch`, `askChatLocation` and
+  `showAskInChat` (AI chat and search, the product policy).
+
+**Consequences.**
+- The explorer sort's `Upper` and `Lower` options approximate upstream's collator `caseFirst`: they
+  break ties between names that differ only in case, not the full collation. `Unicode` is code point
+  order.
+- `workbench.sash.size` changes the drag area; the 1px border stays where it is. The default of 4
+  replaces the hard-coded 5 px drag area, to match upstream.
+- Not done in this change: `editor.scrollBeyondLastColumn` (needs the widest row to carry trailing
+  columns), `workbench.activityBar.*` (autoHide, compact, iconClickBehavior),
+  `explorer.fileNesting.*` (the nesting trie and the nested rows) and `explorer.openEditors.*` (the
+  Open Editors section). They stay `todo` and are the next work in these groups.
+- Tests: `explorer/sort.rs` unit tests, the Explorer e2e tests (`sort_reverse_and_lexicographic_options_follow_settings_live`,
+  `auto_reveal_exclude_skips_matching_paths_live`, `sash_size_sets_the_drag_area_live`) and the
+  `LayoutSettings` clamp test. The sash test reads the drag area's laid-out width through a debug
+  selector.

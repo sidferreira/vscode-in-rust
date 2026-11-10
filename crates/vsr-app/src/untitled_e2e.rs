@@ -404,3 +404,59 @@ fn restore_applies_the_editor_limit_to_the_saved_tabs(cx: &mut TestAppContext) {
     let active = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().path.clone());
     assert_eq!(active, env.root.join("c.txt"));
 }
+
+#[gpui::test]
+fn save_as_starts_in_the_folder_of_the_active_file(cx: &mut TestAppContext) {
+    let env = env("save-folder", "{}");
+    fs::create_dir_all(env.root.join("sub")).unwrap();
+    fs::write(env.root.join("sub").join("b.txt"), "b\n").unwrap();
+    let (wb, cx) = start(cx, &env);
+    let sub = env.root.join("sub").join("b.txt");
+    wb.update(cx, |wb, _| wb.open(&sub));
+    cx.run_until_parked();
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "hello");
+    wb.update_in(cx, |wb, window, cx| {
+        let i = wb.editors.active.unwrap();
+        wb.ask_save_untitled(i, window, cx);
+    });
+    cx.run_until_parked();
+    let parent = wb.read_with(cx, |wb, _| wb.explorer.inline.as_ref().unwrap().parent.clone());
+    assert_eq!(parent, env.root.join("sub"));
+}
+
+#[gpui::test]
+fn save_as_suggests_the_extension_of_the_language(cx: &mut TestAppContext) {
+    let env = env("save-extension", r#"{ "files.defaultLanguage": "rust" }"#);
+    let (wb, cx) = start(cx, &env);
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "notes");
+    wb.update_in(cx, |wb, window, cx| {
+        let i = wb.editors.active.unwrap();
+        wb.ask_save_untitled(i, window, cx);
+    });
+    cx.run_until_parked();
+    let value = wb.read_with(cx, |wb, cx| wb.explorer.inline.as_ref().unwrap().value(cx));
+    assert_eq!(value, "notes.rs");
+}
+
+#[gpui::test]
+fn blurring_the_save_as_box_does_not_save(cx: &mut TestAppContext) {
+    let env = env("save-blur", "{}");
+    let (wb, cx) = start(cx, &env);
+    new_untitled(&wb, cx);
+    let key = active_key(&wb, cx);
+    type_in_active(&wb, cx, "hello");
+    wb.update_in(cx, |wb, window, cx| {
+        let i = wb.editors.active.unwrap();
+        wb.ask_save_untitled(i, window, cx);
+    });
+    cx.run_until_parked();
+    // The name box has the focus; losing it runs the focus-out handler. Headless focus-out is not
+    // delivered to the box, so the handler is called directly (explorer/inline.rs).
+    wb.update_in(cx, |wb, window, cx| wb.blur_inline(window, cx));
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_none()), "the box closes");
+    assert!(!env.root.join("hello").exists(), "a blur writes nothing");
+    assert!(with_untitled(&wb, cx, &key, |e| e.is_dirty()), "the text stays an untitled text");
+}

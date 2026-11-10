@@ -94,13 +94,12 @@ impl Workbench {
         self.open_inline(kind, parent, target, initial, selection, window, cx);
     }
 
-    /// Save As of the untitled editor `key` (ADR-0058): the name box opens in the workspace folder,
-    /// with `name` typed in and its name part selected.
-    pub(crate) fn start_save_untitled_inline(&mut self, key: PathBuf, name: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let root = self.root.clone();
-        self.expand_to(&root);
+    /// Save As of the untitled editor `key` (ADR-0058): the name box opens in `parent` (the folder of
+    /// the last active file, ADR-0074), with `name` typed in and its name part selected.
+    pub(crate) fn start_save_untitled_inline(&mut self, key: PathBuf, name: &str, parent: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.expand_to(&parent);
         let selection = rename_selection(name, false);
-        self.open_inline(InlineKind::SaveUntitled, root, Some(key), name.to_string(), selection, window, cx);
+        self.open_inline(InlineKind::SaveUntitled, parent, Some(key), name.to_string(), selection, window, cx);
     }
 
     /// The name box itself: the input (validated on every change), focus and the entry.
@@ -170,10 +169,14 @@ impl Workbench {
     }
 
     /// Losing focus: commit a valid name, cancel an invalid one (focus is already elsewhere, so the
-    /// tree does not take it back).
-    fn blur_inline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// tree does not take it back). Save As never commits on blur: upstream's Save As is a dialog,
+    /// which a click elsewhere cannot answer, so leaving its box cancels it (ADR-0074).
+    pub(crate) fn blur_inline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(edit) = self.explorer.inline.as_ref() else { return };
-        if edit.has_error() {
+        if edit.kind == InlineKind::SaveUntitled {
+            self.explorer.inline = None;
+            cx.notify();
+        } else if edit.has_error() {
             self.explorer.inline = None;
             cx.notify();
         } else {

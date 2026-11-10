@@ -812,6 +812,25 @@ impl Editors {
         }
     }
 
+    /// The name a Save As of the untitled text `e` starts with (upstream `suggestSavePath`, ADR-0074):
+    /// its title when that is a valid file name (else its `Untitled-N` name), with the extension its
+    /// language suggests.
+    pub fn suggested_save_name(&self, e: &OpenEditor) -> String {
+        let title = self.title_of(e);
+        let name = if crate::explorer::names::validate_file_name(&title, |_| false).is_none() {
+            title
+        } else {
+            e.untitled_name().unwrap_or_default().to_string()
+        };
+        let id = e.language_id();
+        if id == vsr_languages::PLAINTEXT_LANGUAGE_ID || !self.syntax.is_registered_language(id) {
+            return name;
+        }
+        let extensions = self.syntax.language_extensions(id);
+        let filenames = self.syntax.language_filenames(id);
+        untitled::suggest_file_name(&name, Some((&extensions, &filenames)))
+    }
+
     pub fn tab_labels(&self, root: &Path, format: LabelFormat) -> Vec<TabLabel> {
         let titles: Vec<String> = self.open.iter().map(|e| self.title_of(e)).collect();
         self.open

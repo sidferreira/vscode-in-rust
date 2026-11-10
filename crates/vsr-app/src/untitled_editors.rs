@@ -13,7 +13,7 @@ use vsr_editor::untitled::new_language;
 
 use crate::Workbench;
 use crate::config::AppConfig;
-use crate::model::OpenOptions;
+use crate::model::{OpenOptions, untitled_name_of};
 
 impl Workbench {
     /// File: New Untitled Text File (Cmd+N): an empty text, pinned and focused. Its language is
@@ -42,9 +42,21 @@ impl Workbench {
         self.session.close_after_save = None;
         let Some(e) = self.editors.open.get(index).filter(|e| e.is_untitled()) else { return };
         let key = e.path.clone();
-        let name = self.editors.title_of(e);
+        let name = self.editors.suggested_save_name(e);
+        let parent = self.save_as_folder();
         self.show_explorer(cx);
-        self.start_save_untitled_inline(key, &name, window, cx);
+        self.start_save_untitled_inline(key, &name, parent, window, cx);
+    }
+
+    /// The folder a Save As starts in (upstream `defaultFilePath`: the folder of the last active
+    /// file): the folder of the most recent file editor when it is inside the workspace, else the
+    /// workspace root (ADR-0074).
+    fn save_as_folder(&self) -> PathBuf {
+        let folder = self.editors.mru.iter().find(|p| untitled_name_of(p).is_none()).and_then(|p| p.parent());
+        match folder {
+            Some(dir) if dir.starts_with(&self.root) => dir.to_path_buf(),
+            _ => self.root.clone(),
+        }
     }
 
     /// Save As through the name box: creates `parent/name` with the text of the untitled text `key`.

@@ -2407,3 +2407,28 @@ ported: no consumer yet.
 **Not done in this step (next steps of the suggest work).** The completion model (`completionModel.ts`),
 suggest memory, the snippet parser, the trigger and widget, and the editor.suggest settings. See the
 progress of this branch in the commit log.
+
+## ADR-0081 — Completion model: items, sorting and incremental filtering in `vsr-suggest` (2026-11-10)
+
+`vsr-suggest::item` is the UI-free `CompletionItem` of upstream `suggest.ts` (position, completion, provider,
+the derived edit positions, `isInvalid`, score, distance, index). `vsr-suggest::sort` holds the comparators
+of `getSuggestionComparator` (sort text, then label, then kind; snippets first or last for the snippet
+placement). `vsr-suggest::model` is `CompletionModel`.
+
+**Decisions.**
+- The model owns the provider's items and keeps the filtered view separately. Upstream mutates shared
+  items in place; here the filtered view holds copies, so the source list is never changed by a refilter.
+- Refiltering has upstream's three modes: nothing (cached), all items (the default, and when the word
+  shrinks), and incremental (the word grew, so only the previously matching items are scored again).
+  `computations()` counts rebuilds; upstream's identity check on the cached array becomes this count.
+- Scoring uses `fuzzy_score_graceful_aggressive` when `filterGraceful` is on and there are at most 2,000
+  items, else `fuzzy_score` (upstream's switch).
+- Word extraction (`leading.slice(-wordLen)`) works on UTF-16 units, and a negative length slices from the
+  start, as `slice` does.
+- Incomplete providers come from each provider's first valid item, as `getIncompleteProvider` does.
+- Not ported in this step: `WordDistance` beyond `None` (the locality bonus needs the worker's word ranges),
+  the `pLabelLen` statistic, label-details objects (a label is its text), and `provideSuggestionItems`
+  (the request to the providers and the default ranges; that is the trigger step).
+
+**Ported tests.** 13 of 13 `completionModel.test.ts` cases (suite `CompletionModel`), with the
+`suggest.ts` comparator behaviour they depend on.

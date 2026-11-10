@@ -4,3 +4,6 @@
 //! (the completion model). Nothing here knows about gpui or the workbench.
 
 pub mod filters;
+pub mod item;
+pub mod model;
+pub mod sort;

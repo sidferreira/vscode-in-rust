@@ -615,3 +615,9 @@ status = "blocked"
 reason = "needs multi-root workspaces"
 comment = "explorer.expandSingleFolderWorkspaces applies to multi-root workspaces that hold one folder. rscode opens one folder (see tests/e2e-scenarios/multiroot.md for the plan)."
 match = ["explorer.expandSingleFolderWorkspaces"]
+
+[[rule]]
+status = "blocked"
+reason = "needs drag and drop in the Explorer"
+comment = "explorer.autoOpenDroppedFile opens a file that is dropped into the tree, and explorer.confirmDragAndDrop asks before a drag moves files. Both wait for drag and drop in the Explorer (see explorer.enableDragAndDrop above)."
+match = ["explorer.autoOpenDroppedFile"]

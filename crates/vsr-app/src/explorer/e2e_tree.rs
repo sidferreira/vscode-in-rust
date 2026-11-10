@@ -287,6 +287,25 @@ fn auto_reveal_expands_and_selects_the_opened_file(cx: &mut TestAppContext) {
     assert!(src_open && deep_open, "the folders above the file are expanded");
 }
 
+#[gpui::test]
+fn auto_reveal_exclude_skips_matching_paths_live(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("reveal-exclude");
+    fs::create_dir_all(ws.path().join("node_modules/pkg")).unwrap();
+    fs::write(ws.path().join("node_modules/pkg/index.js"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let file = ws.path().join("node_modules/pkg/index.js");
+    // The default excludes node_modules (upstream `explorer.autoRevealExclude`): nothing is revealed.
+    wb.update(cx, |wb, _| wb.open(&file));
+    cx.run_until_parked();
+    let (selected, expanded) = wb.read_with(cx, |wb, _| (wb.explorer.selected.clone(), wb.expanded.contains(&wb.root.join("node_modules"))));
+    assert_eq!((selected, expanded), (None, false), "excluded: neither selected nor expanded");
+    // A user value replaces the default; `false` turns the pattern off.
+    set(cx, "explorer.autoRevealExclude", json!({ "**/node_modules": false }));
+    wb.update(cx, |wb, _| wb.open(&file));
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.explorer.selected.clone()), Some(file), "no longer excluded: revealed");
+}
+
 /// A tree taller than the window: 120 files at the root, so the last one is out of view.
 fn tall_workspace(tag: &str) -> (TempWorkspace, TempWorkspace) {
     let (ws, bin) = workspace(tag);

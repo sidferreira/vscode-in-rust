@@ -53,6 +53,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "explorer.sortOrderReverse",
             "explorer.compactFolders",
             "explorer.autoReveal",
+            "explorer.autoRevealExclude",
             "explorer.excludeGitIgnore",
             "explorer.copyPathSeparator",
             "explorer.copyRelativePathSeparator",

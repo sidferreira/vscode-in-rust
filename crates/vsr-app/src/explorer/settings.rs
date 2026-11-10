@@ -8,6 +8,14 @@ use std::path::Path;
 
 use vsr_settings::Configuration;
 
+use crate::config::glob::ExcludeMatcher;
+
+/// `explorer.autoRevealExclude`: the paths `autoReveal` skips (the default excludes `node_modules`
+/// and `bower_components`).
+pub fn reveal_exclude(c: &Configuration) -> ExcludeMatcher {
+    c.get_value("explorer.autoRevealExclude").map(ExcludeMatcher::from_value).unwrap_or_default()
+}
+
 /// `explorer.sortOrder`. `foldersNestsFiles` is `Default` here: nested files need file nesting
 /// (`explorer.fileNesting.enabled`), which rscode does not have, so the two sort the same.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

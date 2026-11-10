@@ -21,6 +21,8 @@ pub struct ExplorerState {
     pub inline: Option<super::inline::InlineEdit>,
     /// The `explorer.*` settings in effect (re-read when the configuration changes).
     pub settings: ExplorerSettings,
+    /// `explorer.autoRevealExclude`, compiled (re-read with the settings).
+    pub reveal_exclude: crate::config::glob::ExcludeMatcher,
 }
 
 /// A delete the user has to confirm: the path, and whether it goes to the Trash.
@@ -32,7 +34,16 @@ pub struct PendingDelete {
 
 impl ExplorerState {
     pub fn new(cx: &mut App) -> Self {
-        let settings = ExplorerSettings::from_configuration(AppConfig::get(cx).configuration());
-        Self { focus: cx.focus_handle(), scroll: ScrollHandle::new(), selected: None, confirm: None, inline: None, settings }
+        let configuration = AppConfig::get(cx).configuration();
+        let settings = ExplorerSettings::from_configuration(configuration);
+        Self {
+            focus: cx.focus_handle(),
+            scroll: ScrollHandle::new(),
+            selected: None,
+            confirm: None,
+            inline: None,
+            settings,
+            reveal_exclude: super::settings::reveal_exclude(configuration),
+        }
     }
 }

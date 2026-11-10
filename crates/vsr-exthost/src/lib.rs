@@ -23,5 +23,6 @@ pub mod diagnostics;
 pub mod documents;
 pub mod editors;
 pub mod host;
+pub mod language_features;
 pub mod main_thread;
 pub mod status_bar;

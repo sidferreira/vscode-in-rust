@@ -144,7 +144,7 @@ impl Session {
         let thread_shared = shared.clone();
         let handle = std::thread::Builder::new()
             .name("rpc-reader".into())
-            .spawn(move || read_loop(thread_shared, read_stream, reader, inbox.into(), tx))
+            .spawn(move || read_loop(thread_shared, read_stream, reader, inbox, tx))
             .expect("spawn the reader thread");
         (
             Session {
@@ -317,10 +317,10 @@ fn dispatch(shared: &Arc<Shared>, raw: &[u8], events: &Sender<Event>) {
     for m in handled.send {
         let _ = inner.send(m);
     }
-    if let Some(done) = handled.completed {
-        if let Some(w) = inner.waiters.remove(&done.req) {
-            let _ = w.send(done);
-        }
+    if let Some(done) = handled.completed
+        && let Some(w) = inner.waiters.remove(&done.req)
+    {
+        let _ = w.send(done);
     }
     drop(inner);
     if let Some(call) = handled.call {

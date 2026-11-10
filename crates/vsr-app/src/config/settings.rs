@@ -418,6 +418,9 @@ pub struct EditorSettings {
     pub font_features: Vec<(String, u32)>,
     /// `editor.scrollBeyondLastLine`: the last line can scroll up to the top of the viewport.
     pub scroll_beyond_last_line: bool,
+    /// `editor.scrollBeyondLastColumn`: columns of room after the widest line when not wrapping
+    /// (upstream `ViewLayout`: `maxLineWidth + scrollBeyondLastColumn * typicalHalfwidthCharacterWidth`).
+    pub scroll_beyond_last_column: usize,
     /// `editor.wordWrap`, `editor.wordWrapColumn`, `editor.wrappingIndent`, `editor.wrappingStrategy`,
     /// `editor.wordWrapIndicator`, `editor.wordBreak`.
     pub word_wrap: WordWrap,
@@ -492,6 +495,7 @@ impl Default for EditorSettings {
             line_highlight_only_when_focus: false,
             font_features: parse_font_ligatures(None),
             scroll_beyond_last_line: true,
+            scroll_beyond_last_column: 4,
             word_wrap: WordWrap::Off,
             word_wrap_column: 80,
             wrapping_indent: WrappingIndentSetting::Same,
@@ -620,6 +624,7 @@ impl EditorSettings {
             line_highlight_only_when_focus: c.get_bool("editor.renderLineHighlightOnlyWhenFocus").unwrap_or(false),
             font_features: parse_font_ligatures(c.get_value("editor.fontLigatures")),
             scroll_beyond_last_line: c.get_bool("editor.scrollBeyondLastLine").unwrap_or(true),
+            scroll_beyond_last_column: c.get_f64("editor.scrollBeyondLastColumn").unwrap_or(4.0).round().max(0.0) as usize,
             word_wrap: c.get_enum("editor.wordWrap").unwrap_or(WordWrap::Off),
             word_wrap_column: c.get_f64("editor.wordWrapColumn").unwrap_or(80.0).round().max(1.0) as usize,
             wrapping_indent: c.get_enum("editor.wrappingIndent").unwrap_or(WrappingIndentSetting::Same),

@@ -639,3 +639,27 @@ status = "blocked"
 reason = "needs undo for Explorer file operations"
 comment = "explorer.confirmUndo asks before an undo of an Explorer operation. There is no undo stack yet (see explorer.enableUndo above)."
 match = ["explorer.confirmUndo"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a scroll capture on the editor surface"
+comment = "editor.scrollPredominantAxis drops the minor axis of a wheel gesture before the rows scroll, and editor.scrollOnMiddleClick starts a middle-button autoscroll. Both need the editor surface to capture the pointer and scroll itself (the rows scroll inside gpui's list today)."
+match = ["editor.scrollPredominantAxis", "editor.scrollOnMiddleClick"]
+
+[[rule]]
+status = "blocked"
+reason = "needs color decorators in the editor (document color provider)"
+comment = "editor.defaultColorDecorators picks the default provider of the inline colour swatches. rscode draws no colour decorators yet (colorDetector)."
+match = ["editor.defaultColorDecorators"]
+
+[[rule]]
+status = "blocked"
+reason = "needs formatting providers from the extension host"
+comment = "editor.defaultFormatter takes precedence over the other formatters. rscode has no formatters without the extension host (ADR-0020), like the other editor.format* settings."
+match = ["editor.defaultFormatter"]
+
+[[rule]]
+status = "blocked"
+reason = "needs folding range providers from the extension host"
+comment = "editor.defaultFoldingRangeProvider picks the folding provider that wins over the others. rscode folds by indentation only (folding.rs); the providers come from the extension host."
+match = ["editor.defaultFoldingRangeProvider"]

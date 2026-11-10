@@ -408,14 +408,11 @@ note = "Done (ADR-0085..0087): OutlineModel, worker query with debounce, breadcr
 [[node]]
 id = "outline-view"
 title = "Outline view (symbols of the active file in the Explorer)"
-status = "todo"
+status = "done"
 effort = "M"
 effort_source = "guess"
 needs = ["document-symbols"]
-reasons = [
-  "needs the Outline view (the symbols of the active file in a view of the Explorer)",
-]
-note = "The model, query and cache exist (ADR-0085, ADR-0086); the tree view, follow cursor, sort/filter actions and problem markers on symbols do not."
+note = "Done (ADR-0092..0094): tree, follow cursor, sort/filter, problems; 31 outline settings wired."
 
 [[node]]
 id = "copy-breadcrumbs-path"

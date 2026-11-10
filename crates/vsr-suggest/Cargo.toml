@@ -1,0 +1,9 @@
+[package]
+name = "vsr-suggest"
+description = "UI-free completion suggestions: fuzzy scoring, the sorted and filtered completion model, suggest memory and the snippet parser (upstream vs/editor/contrib/suggest and vs/editor/contrib/snippet, ADR-0080)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

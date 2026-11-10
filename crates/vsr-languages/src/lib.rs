@@ -11,6 +11,11 @@ mod associations;
 mod bundled_files;
 mod registry;
 
+pub mod character_pair;
+pub mod config;
+pub mod indent_rules;
+pub mod on_enter;
+
 pub mod bundled;
 
 pub use associations::{

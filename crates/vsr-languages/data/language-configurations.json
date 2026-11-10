@@ -1,0 +1,5800 @@
+{
+ "bat/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "@REM "
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "%",
+    "%"
+   ],
+   [
+    "\"",
+    "\""
+   ]
+  ]
+ },
+ "clojure/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": ";;"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ]
+  ]
+ },
+ "coffeescript/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "###",
+    "###"
+   ],
+   "lineComment": "#"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    " ",
+    " "
+   ]
+  ]
+ },
+ "cpp/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "*/",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "/*"
+   },
+   {
+    "close": " */",
+    "notIn": [
+     "string"
+    ],
+    "open": "/**"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": {
+    "pattern": "^\\s*[\\}\\]\\)].*$"
+   },
+   "increaseIndentPattern": {
+    "pattern": "^.*(\\{[^}]*|\\([^)]*|\\[[^\\]]*)$"
+   }
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "indent": "outdent"
+    },
+    "beforeText": "^\\s+([^{i\\s]|i(?!f\\b))",
+    "previousLineText": "^\\s*(((else ?)?if|for|while)\\s*\\(.*\\)\\s*|else\\s*)$"
+   },
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ],
+  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)"
+ },
+ "csharp/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "colorizedBracketPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": "/// ",
+     "indent": "none"
+    },
+    "beforeText": "^\\s*///"
+   },
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "\"",
+    "\""
+   ]
+  ]
+ },
+ "css/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "["
+   },
+   {
+    "close": ")",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "("
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ]
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*\\}",
+   "increaseIndentPattern": "(^.*\\{[^}]*$)"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ],
+  "wordPattern": "(#?-?\\d*\\.\\d\\w*%?)|(::?[\\w-]*(?=[^,{;]*[,{]))|(([@#.!])?[\\w-?]+%?|[@#!.])"
+ },
+ "dart/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "`"
+   },
+   {
+    "close": " */",
+    "notIn": [
+     "string"
+    ],
+    "open": "/**"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "diff/language-configuration.json": {
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "#",
+    " "
+   ],
+   "lineComment": "#"
+  }
+ },
+ "docker/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "#"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s+\\}$",
+   "increaseIndentPattern": "^\\s*.*(:|-) ?(&amp;\\w+)?(\\{[^}\"']*|\\([^)\"']*)?$"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "dotenv/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "#"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "fsharp/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "(*",
+    "*)"
+   ],
+   "lineComment": "//"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "git-base/languages/git-commit.language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "`"
+   },
+   {
+    "close": " */",
+    "notIn": [
+     "string"
+    ],
+    "open": "/**"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "#",
+    " "
+   ],
+   "lineComment": "#"
+  }
+ },
+ "git-base/languages/git-rebase.language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "`"
+   },
+   {
+    "close": " */",
+    "notIn": [
+     "string"
+    ],
+    "open": "/**"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "#",
+    " "
+   ],
+   "lineComment": "#"
+  }
+ },
+ "git-base/languages/ignore.language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "`"
+   }
+  ],
+  "comments": {
+   "lineComment": "#"
+  }
+ },
+ "go/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "`",
+    "notIn": [
+     "string"
+    ],
+    "open": "`"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*(\\bcase\\b.*:|\\bdefault\\b:|}[)}]*[)]?|\\)[]?)$",
+   "increaseIndentPattern": "^.*(\\bcase\\b.*:|\\bdefault\\b:|(\\b(func|if|else|switch|select|for|struct)\\b.*)?{[^}\"'`]*|\\([^)\"'`]*)$"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "groovy/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "handlebars/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "<!--",
+    "-->"
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "{{",
+    "}}"
+   ],
+   [
+    "{{{",
+    "}}}"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "{{!--",
+    "--}}"
+   ]
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "indent": "indentOutdent"
+    },
+    "afterText": {
+     "flags": "i",
+     "pattern": "^<\\/([_:\\w][_:\\w-.\\d]*)\\s*>"
+    },
+    "beforeText": {
+     "flags": "i",
+     "pattern": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr))([_:\\w][_:\\w-.\\d]*)([^/>]*(?!\\/)>)[^<]*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "indent"
+    },
+    "beforeText": {
+     "flags": "i",
+     "pattern": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr))(\\w[\\w\\d]*)([^/>]*(?!\\/)>)[^<]*$"
+    }
+   }
+  ],
+  "surroundingPairs": [
+   {
+    "close": "'",
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "open": "\""
+   },
+   {
+    "close": ">",
+    "open": "<"
+   },
+   {
+    "close": "}",
+    "open": "{"
+   }
+  ],
+  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\$\\^\\&\\*\\(\\)\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\s]+)"
+ },
+ "hlsl/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ]
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ]
+  ]
+ },
+ "html/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "open": "\""
+   },
+   {
+    "close": "-->",
+    "notIn": [
+     "comment",
+     "string"
+    ],
+    "open": "<!--"
+   }
+  ],
+  "brackets": [
+   [
+    "<!--",
+    "-->"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "colorizedBracketPairs": [],
+  "comments": {
+   "blockComment": [
+    "<!--",
+    "-->"
+   ]
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*(<\\/(?!html)[-_\\.A-Za-z0-9]+\\b[^>]*>|-->|\\})",
+   "increaseIndentPattern": "<(?!\\?|(?:area|base|br|col|frame|hr|html|img|input|keygen|link|menuitem|meta|param|source|track|wbr)\\b|[^>]*\\/>)([-_\\.A-Za-z0-9]+)(?=\\s|>)\\b[^>]*>(?!.*<\\/\\1>)|<!--(?!.*-->)|\\{[^}\"']*$"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "indent": "indentOutdent"
+    },
+    "afterText": {
+     "flags": "i",
+     "pattern": "^<\\/([_:\\w][_:\\w-.\\d]*)\\s*>"
+    },
+    "beforeText": {
+     "flags": "i",
+     "pattern": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr))([_:\\w][_:\\w-.\\d]*)(?:(?:[^'\"/>]|\"[^\"]*\"|'[^']*')*?(?!\\/)>)[^<]*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "indent"
+    },
+    "beforeText": {
+     "flags": "i",
+     "pattern": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr))([_:\\w][_:\\w-.\\d]*)(?:(?:[^'\"/>]|\"[^\"]*\"|'[^']*')*?(?!\\/)>)[^<]*$"
+    }
+   }
+  ],
+  "surroundingPairs": [
+   {
+    "close": "'",
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "open": "\""
+   },
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": ">",
+    "open": "<"
+   }
+  ],
+  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\$\\^\\&\\*\\(\\)\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\s]+)"
+ },
+ "ini/ini.language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    ";",
+    " "
+   ],
+   "lineComment": ";"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "ini/properties.language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "#",
+    " "
+   ],
+   "lineComment": "#"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "java/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   },
+   {
+    "close": " */",
+    "notIn": [
+     "string"
+    ],
+    "open": "/**"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": " * ",
+     "indent": "indentOutdent"
+    },
+    "afterText": {
+     "pattern": "^\\s*\\*/$"
+    },
+    "beforeText": {
+     "pattern": "^\\s*/\\*\\*(?!/)([^\\*]|\\*(?!/))*$"
+    }
+   },
+   {
+    "action": {
+     "appendText": " * ",
+     "indent": "none"
+    },
+    "beforeText": {
+     "pattern": "^\\s*/\\*\\*(?!/)([^\\*]|\\*(?!/))*$"
+    }
+   },
+   {
+    "action": {
+     "appendText": "* ",
+     "indent": "none"
+    },
+    "beforeText": {
+     "pattern": "^(\\t|[ ])*[ ]\\*([ ]([^\\*]|\\*(?!/))*)?$"
+    },
+    "previousLineText": {
+     "pattern": "(?=^(\\s*(/\\*\\*|\\*)).*)(?=(?!(\\s*\\*/)))"
+    }
+   },
+   {
+    "action": {
+     "indent": "none",
+     "removeText": 1
+    },
+    "beforeText": {
+     "pattern": "^(\\t|[ ])*[ ]\\*/\\s*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "none",
+     "removeText": 1
+    },
+    "beforeText": {
+     "pattern": "^(\\t|[ ])*[ ]\\*[^/]*\\*/\\s*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "indent"
+    },
+    "afterText": {
+     "pattern": "^(?!\\s*(\\bcase\\b|\\bdefault\\b))"
+    },
+    "beforeText": {
+     "pattern": "^\\s*(\\bcase\\s.+:|\\bdefault:)$"
+    }
+   },
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ]
+ },
+ "javascript/javascript-language-configuration.json": {
+  "autoCloseBefore": ";:.,=}])>` \n\t",
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "${"
+   },
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "`"
+   },
+   {
+    "close": " */",
+    "notIn": [
+     "string"
+    ],
+    "open": "/**"
+   }
+  ],
+  "brackets": [
+   [
+    "${",
+    "}"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": {
+    "pattern": "^\\s*[\\}\\]\\)].*$"
+   },
+   "increaseIndentPattern": {
+    "pattern": "^.*(\\{[^}]*|\\([^)]*|\\[[^\\]]*)$"
+   },
+   "indentNextLinePattern": {
+    "pattern": "^((.*=>\\s*)|((.*[^\\w]+|\\s*)((if|while|for)\\s*\\(.*\\)\\s*|else\\s*)))$"
+   },
+   "unIndentedLinePattern": {
+    "pattern": "^(\\t|[ ])*[ ]\\*[^/]*\\*/\\s*$|^(\\t|[ ])*[ ]\\*/\\s*$|^(\\t|[ ])*\\*([ ]([^\\*]|\\*(?!/))*)?$"
+   }
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": " * ",
+     "indent": "indentOutdent"
+    },
+    "afterText": {
+     "pattern": "^\\s*\\*/$"
+    },
+    "beforeText": {
+     "pattern": "^\\s*/\\*\\*(?!/)([^\\*]|\\*(?!/))*$"
+    }
+   },
+   {
+    "action": {
+     "appendText": " * ",
+     "indent": "none"
+    },
+    "beforeText": {
+     "pattern": "^\\s*/\\*\\*(?!/)([^\\*]|\\*(?!/))*$"
+    }
+   },
+   {
+    "action": {
+     "appendText": "* ",
+     "indent": "none"
+    },
+    "beforeText": {
+     "pattern": "^(\\t|[ ])*\\*([ ]([^\\*]|\\*(?!/))*)?$"
+    },
+    "previousLineText": {
+     "pattern": "(?=^(\\s*(/\\*\\*|\\*)).*)(?=(?!(\\s*\\*/)))"
+    }
+   },
+   {
+    "action": {
+     "indent": "none",
+     "removeText": 1
+    },
+    "beforeText": {
+     "pattern": "^(\\t|[ ])*[ ]\\*/\\s*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "none",
+     "removeText": 1
+    },
+    "beforeText": {
+     "pattern": "^(\\t|[ ])*[ ]\\*[^/]*\\*/\\s*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "indent"
+    },
+    "afterText": {
+     "pattern": "^(?!\\s*(\\bcase\\b|\\bdefault\\b))"
+    },
+    "beforeText": {
+     "pattern": "^\\s*(\\bcase\\s.+:|\\bdefault:)$"
+    }
+   },
+   {
+    "action": {
+     "indent": "outdent"
+    },
+    "beforeText": "^\\s+([^{i\\s]|i(?!f\\b))",
+    "previousLineText": "^\\s*(((else ?)?if|for|while)\\s*\\(.*\\)\\s*|else\\s*)$"
+   },
+   {
+    "action": {
+     "appendText": "\t",
+     "indent": "indentOutdent"
+    },
+    "afterText": "^\\s*\\).*$",
+    "beforeText": "^.*\\([^\\)]*$"
+   },
+   {
+    "action": {
+     "appendText": "\t",
+     "indent": "indentOutdent"
+    },
+    "afterText": "^\\s*\\}.*$",
+    "beforeText": "^.*\\{[^\\}]*$"
+   },
+   {
+    "action": {
+     "appendText": "\t",
+     "indent": "indentOutdent"
+    },
+    "afterText": "^\\s*\\].*$",
+    "beforeText": "^.*\\[[^\\]]*$"
+   },
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "${",
+    "}"
+   ],
+   [
+    "$",
+    ""
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "`",
+    "`"
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ],
+  "wordPattern": {
+   "pattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\@\\~\\!\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>/\\?\\s]+)"
+  }
+ },
+ "javascript/tags-language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": " */",
+    "notIn": [
+     "string"
+    ],
+    "open": "/**"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ],
+  "colorizedBracketPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "{/*",
+    "*/}"
+   ]
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "indent": "indentOutdent"
+    },
+    "afterText": {
+     "flags": "i",
+     "pattern": "^<\\/([_:\\w][_:\\w-.\\d]*)\\s*>$"
+    },
+    "beforeText": {
+     "flags": "i",
+     "pattern": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr))([_:\\w][_:\\w\\-.\\d]*)([^/>]*(?!/)>)[^<]*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "indent"
+    },
+    "beforeText": {
+     "flags": "i",
+     "pattern": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr))([_:\\w][_:\\w\\-.\\d]*)([^/>]*(?!/)>)[^<]*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "indentOutdent"
+    },
+    "afterText": {
+     "flags": "i",
+     "pattern": "^<\\/([_:\\w][_:\\w-.\\d]*)\\s*>$"
+    },
+    "beforeText": {
+     "pattern": "^>$"
+    }
+   },
+   {
+    "action": {
+     "indent": "indent"
+    },
+    "beforeText": {
+     "pattern": "^>$"
+    }
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "\"",
+    "\""
+   ]
+  ],
+  "wordPattern": {
+   "pattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\$\\^\\&\\*\\(\\)\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:'\"\\,\\.\\<\\>\\/\\s]+)"
+  }
+ },
+ "json/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "notIn": [
+     "string"
+    ],
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "notIn": [
+     "string"
+    ],
+    "open": "["
+   },
+   {
+    "close": ")",
+    "notIn": [
+     "string"
+    ],
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "`"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*[}\\]],?\\s*$",
+   "increaseIndentPattern": "({+(?=((\\\\.|[^\"\\\\])*\"(\\\\.|[^\"\\\\])*\")*[^\"}]*)$)|(\\[+(?=((\\\\.|[^\"\\\\])*\"(\\\\.|[^\"\\\\])*\")*[^\"\\]]*)$)"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ]
+ },
+ "julia/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "`",
+    "`"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "#=",
+    "=#"
+   ],
+   "lineComment": "#"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*(end|else|elseif|catch|finally)\\b.*$",
+   "increaseIndentPattern": "^(\\s*|.*=\\s*|.*@\\w*\\s*)[\\w\\s]*(?:[\"'`][^\"'`]*[\"'`])*[\\w\\s]*\\b(if|while|for|function|macro|(mutable\\s+)?struct|abstract\\s+type|primitive\\s+type|let|quote|try|begin|.*\\)\\s*do|else|elseif|catch|finally)\\b(?!(?:.*\\bend\\b[^\\]]*)|(?:[^\\[]*\\].*)$).*$"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "latex/latex-cpp-embedded-language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": {
+    "pattern": "^\\s*[\\}\\]\\)].*$"
+   },
+   "increaseIndentPattern": {
+    "pattern": "^.*(\\{[^}]*|\\([^)]*|\\[[^\\]]*)$"
+   }
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "indent": "outdent"
+    },
+    "beforeText": "^\\s+([^{i\\s]|i(?!f\\b))",
+    "previousLineText": "^\\s*(((else ?)?if|for|while)\\s*\\(.*\\)\\s*|else\\s*)$"
+   },
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ],
+  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)"
+ },
+ "latex/latex-language-configuration.json": {
+  "autoCloseBefore": ";:.,={}])>\\` \n\t$",
+  "autoClosingPairs": [
+   [
+    "\\left(",
+    "\\right)"
+   ],
+   [
+    "\\left[",
+    "\\right]"
+   ],
+   [
+    "\\left\\{",
+    "\\right\\}"
+   ],
+   [
+    "\\bigl(",
+    "\\bigr)"
+   ],
+   [
+    "\\bigl[",
+    "\\bigr]"
+   ],
+   [
+    "\\bigl\\{",
+    "\\bigr\\}"
+   ],
+   [
+    "\\Bigl(",
+    "\\Bigr)"
+   ],
+   [
+    "\\Bigl[",
+    "\\Bigr]"
+   ],
+   [
+    "\\Bigl\\{",
+    "\\Bigr\\}"
+   ],
+   [
+    "\\biggl(",
+    "\\biggr)"
+   ],
+   [
+    "\\biggl[",
+    "\\biggr]"
+   ],
+   [
+    "\\biggl\\{",
+    "\\biggr\\}"
+   ],
+   [
+    "\\Biggl(",
+    "\\Biggr)"
+   ],
+   [
+    "\\Biggl[",
+    "\\Biggr]"
+   ],
+   [
+    "\\Biggl\\{",
+    "\\Biggr\\}"
+   ],
+   [
+    "\\(",
+    "\\)"
+   ],
+   [
+    "\\[",
+    "\\]"
+   ],
+   [
+    "\\{",
+    "\\}"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "`",
+    "'"
+   ]
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "[",
+    ")"
+   ],
+   [
+    "(",
+    "]"
+   ],
+   [
+    "\\{",
+    "\\}"
+   ],
+   [
+    "\\left(",
+    "\\right)"
+   ],
+   [
+    "\\left(",
+    "\\right]"
+   ],
+   [
+    "\\left(",
+    "\\right."
+   ],
+   [
+    "\\left.",
+    "\\right)"
+   ],
+   [
+    "\\left[",
+    "\\right]"
+   ],
+   [
+    "\\left[",
+    "\\right)"
+   ],
+   [
+    "\\left[",
+    "\\right."
+   ],
+   [
+    "\\left.",
+    "\\right]"
+   ],
+   [
+    "\\left\\{",
+    "\\right\\}"
+   ],
+   [
+    "\\left\\{",
+    "\\right."
+   ],
+   [
+    "\\left.",
+    "\\right\\}"
+   ],
+   [
+    "\\left<",
+    "\\right>"
+   ],
+   [
+    "\\bigl(",
+    "\\bigr)"
+   ],
+   [
+    "\\bigl[",
+    "\\bigr]"
+   ],
+   [
+    "\\bigl\\{",
+    "\\bigr\\}"
+   ],
+   [
+    "\\Bigl(",
+    "\\Bigr)"
+   ],
+   [
+    "\\Bigl[",
+    "\\Bigr]"
+   ],
+   [
+    "\\Bigl\\{",
+    "\\Bigr\\}"
+   ],
+   [
+    "\\biggl(",
+    "\\biggr)"
+   ],
+   [
+    "\\biggl[",
+    "\\biggr]"
+   ],
+   [
+    "\\biggl\\{",
+    "\\biggr\\}"
+   ],
+   [
+    "\\Biggl(",
+    "\\Biggr)"
+   ],
+   [
+    "\\Biggl[",
+    "\\Biggr]"
+   ],
+   [
+    "\\Biggl\\{",
+    "\\Biggr\\}"
+   ],
+   [
+    "\\langle",
+    "\\rangle"
+   ],
+   [
+    "\\lvert",
+    "\\rvert"
+   ],
+   [
+    "\\lVert",
+    "\\rVert"
+   ],
+   [
+    "\\left|",
+    "\\right|"
+   ],
+   [
+    "\\left.",
+    "\\right|"
+   ],
+   [
+    "\\left|",
+    "\\right."
+   ],
+   [
+    "\\left\\vert",
+    "\\right\\vert"
+   ],
+   [
+    "\\left\\|",
+    "\\right\\|"
+   ],
+   [
+    "\\left\\Vert",
+    "\\right\\Vert"
+   ],
+   [
+    "\\left\\langle",
+    "\\right\\rangle"
+   ],
+   [
+    "\\left\\lvert",
+    "\\right\\rvert"
+   ],
+   [
+    "\\left\\lVert",
+    "\\right\\rVert"
+   ],
+   [
+    "\\bigl\\langle",
+    "\\bigr\\rangle"
+   ],
+   [
+    "\\bigl|",
+    "\\bigr|"
+   ],
+   [
+    "\\bigl\\vert",
+    "\\bigr\\vert"
+   ],
+   [
+    "\\bigl\\lvert",
+    "\\bigr\\rvert"
+   ],
+   [
+    "\\bigl\\|",
+    "\\bigr\\|"
+   ],
+   [
+    "\\bigl\\lVert",
+    "\\bigr\\rVert"
+   ],
+   [
+    "\\bigl\\Vert",
+    "\\bigr\\Vert"
+   ],
+   [
+    "\\Bigl\\langle",
+    "\\Bigr\\rangle"
+   ],
+   [
+    "\\Bigl|",
+    "\\Bigr|"
+   ],
+   [
+    "\\Bigl\\lvert",
+    "\\Bigr\\rvert"
+   ],
+   [
+    "\\Bigl\\vert",
+    "\\Bigr\\vert"
+   ],
+   [
+    "\\Bigl\\|",
+    "\\Bigr\\|"
+   ],
+   [
+    "\\Bigl\\lVert",
+    "\\Bigr\\rVert"
+   ],
+   [
+    "\\Bigl\\Vert",
+    "\\Bigr\\Vert"
+   ],
+   [
+    "\\biggl\\langle",
+    "\\biggr\\rangle"
+   ],
+   [
+    "\\biggl|",
+    "\\biggr|"
+   ],
+   [
+    "\\biggl\\lvert",
+    "\\biggr\\rvert"
+   ],
+   [
+    "\\biggl\\vert",
+    "\\biggr\\vert"
+   ],
+   [
+    "\\biggl\\|",
+    "\\biggr\\|"
+   ],
+   [
+    "\\biggl\\lVert",
+    "\\biggr\\rVert"
+   ],
+   [
+    "\\biggl\\Vert",
+    "\\biggr\\Vert"
+   ],
+   [
+    "\\Biggl\\langle",
+    "\\Biggr\\rangle"
+   ],
+   [
+    "\\Biggl|",
+    "\\Biggr|"
+   ],
+   [
+    "\\Biggl\\lvert",
+    "\\Biggr\\rvert"
+   ],
+   [
+    "\\Biggl\\vert",
+    "\\Biggr\\vert"
+   ],
+   [
+    "\\Biggl\\|",
+    "\\Biggr\\|"
+   ],
+   [
+    "\\Biggl\\lVert",
+    "\\Biggr\\rVert"
+   ],
+   [
+    "\\Biggl\\Vert",
+    "\\Biggr\\Vert"
+   ]
+  ],
+  "comments": {
+   "lineComment": "%"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*\\\\end{(?!document)",
+   "increaseIndentPattern": "\\\\begin{(?!document)([^}]*)}(?!.*\\\\end{\\1})"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "`",
+    "'"
+   ],
+   [
+    "$",
+    "$"
+   ]
+  ],
+  "wordPattern": {
+   "flags": "u",
+   "pattern": "(\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark}){1}"
+  }
+ },
+ "latex/markdown-latex-combined-language-configuration.json": {
+  "autoCloseBefore": ";:.,={}])>\\` \n\t$",
+  "autoClosingPairs": [
+   [
+    "\\left(",
+    "\\right)"
+   ],
+   [
+    "\\left[",
+    "\\right]"
+   ],
+   [
+    "\\left\\{",
+    "\\right\\}"
+   ],
+   [
+    "\\bigl(",
+    "\\bigr)"
+   ],
+   [
+    "\\bigl[",
+    "\\bigr]"
+   ],
+   [
+    "\\bigl\\{",
+    "\\bigr\\}"
+   ],
+   [
+    "\\Bigl(",
+    "\\Bigr)"
+   ],
+   [
+    "\\Bigl[",
+    "\\Bigr]"
+   ],
+   [
+    "\\Bigl\\{",
+    "\\Bigr\\}"
+   ],
+   [
+    "\\biggl(",
+    "\\biggr)"
+   ],
+   [
+    "\\biggl[",
+    "\\biggr]"
+   ],
+   [
+    "\\biggl\\{",
+    "\\biggr\\}"
+   ],
+   [
+    "\\Biggl(",
+    "\\Biggr)"
+   ],
+   [
+    "\\Biggl[",
+    "\\Biggr]"
+   ],
+   [
+    "\\Biggl\\{",
+    "\\Biggr\\}"
+   ],
+   [
+    "\\(",
+    "\\)"
+   ],
+   [
+    "\\[",
+    "\\]"
+   ],
+   [
+    "\\{",
+    "\\}"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "`",
+    "'"
+   ]
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "[",
+    ")"
+   ],
+   [
+    "(",
+    "]"
+   ],
+   [
+    "\\{",
+    "\\}"
+   ],
+   [
+    "\\left(",
+    "\\right)"
+   ],
+   [
+    "\\left(",
+    "\\right]"
+   ],
+   [
+    "\\left(",
+    "\\right."
+   ],
+   [
+    "\\left.",
+    "\\right)"
+   ],
+   [
+    "\\left[",
+    "\\right]"
+   ],
+   [
+    "\\left[",
+    "\\right)"
+   ],
+   [
+    "\\left[",
+    "\\right."
+   ],
+   [
+    "\\left.",
+    "\\right]"
+   ],
+   [
+    "\\left\\{",
+    "\\right\\}"
+   ],
+   [
+    "\\left\\{",
+    "\\right."
+   ],
+   [
+    "\\left.",
+    "\\right\\}"
+   ],
+   [
+    "\\left<",
+    "\\right>"
+   ],
+   [
+    "\\bigl(",
+    "\\bigr)"
+   ],
+   [
+    "\\bigl[",
+    "\\bigr]"
+   ],
+   [
+    "\\bigl\\{",
+    "\\bigr\\}"
+   ],
+   [
+    "\\Bigl(",
+    "\\Bigr)"
+   ],
+   [
+    "\\Bigl[",
+    "\\Bigr]"
+   ],
+   [
+    "\\Bigl\\{",
+    "\\Bigr\\}"
+   ],
+   [
+    "\\biggl(",
+    "\\biggr)"
+   ],
+   [
+    "\\biggl[",
+    "\\biggr]"
+   ],
+   [
+    "\\biggl\\{",
+    "\\biggr\\}"
+   ],
+   [
+    "\\Biggl(",
+    "\\Biggr)"
+   ],
+   [
+    "\\Biggl[",
+    "\\Biggr]"
+   ],
+   [
+    "\\Biggl\\{",
+    "\\Biggr\\}"
+   ],
+   [
+    "\\langle",
+    "\\rangle"
+   ],
+   [
+    "\\lvert",
+    "\\rvert"
+   ],
+   [
+    "\\lVert",
+    "\\rVert"
+   ],
+   [
+    "\\left|",
+    "\\right|"
+   ],
+   [
+    "\\left.",
+    "\\right|"
+   ],
+   [
+    "\\left|",
+    "\\right."
+   ],
+   [
+    "\\left\\vert",
+    "\\right\\vert"
+   ],
+   [
+    "\\left\\|",
+    "\\right\\|"
+   ],
+   [
+    "\\left\\Vert",
+    "\\right\\Vert"
+   ],
+   [
+    "\\left\\langle",
+    "\\right\\rangle"
+   ],
+   [
+    "\\left\\lvert",
+    "\\right\\rvert"
+   ],
+   [
+    "\\left\\lVert",
+    "\\right\\rVert"
+   ],
+   [
+    "\\bigl\\langle",
+    "\\bigr\\rangle"
+   ],
+   [
+    "\\bigl|",
+    "\\bigr|"
+   ],
+   [
+    "\\bigl\\vert",
+    "\\bigr\\vert"
+   ],
+   [
+    "\\bigl\\lvert",
+    "\\bigr\\rvert"
+   ],
+   [
+    "\\bigl\\|",
+    "\\bigr\\|"
+   ],
+   [
+    "\\bigl\\lVert",
+    "\\bigr\\rVert"
+   ],
+   [
+    "\\bigl\\Vert",
+    "\\bigr\\Vert"
+   ],
+   [
+    "\\Bigl\\langle",
+    "\\Bigr\\rangle"
+   ],
+   [
+    "\\Bigl|",
+    "\\Bigr|"
+   ],
+   [
+    "\\Bigl\\lvert",
+    "\\Bigr\\rvert"
+   ],
+   [
+    "\\Bigl\\vert",
+    "\\Bigr\\vert"
+   ],
+   [
+    "\\Bigl\\|",
+    "\\Bigr\\|"
+   ],
+   [
+    "\\Bigl\\lVert",
+    "\\Bigr\\rVert"
+   ],
+   [
+    "\\Bigl\\Vert",
+    "\\Bigr\\Vert"
+   ],
+   [
+    "\\biggl\\langle",
+    "\\biggr\\rangle"
+   ],
+   [
+    "\\biggl|",
+    "\\biggr|"
+   ],
+   [
+    "\\biggl\\lvert",
+    "\\biggr\\rvert"
+   ],
+   [
+    "\\biggl\\vert",
+    "\\biggr\\vert"
+   ],
+   [
+    "\\biggl\\|",
+    "\\biggr\\|"
+   ],
+   [
+    "\\biggl\\lVert",
+    "\\biggr\\rVert"
+   ],
+   [
+    "\\biggl\\Vert",
+    "\\biggr\\Vert"
+   ],
+   [
+    "\\Biggl\\langle",
+    "\\Biggr\\rangle"
+   ],
+   [
+    "\\Biggl|",
+    "\\Biggr|"
+   ],
+   [
+    "\\Biggl\\lvert",
+    "\\Biggr\\rvert"
+   ],
+   [
+    "\\Biggl\\vert",
+    "\\Biggr\\vert"
+   ],
+   [
+    "\\Biggl\\|",
+    "\\Biggr\\|"
+   ],
+   [
+    "\\Biggl\\lVert",
+    "\\Biggr\\rVert"
+   ],
+   [
+    "\\Biggl\\Vert",
+    "\\Biggr\\Vert"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "<!--",
+    "-->"
+   ]
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*\\\\end{(?!document)",
+   "increaseIndentPattern": "\\\\begin{(?!document)([^}]*)}(?!.*\\\\end{\\1})"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "$",
+    "$"
+   ],
+   [
+    "`",
+    "`"
+   ],
+   [
+    "_",
+    "_"
+   ],
+   [
+    "*",
+    "*"
+   ]
+  ],
+  "wordPattern": {
+   "flags": "u",
+   "pattern": "([*_]{1,2})?(\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark})(((\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark})|[_])?(\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark}))*\\1"
+  }
+ },
+ "less/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "["
+   },
+   {
+    "close": ")",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "("
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*\\}",
+   "increaseIndentPattern": "(^.*\\{[^}]*$)"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ],
+  "wordPattern": "(#?-?\\d*\\.\\d\\w*%?)|(::?[\\w-]+(?=[^,{;]*[,{]))|(([@#.!])?[\\w-?]+%?|[@#!.])"
+ },
+ "lua/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "--[[",
+    "]]"
+   ],
+   "lineComment": "--"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*((\\b(elseif|else|end|until)\\b)|(\\})|(\\)))",
+   "increaseIndentPattern": "^((?!(\\-\\-)).)*((\\b(else|function|then|do|repeat)\\b((?!\\b(end|until)\\b).)*)|(\\{\\s*))$"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "make/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": {
+    "comment": "#",
+    "noIndent": true
+   }
+  }
+ },
+ "markdown-basics/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": ">",
+    "notIn": [
+     "string"
+    ],
+    "open": "<"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "colorizedBracketPairs": [],
+  "comments": {
+   "blockComment": [
+    "<!--",
+    "-->"
+   ]
+  },
+  "surroundingPairs": [
+   [
+    "(",
+    ")"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "`",
+    "`"
+   ],
+   [
+    "_",
+    "_"
+   ],
+   [
+    "*",
+    "*"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "~",
+    "~"
+   ],
+   [
+    "$",
+    "$"
+   ]
+  ],
+  "wordPattern": {
+   "flags": "ug",
+   "pattern": "(\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark})(((\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark})|[_])?(\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark}))*"
+  }
+ },
+ "objective-c/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "perl/perl.language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string"
+    ],
+    "open": "`"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "#"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "perl/perl6.language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string"
+    ],
+    "open": "`"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "#"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "php/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "notIn": [
+     "string"
+    ],
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "notIn": [
+     "string"
+    ],
+    "open": "["
+   },
+   {
+    "close": ")",
+    "notIn": [
+     "string"
+    ],
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "\""
+   },
+   {
+    "close": " */",
+    "notIn": [
+     "string"
+    ],
+    "open": "/**"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^(.*\\*\\/)?\\s*(\\b(else:)|\\bend(if|for(each)?|while|switch);)",
+   "increaseIndentPattern": "((else\\s?)?if|else|for(each)?|while|switch|case).*:\\s*((/[/*].*|)?$|\\?>)",
+   "indentNextLinePattern": "^\\s*(((if|else ?if|while|for|foreach)\\s*\\(.*\\)\\s*)|else\\s*)$",
+   "unIndentedLinePattern": "^(\\t|[ ])*[ ]\\*[^/]*\\*/\\s*$|^(\\t|[ ])*[ ]\\*/\\s*$|^(\\t|[ ])*\\*([ ]([^\\*]|\\*(?!/))*)?$"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": " * ",
+     "indent": "indentOutdent"
+    },
+    "afterText": "^\\s*\\*\\/$",
+    "beforeText": "^\\s*\\/\\*\\*(?!\\/)([^\\*]|\\*(?!\\/))*$"
+   },
+   {
+    "action": {
+     "appendText": " * ",
+     "indent": "none"
+    },
+    "beforeText": "^\\s*\\/\\*\\*(?!\\/)([^\\*]|\\*(?!\\/))*$"
+   },
+   {
+    "action": {
+     "appendText": "* ",
+     "indent": "none"
+    },
+    "beforeText": "^(\\t|(\\ \\ ))*\\ \\*(\\ ([^\\*]|\\*(?!\\/))*)?$"
+   },
+   {
+    "action": {
+     "indent": "none",
+     "removeText": 1
+    },
+    "beforeText": "^(\\t|(\\ \\ ))*\\ \\*\\/\\s*$"
+   },
+   {
+    "action": {
+     "indent": "none",
+     "removeText": 1
+    },
+    "beforeText": "^(\\t|(\\ \\ ))*\\ \\*[^/]*\\*\\/\\s*$"
+   },
+   {
+    "action": {
+     "indent": "outdent"
+    },
+    "beforeText": "^\\s+([^{i\\s]|i(?!f\\b))",
+    "previousLineText": "^\\s*(((else ?)?if|for(each)?|while)\\s*\\(.*\\)\\s*|else\\s*)$"
+   },
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ],
+  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\-\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)"
+ },
+ "powershell/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\n'@",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "@'"
+   },
+   {
+    "close": "\n\"@",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "@\""
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   [
+    "<#",
+    "#>"
+   ]
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "<#",
+    "#>"
+   ],
+   "lineComment": "#"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "prompt-basics/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": ">",
+    "notIn": [
+     "string"
+    ],
+    "open": "<"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "colorizedBracketPairs": [],
+  "comments": {
+   "blockComment": [
+    "<!--",
+    "-->"
+   ]
+  },
+  "surroundingPairs": [
+   [
+    "(",
+    ")"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "`",
+    "`"
+   ],
+   [
+    "_",
+    "_"
+   ],
+   [
+    "*",
+    "*"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "~",
+    "~"
+   ],
+   [
+    "$",
+    "$"
+   ]
+  ],
+  "wordPattern": {
+   "flags": "ug",
+   "pattern": "(\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark})(((\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark})|[_])?(\\p{Alphabetic}|\\p{Number}|\\p{Nonspacing_Mark}))*"
+  }
+ },
+ "pug/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "//-"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "\"",
+    "\""
+   ]
+  ]
+ },
+ "python/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "r\""
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "R\""
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "u\""
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "U\""
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "f\""
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "F\""
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "b\""
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "B\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "r'"
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "R'"
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "u'"
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "U'"
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "f'"
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "F'"
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "b'"
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "B'"
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string"
+    ],
+    "open": "`"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "\"\"\"",
+    "\"\"\""
+   ],
+   "lineComment": "#"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "indent": "indent"
+    },
+    "beforeText": "^\\s*(?:def|class|for|if|elif|else|while|try|with|finally|except|async).*?:\\s*$"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "r/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "`",
+    "`"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "%",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "%"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "#"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "`",
+    "`"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ },
+ "razor/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "<!--",
+    "-->"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "<!--",
+    "-->"
+   ]
+  },
+  "surroundingPairs": [
+   {
+    "close": "'",
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "open": "\""
+   },
+   {
+    "close": ">",
+    "open": "<"
+   }
+  ]
+ },
+ "restructuredtext/language-configuration.json": {
+  "autoCloseBefore": ":})>`\\n ",
+  "autoClosingPairs": [
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": ">",
+    "open": "<"
+   },
+   {
+    "close": "'",
+    "open": "'"
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string"
+    ],
+    "open": "`"
+   },
+   {
+    "close": "\"",
+    "open": "\""
+   },
+   {
+    "close": "]",
+    "open": "["
+   }
+  ],
+  "brackets": [
+   [
+    "(",
+    ")"
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "[",
+    "]"
+   ]
+  ],
+  "comments": {
+   "lineComment": ".."
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "indent": "indent"
+    },
+    "beforeText": "^\\s*\\.\\. *$|(?<!:)::(\\s|$)"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "(",
+    ")"
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "`",
+    "`"
+   ],
+   [
+    "*",
+    "*"
+   ],
+   [
+    "|",
+    "|"
+   ],
+   [
+    "[",
+    "]"
+   ]
+  ],
+  "wordPattern": "[\\w-]*\\w[\\w-]*"
+ },
+ "ruby/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string"
+    ],
+    "open": "`"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "=begin",
+    "=end"
+   ],
+   "lineComment": "#"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*([}\\]]([,)]?\\s*(#|$)|\\.[a-zA-Z_]\\w*\\b)|(end|rescue|ensure|else|elsif)\\b|(in|when)\\s)",
+   "increaseIndentPattern": "^\\s*((begin|class|(private|protected)\\s+def|def|else|elsif|ensure|for|if|module|rescue|unless|until|when|in|while|case)|([^#]*\\sdo\\b)|([^#]*=\\s*(case|if|unless)))\\b([^#\\{;]|(\"|'|/).*\\4)*(#.*)?$"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "rust/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*(\\s*\\/[*].*[*]\\/\\s*)*[})]",
+   "increaseIndentPattern": "^.*\\{[^}\"']*$|^.*\\([^\\)\"']*$"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ]
+ },
+ "scss/language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "["
+   },
+   {
+    "close": ")",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "("
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s*\\}",
+   "increaseIndentPattern": "(^.*\\{[^}]*$)"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": "/// ",
+     "indent": "none"
+    },
+    "beforeText": "^[\\s]*///.*$"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ],
+  "wordPattern": "(#?-?\\d*\\.\\d\\w*%?)|(::?[\\w-]*(?=[^,{;]*[,{]))|(([@$#.!])?[\\w-?]+%?|[@#!$.])"
+ },
+ "shaderlab/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ]
+  ]
+ },
+ "shellscript/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string"
+    ],
+    "open": "`"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "#"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "sql/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "N'"
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "--"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "swift/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string"
+    ],
+    "open": "`"
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "`",
+    "`"
+   ]
+  ]
+ },
+ "typescript-basics/language-configuration.json": {
+  "autoCloseBefore": ";:.,=}])>` \n\t",
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "${"
+   },
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "`",
+    "notIn": [
+     "string",
+     "comment"
+    ],
+    "open": "`"
+   },
+   {
+    "close": " */",
+    "notIn": [
+     "string"
+    ],
+    "open": "/**"
+   }
+  ],
+  "brackets": [
+   [
+    "${",
+    "}"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "colorizedBracketPairs": [
+   [
+    "(",
+    ")"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "/*",
+    "*/"
+   ],
+   "lineComment": "//"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": {
+    "pattern": "^\\s*[\\}\\]\\)].*$"
+   },
+   "increaseIndentPattern": {
+    "pattern": "^.*(\\{[^}]*|\\([^)]*|\\[[^\\]]*)$"
+   },
+   "indentNextLinePattern": {
+    "pattern": "^((.*=>\\s*)|((.*[^\\w]+|\\s*)((if|while|for)\\s*\\(.*\\)\\s*|else\\s*)))$"
+   },
+   "unIndentedLinePattern": {
+    "pattern": "^(\\t|[ ])*[ ]\\*[^/]*\\*/\\s*$|^(\\t|[ ])*[ ]\\*/\\s*$|^(\\t|[ ])*\\*([ ]([^\\*]|\\*(?!/))*)?$"
+   }
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "appendText": " * ",
+     "indent": "indentOutdent"
+    },
+    "afterText": {
+     "pattern": "^\\s*\\*/$"
+    },
+    "beforeText": {
+     "pattern": "^\\s*/\\*\\*(?!/)([^\\*]|\\*(?!/))*$"
+    }
+   },
+   {
+    "action": {
+     "appendText": " * ",
+     "indent": "none"
+    },
+    "beforeText": {
+     "pattern": "^\\s*/\\*\\*(?!/)([^\\*]|\\*(?!/))*$"
+    }
+   },
+   {
+    "action": {
+     "appendText": "* ",
+     "indent": "none"
+    },
+    "beforeText": {
+     "pattern": "^(\\t|[ ])*\\*([ ]([^\\*]|\\*(?!/))*)?$"
+    },
+    "previousLineText": {
+     "pattern": "(?=^(\\s*(/\\*\\*|\\*)).*)(?=(?!(\\s*\\*/)))"
+    }
+   },
+   {
+    "action": {
+     "indent": "none",
+     "removeText": 1
+    },
+    "beforeText": {
+     "pattern": "^(\\t|[ ])*[ ]\\*/\\s*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "none",
+     "removeText": 1
+    },
+    "beforeText": {
+     "pattern": "^(\\t|[ ])*[ ]\\*[^/]*\\*/\\s*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "indent"
+    },
+    "afterText": {
+     "pattern": "^(?!\\s*(\\bcase\\b|\\bdefault\\b))"
+    },
+    "beforeText": {
+     "pattern": "^\\s*(\\bcase\\s.+:|\\bdefault:)$"
+    }
+   },
+   {
+    "action": {
+     "indent": "outdent"
+    },
+    "beforeText": "^\\s+([^{i\\s]|i(?!f\\b))",
+    "previousLineText": "^\\s*(((else ?)?if|for|while)\\s*\\(.*\\)\\s*|else\\s*)$"
+   },
+   {
+    "action": {
+     "appendText": "\t",
+     "indent": "indentOutdent"
+    },
+    "afterText": "^\\s*\\).*$",
+    "beforeText": "^.*\\([^\\)]*$"
+   },
+   {
+    "action": {
+     "appendText": "\t",
+     "indent": "indentOutdent"
+    },
+    "afterText": "^\\s*\\}.*$",
+    "beforeText": "^.*\\{[^\\}]*$"
+   },
+   {
+    "action": {
+     "appendText": "\t",
+     "indent": "indentOutdent"
+    },
+    "afterText": "^\\s*\\].*$",
+    "beforeText": "^.*\\[[^\\]]*$"
+   },
+   {
+    "action": {
+     "appendText": "// ",
+     "indent": "none"
+    },
+    "afterText": "^(?!\\s*$)",
+    "beforeText": "^\\s*//\\s*\\S|\\s//\\s+\\S"
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "${",
+    "}"
+   ],
+   [
+    "$",
+    ""
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "'",
+    "'"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "`",
+    "`"
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ],
+  "wordPattern": {
+   "pattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\@\\~\\!\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>/\\?\\s]+)"
+  }
+ },
+ "vb/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   }
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "'"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": {
+    "flags": "i",
+    "pattern": "^\\s*((End\\s+(If|Sub|Function|Class|Module|Enum|Structure|Interface|Namespace|With|Select|Try|While|For|Property|Get|Set|SyncLock|Using|AddHandler|RaiseEvent|RemoveHandler|Event|Operator))|Else|ElseIf|Case|Catch|Finally|Loop|Next|Wend|Until)\\b"
+   },
+   "increaseIndentPattern": {
+    "flags": "i",
+    "pattern": "^\\s*((If|ElseIf)\\b.*\\bThen\\s*(('|REM).*)?|(Else|While|For|Do|Select\\s+Case|Case|Sub|Function|Class|Module|Enum|Structure|Interface|Namespace|With|Try|Catch|Finally|SyncLock|Using|Property|Get|Set|AddHandler|RaiseEvent|RemoveHandler|Event|Operator)\\b(?!.*\\bEnd\\s+(If|Sub|Function|Class|Module|Enum|Structure|Interface|Namespace|With|Select|Try|While|For|Property|Get|Set|SyncLock|Using|AddHandler|RaiseEvent|RemoveHandler|Event|Operator)\\b).*(('|REM).*)?)$"
+   }
+  },
+  "onEnterRules": [
+   {
+    "action": {
+     "indent": "none"
+    },
+    "beforeText": {
+     "flags": "i",
+     "pattern": "^\\s*((End\\s+(If|Sub|Function|Class|Module|Enum|Structure|Interface|Namespace|With|Select|Try|While|For|Property|Get|Set|SyncLock|Using|AddHandler|RaiseEvent|RemoveHandler|Event|Operator))|Loop|Next|Wend|Until)\\b.*$"
+    }
+   },
+   {
+    "action": {
+     "indent": "none"
+    },
+    "beforeText": "^\\s*$",
+    "previousLineText": {
+     "flags": "i",
+     "pattern": "^\\s*((End\\s+(If|Sub|Function|Class|Module|Enum|Structure|Interface|Namespace|With|Select|Try|While|For|Property|Get|Set|SyncLock|Using|AddHandler|RaiseEvent|RemoveHandler|Event|Operator))|Loop|Next|Wend|Until)\\b.*$"
+    }
+   }
+  ],
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "<",
+    ">"
+   ]
+  ]
+ },
+ "xml/xml.language-configuration.json": {
+  "autoClosingPairs": [
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": "\"",
+    "notIn": [
+     "string"
+    ],
+    "open": "\""
+   },
+   {
+    "close": "'",
+    "notIn": [
+     "string"
+    ],
+    "open": "'"
+   },
+   {
+    "close": "-->",
+    "notIn": [
+     "comment",
+     "string"
+    ],
+    "open": "<!--"
+   }
+  ],
+  "brackets": [
+   [
+    "<!--",
+    "-->"
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "colorizedBracketPairs": [],
+  "comments": {
+   "blockComment": [
+    "<!--",
+    "-->"
+   ]
+  },
+  "surroundingPairs": [
+   {
+    "close": "'",
+    "open": "'"
+   },
+   {
+    "close": "\"",
+    "open": "\""
+   },
+   {
+    "close": "}",
+    "open": "{"
+   },
+   {
+    "close": "]",
+    "open": "["
+   },
+   {
+    "close": ")",
+    "open": "("
+   },
+   {
+    "close": ">",
+    "open": "<"
+   }
+  ],
+  "wordPattern": {
+   "pattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\$\\%\\^\\&\\*\\(\\)\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)"
+  }
+ },
+ "xml/xsl.language-configuration.json": {
+  "brackets": [
+   [
+    "<!--",
+    "-->"
+   ],
+   [
+    "<",
+    ">"
+   ],
+   [
+    "{",
+    "}"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "[",
+    "]"
+   ]
+  ],
+  "comments": {
+   "blockComment": [
+    "<!--",
+    "-->"
+   ],
+   "lineComment": ""
+  },
+  "wordPattern": {
+   "pattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\$\\%\\^\\&\\*\\(\\)\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)"
+  }
+ },
+ "yaml/language-configuration.json": {
+  "autoClosingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ],
+  "brackets": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ]
+  ],
+  "comments": {
+   "lineComment": "#"
+  },
+  "indentationRules": {
+   "decreaseIndentPattern": "^\\s+\\}$",
+   "increaseIndentPattern": "^\\s*.*(:|-) ?(&amp;\\w+)?(\\{[^}\"']*|\\([^)\"']*)?$"
+  },
+  "surroundingPairs": [
+   [
+    "{",
+    "}"
+   ],
+   [
+    "[",
+    "]"
+   ],
+   [
+    "(",
+    ")"
+   ],
+   [
+    "\"",
+    "\""
+   ],
+   [
+    "'",
+    "'"
+   ]
+  ]
+ }
+}

@@ -64,6 +64,10 @@ theme_fields! {
     status_bar_border: ["statusBar.border"],
     tabs_border: ["editorGroupHeader.tabsBorder"],
     tab_border: ["tab.border"],
+    breadcrumb_bg: ["breadcrumb.background"],  // the breadcrumbs bar (ADR-0047)
+    breadcrumb_fg: ["breadcrumb.foreground"],
+    breadcrumb_focus_fg: ["breadcrumb.focusForeground"],
+    breadcrumb_active_fg: ["breadcrumb.activeSelectionForeground"],
     side_bar_fg: ["sideBar.foreground", "foreground"],  // sideBar.foreground, else foreground (inherited)
     title_bar_fg: ["titleBar.activeForeground"],
     status_bar_fg: ["statusBar.foreground"],
@@ -188,6 +192,8 @@ pub mod metrics {
     pub const SIDEBAR_WIDTH: f32 = 260.0;
     pub const TAB_HEIGHT: f32 = 35.0;
     pub const STATUS_BAR_HEIGHT: f32 = 22.0;
+    /// The breadcrumbs bar under the tab strip (upstream breadcrumbsControl.css: 22px).
+    pub const BREADCRUMBS_HEIGHT: f32 = 22.0;
 }
 
 #[cfg(test)]
@@ -341,10 +347,14 @@ mod tests {
     fn dark_modern_from_the_json_equals_the_old_hard_coded_theme() {
         let theme = Theme::dark_modern();
         let actual = theme.fields();
-        assert_eq!(actual.len(), LEGACY_DARK_MODERN.len());
-        for ((name, got), (legacy_name, legacy)) in actual.iter().zip(LEGACY_DARK_MODERN) {
-            assert_eq!(name, legacy_name);
-            assert_eq!(*got, hex(legacy).unwrap(), "{name}: {got:?} != {legacy}");
+        for (legacy_name, legacy) in LEGACY_DARK_MODERN {
+            let (_, got) = actual.iter().find(|(name, _)| name == legacy_name).expect("a theme field");
+            assert_eq!(*got, hex(legacy).unwrap(), "{legacy_name}: {got:?} != {legacy}");
+        }
+        // Fields added later (the breadcrumbs, ADR-0047) were never painted before, so the legacy
+        // table has no colour for them: the theme must still set each one.
+        for (name, got) in actual.iter().filter(|(name, _)| name.starts_with("breadcrumb")) {
+            assert!(got.3 > 0, "{name} is not set by Dark Modern");
         }
     }
 

@@ -42,6 +42,7 @@ pub const NEW_FILE: char = '\u{EA7F}';
 pub const NEW_FOLDER: char = '\u{EA80}';
 pub const EXCLUDE: char = '\u{EAE5}';
 pub const FILE: char = '\u{EA7B}';
+pub const FOLDER: char = '\u{EA83}';
 pub const STOP_CIRCLE: char = '\u{EBA5}';
 pub const PRESERVE_CASE: char = '\u{EB2E}';
 pub const REPLACE_ALL: char = '\u{EB3C}';

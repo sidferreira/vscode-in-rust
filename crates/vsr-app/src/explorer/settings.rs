@@ -8,6 +8,14 @@ use std::path::Path;
 
 use vsr_settings::Configuration;
 
+use crate::config::glob::ExcludeMatcher;
+
+/// `explorer.autoRevealExclude`: the paths `autoReveal` skips (the default excludes `node_modules`
+/// and `bower_components`).
+pub fn reveal_exclude(c: &Configuration) -> ExcludeMatcher {
+    c.get_value("explorer.autoRevealExclude").map(ExcludeMatcher::from_value).unwrap_or_default()
+}
+
 /// `explorer.sortOrder`. `foldersNestsFiles` is `Default` here: nested files need file nesting
 /// (`explorer.fileNesting.enabled`), which rscode does not have, so the two sort the same.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -18,6 +26,16 @@ pub enum SortOrder {
     FilesFirst,
     Type,
     Modified,
+}
+
+/// `explorer.sortOrderLexicographicOptions`: how names compare (see `sort.rs`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Lexicographic {
+    #[default]
+    Default,
+    Upper,
+    Lower,
+    Unicode,
 }
 
 /// `explorer.autoReveal`: `true` selects and scrolls the active file into view, `focusNoScroll`
@@ -61,6 +79,9 @@ impl PathSeparator {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExplorerSettings {
     pub sort_order: SortOrder,
+    pub lexicographic: Lexicographic,
+    /// `explorer.sortOrderReverse`.
+    pub sort_reverse: bool,
     pub compact_folders: bool,
     pub auto_reveal: AutoReveal,
     pub confirm_delete: bool,
@@ -76,6 +97,8 @@ impl Default for ExplorerSettings {
     fn default() -> Self {
         Self {
             sort_order: SortOrder::Default,
+            lexicographic: Lexicographic::Default,
+            sort_reverse: false,
             compact_folders: true,
             auto_reveal: AutoReveal::On,
             confirm_delete: true,
@@ -106,6 +129,12 @@ impl ExplorerSettings {
             Some("modified") => SortOrder::Modified,
             Some(_) | None => SortOrder::Default,
         };
+        let lexicographic = match c.get_str("explorer.sortOrderLexicographicOptions") {
+            Some("upper") => Lexicographic::Upper,
+            Some("lower") => Lexicographic::Lower,
+            Some("unicode") => Lexicographic::Unicode,
+            Some(_) | None => Lexicographic::Default,
+        };
         let auto_reveal = match c.get_value("explorer.autoReveal") {
             Some(serde_json::Value::Bool(false)) => AutoReveal::Off,
             Some(serde_json::Value::String(s)) if s == "focusNoScroll" => AutoReveal::FocusNoScroll,
@@ -113,6 +142,8 @@ impl ExplorerSettings {
         };
         Self {
             sort_order,
+            lexicographic,
+            sort_reverse: c.get_bool("explorer.sortOrderReverse").unwrap_or(d.sort_reverse),
             compact_folders: c.get_bool("explorer.compactFolders").unwrap_or(d.compact_folders),
             auto_reveal,
             confirm_delete: c.get_bool("explorer.confirmDelete").unwrap_or(d.confirm_delete),

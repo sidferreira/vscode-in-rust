@@ -133,7 +133,7 @@ impl Workbench {
     /// scrolled into view.
     pub(crate) fn reveal_in_tree(&mut self, path: &Path) {
         let mode = self.explorer.settings.auto_reveal;
-        if mode == AutoReveal::Off || path == self.root || !path.starts_with(&self.root) {
+        if mode == AutoReveal::Off || path == self.root || !path.starts_with(&self.root) || self.reveal_excluded(path) {
             return;
         }
         let Some(parent) = path.parent().map(Path::to_path_buf) else { return };
@@ -144,11 +144,37 @@ impl Workbench {
         }
     }
 
+    /// `explorer.autoRevealExclude`: whether `path` or a folder between it and the root matches.
+    /// Like upstream's `shouldAutoRevealItem`, a `when` clause checks the siblings on disk.
+    fn reveal_excluded(&self, path: &Path) -> bool {
+        let rules = &self.explorer.reveal_exclude;
+        if rules.is_empty() {
+            return false;
+        }
+        let mut current = path;
+        while current != self.root.as_path() && current.starts_with(&self.root) {
+            let Ok(rel) = current.strip_prefix(&self.root) else { break };
+            let parent = current.parent();
+            let has_sibling = |name: &str| parent.is_some_and(|p| p.join(name).symlink_metadata().is_ok());
+            if rules.is_excluded(&rel.to_string_lossy(), &has_sibling) {
+                return true;
+            }
+            match parent {
+                Some(p) => current = p,
+                None => break,
+            }
+        }
+        false
+    }
+
     /// `explorer.*` changed in the configuration: take the new values, and list again when the
     /// sort order changed.
     pub(crate) fn apply_explorer_settings(&mut self, cx: &mut Context<Self>) {
-        let new = ExplorerSettings::from_configuration(AppConfig::get(cx).configuration());
-        let sort_changed = new.sort_order != self.explorer.settings.sort_order;
+        let configuration = AppConfig::get(cx).configuration();
+        let new = ExplorerSettings::from_configuration(configuration);
+        self.explorer.reveal_exclude = super::settings::reveal_exclude(configuration);
+        let old = self.explorer.settings;
+        let sort_changed = (new.sort_order, new.lexicographic, new.sort_reverse) != (old.sort_order, old.lexicographic, old.sort_reverse);
         self.explorer.settings = new;
         if sort_changed {
             self.refresh_all(cx);

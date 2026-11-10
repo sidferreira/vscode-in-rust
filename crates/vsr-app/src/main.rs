@@ -315,7 +315,8 @@ impl Workbench {
         if self.explorer.settings.exclude_git_ignore {
             explorer::gitignore::retain_visible(&mut entries, &self.root, dir);
         }
-        explorer::sort::sort_entries(&mut entries, self.explorer.settings.sort_order);
+        let s = &self.explorer.settings;
+        explorer::sort::sort_entries(&mut entries, s.sort_order, s.lexicographic, s.sort_reverse);
         entries
     }
 
@@ -1278,9 +1279,11 @@ impl Render for Workbench {
                     div()
                         .absolute()
                         .top_0()
-                        .left(px(-2.))
-                        .w(px(5.))
+                        // `workbench.sash.size` is the drag area, centred on the 1px border.
+                        .left(px(-layout.sash_size / 2.))
+                        .w(px(layout.sash_size))
                         .h_full()
+                        .debug_selector(|| "sidebar-resize-hit".to_string())
                         .cursor_col_resize()
                         .hover(|s| s.bg(to_gpui(t.sash_hover_border)))
                         .on_mouse_down(

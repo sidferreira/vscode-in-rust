@@ -240,6 +240,22 @@ fn sort_order_follows_explorer_sort_order_live(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn sort_reverse_and_lexicographic_options_follow_settings_live(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("sort-reverse");
+    fs::write(ws.path().join("a.txt"), "").unwrap();
+    fs::write(ws.path().join("B.txt"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "explorer.sortOrder", json!("mixed"));
+    assert_eq!(row_names(&wb, cx), ["a.txt", "B.txt", "src"], "mixed: names ignore case");
+    set(cx, "explorer.sortOrderReverse", json!(true));
+    assert_eq!(row_names(&wb, cx), ["src", "B.txt", "a.txt"], "reverse flips the whole order");
+    set(cx, "explorer.sortOrderLexicographicOptions", json!("unicode"));
+    assert_eq!(row_names(&wb, cx), ["src", "a.txt", "B.txt"], "unicode: code points, so B sorts before a");
+    set(cx, "explorer.sortOrderReverse", json!(false));
+    assert_eq!(row_names(&wb, cx), ["B.txt", "a.txt", "src"]);
+}
+
+#[gpui::test]
 fn compact_folders_shows_a_single_child_chain_as_one_row(cx: &mut TestAppContext) {
     let (ws, bin) = workspace("compact");
     fs::create_dir_all(ws.path().join("a/b/c")).unwrap();
@@ -269,6 +285,38 @@ fn auto_reveal_expands_and_selects_the_opened_file(cx: &mut TestAppContext) {
     });
     assert_eq!(selected_now, Some(file));
     assert!(src_open && deep_open, "the folders above the file are expanded");
+}
+
+#[gpui::test]
+fn auto_reveal_exclude_skips_matching_paths_live(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("reveal-exclude");
+    fs::create_dir_all(ws.path().join("node_modules/pkg")).unwrap();
+    fs::write(ws.path().join("node_modules/pkg/index.js"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let file = ws.path().join("node_modules/pkg/index.js");
+    // The default excludes node_modules (upstream `explorer.autoRevealExclude`): nothing is revealed.
+    wb.update(cx, |wb, _| wb.open(&file));
+    cx.run_until_parked();
+    let (selected, expanded) = wb.read_with(cx, |wb, _| (wb.explorer.selected.clone(), wb.expanded.contains(&wb.root.join("node_modules"))));
+    assert_eq!((selected, expanded), (None, false), "excluded: neither selected nor expanded");
+    // A user value replaces the default; `false` turns the pattern off.
+    set(cx, "explorer.autoRevealExclude", json!({ "**/node_modules": false }));
+    wb.update(cx, |wb, _| wb.open(&file));
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.explorer.selected.clone()), Some(file), "no longer excluded: revealed");
+}
+
+/// `workbench.sash.size` is the drag area of the side bar sash: it changes live, clamped to 1 to 20.
+#[gpui::test]
+fn sash_size_sets_the_drag_area_live(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("sash-size");
+    let (_wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let width = |cx: &mut VisualTestContext| cx.debug_bounds("sidebar-resize-hit").map(|b| f32::from(b.size.width));
+    assert_eq!(width(cx), Some(4.0), "upstream default");
+    set(cx, "workbench.sash.size", json!(9));
+    assert_eq!(width(cx), Some(9.0));
+    set(cx, "workbench.sash.size", json!(50));
+    assert_eq!(width(cx), Some(20.0), "clamped to upstream's maximum");
 }
 
 /// A tree taller than the window: 120 files at the root, so the last one is out of view.

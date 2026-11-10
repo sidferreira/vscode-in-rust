@@ -29,6 +29,7 @@ use gpui_kit::{
 };
 
 use self::state::ScrollbarState;
+use super::overview_ruler::Lane;
 use crate::config::scrollbar::ScrollbarVisibility;
 use crate::config::settings::EditorSettings;
 use crate::theme::Rgba8;
@@ -220,10 +221,15 @@ pub fn bar(
     input: &BarInput,
     colors: SliderColors,
     shared: Rc<BarShared>,
+    lane: &Lane,
 ) -> Option<AnyElement> {
-    if !input.shown() {
+    // The vertical track is the overview ruler's lane whenever the bar is not hidden (upstream reserves
+    // the column for it), so it is drawn even when nothing scrolls; its slider is drawn only when needed.
+    let has_lane = input.axis == Axis::Vertical && input.visibility != ScrollbarVisibility::Hidden;
+    if !input.shown() && !has_lane {
         return None;
     }
+    let shown_slider = input.shown();
     let axis = input.axis;
     let thickness = input.thickness;
     let by_page = input.by_page;
@@ -295,7 +301,7 @@ pub fn bar(
 
     let down_handle = handle.clone();
     let down_shared = shared.clone();
-    let track = match axis {
+    let mut track = match axis {
         Axis::Vertical => div().w(px(thickness)).h_full(),
         Axis::Horizontal => div().h(px(thickness)).w_full(),
     }
@@ -303,9 +309,35 @@ pub fn bar(
     .debug_selector(move || id.to_string())
     .relative()
     .flex_none()
-    .child(track_canvas)
-    .child(slider)
-    .on_mouse_down(
+    .child(track_canvas);
+    for mark in &lane.marks {
+        let name = mark.name;
+        let mark_el = div()
+            .absolute()
+            .left_0()
+            .top(px(mark.top))
+            .w_full()
+            .h(px(mark.height.max(1.0)))
+            .debug_selector(move || format!("overview-{name}"))
+            .bg(to_gpui(mark.color));
+        track = track.child(mark_el);
+    }
+    if let Some(border) = lane.border {
+        track = track.child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .h_full()
+                .w(px(1.0))
+                .debug_selector(|| "editor-overview-border".to_string())
+                .bg(to_gpui(border)),
+        );
+    }
+    if shown_slider {
+        track = track.child(slider);
+    }
+    let track = track.on_mouse_down(
         MouseButton::Left,
         move |ev: &MouseDownEvent, window: &mut Window, _cx: &mut App| {
             let track = down_shared.track.get();
@@ -314,6 +346,10 @@ pub fn bar(
                 Axis::Horizontal => track.size.width,
             }));
             let now = live_state(&down_handle, axis, thickness, track_len);
+            // Nothing to scroll: a click on the track does nothing (upstream returns 0 for a bar not needed).
+            if !now.is_needed() {
+                return;
+            }
             let offset = along(axis, track, ev.position);
             let (pos, size) = (now.slider_position(), now.slider_size());
             if offset >= pos && offset <= pos + size {

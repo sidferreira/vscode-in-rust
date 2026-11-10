@@ -428,6 +428,9 @@ pub struct EditorSettings {
     pub scrollbar_vertical_size: f32,
     pub scrollbar_horizontal_size: f32,
     pub scrollbar_scroll_by_page: bool,
+    /// `editor.overviewRulerBorder` and `editor.hideCursorInOverviewRuler` (the overview ruler, ADR-0055).
+    pub overview_ruler_border: bool,
+    pub hide_cursor_in_overview_ruler: bool,
     /// `editor.wordWrap`, `editor.wordWrapColumn`, `editor.wrappingIndent`, `editor.wrappingStrategy`,
     /// `editor.wordWrapIndicator`, `editor.wordBreak`.
     pub word_wrap: WordWrap,
@@ -508,6 +511,8 @@ impl Default for EditorSettings {
             scrollbar_vertical_size: 14.0,
             scrollbar_horizontal_size: 12.0,
             scrollbar_scroll_by_page: false,
+            overview_ruler_border: true,
+            hide_cursor_in_overview_ruler: false,
             word_wrap: WordWrap::Off,
             word_wrap_column: 80,
             wrapping_indent: WrappingIndentSetting::Same,
@@ -642,6 +647,8 @@ impl EditorSettings {
             scrollbar_vertical_size: c.get_f64("editor.scrollbar.verticalScrollbarSize").unwrap_or(14.0).round().max(0.0) as f32,
             scrollbar_horizontal_size: c.get_f64("editor.scrollbar.horizontalScrollbarSize").unwrap_or(12.0).round().max(0.0) as f32,
             scrollbar_scroll_by_page: c.get_bool("editor.scrollbar.scrollByPage").unwrap_or(false),
+            overview_ruler_border: c.get_bool("editor.overviewRulerBorder").unwrap_or(true),
+            hide_cursor_in_overview_ruler: c.get_bool("editor.hideCursorInOverviewRuler").unwrap_or(false),
             word_wrap: c.get_enum("editor.wordWrap").unwrap_or(WordWrap::Off),
             word_wrap_column: c.get_f64("editor.wordWrapColumn").unwrap_or(80.0).round().max(1.0) as usize,
             wrapping_indent: c.get_enum("editor.wrappingIndent").unwrap_or(WrappingIndentSetting::Same),

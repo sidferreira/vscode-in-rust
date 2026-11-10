@@ -26,6 +26,7 @@
 mod decorations;
 pub(crate) mod find;
 mod folding;
+mod overview_ruler;
 mod scrollbar;
 mod sticky_scroll;
 mod minimap;
@@ -313,6 +314,27 @@ impl EditorView {
             background: theme.scrollbar_slider_bg,
             hover: theme.scrollbar_slider_hover_bg,
         };
+        // The bars and the overview ruler: the viewport and extents come from the last paint, before the
+        // list's closure takes `cfg` and `theme`.
+        let (vertical_in, horizontal_in) = scrollbar::inputs(&scroll, self.bounds.get().size, &bar_settings);
+        let lane = overview_ruler::Lane {
+            marks: overview_ruler::marks(
+                overview_ruler::zones_for(
+                    editor.editor.selection(),
+                    self.find.highlights(editor, &theme).map_or(&[], |h| h.matches),
+                    cfg.hide_cursor_in_overview_ruler,
+                ),
+                cfg.line_height,
+                vertical_in.viewport,
+                vertical_in.content,
+                |name| match name {
+                    overview_ruler::CURSOR => theme.overview_cursor_fg,
+                    overview_ruler::SELECTION => theme.overview_selection_fg,
+                    _ => theme.overview_find_fg,
+                },
+            ),
+            border: cfg.overview_ruler_border.then_some(theme.overview_border),
+        };
         let list = uniform_list(
             id,
             rows_total,
@@ -341,9 +363,15 @@ impl EditorView {
         }
         .size_full();
 
-        let (vertical_in, horizontal_in) = scrollbar::inputs(&scroll, self.bounds.get().size, &bar_settings);
-        let vertical_bar = scrollbar::bar("editor-scrollbar-vertical", &scroll, &vertical_in, slider_colors, self.scrollbars.vertical.clone());
-        let horizontal_bar = scrollbar::bar("editor-scrollbar-horizontal", &scroll, &horizontal_in, slider_colors, self.scrollbars.horizontal.clone());
+        let vertical_bar = scrollbar::bar("editor-scrollbar-vertical", &scroll, &vertical_in, slider_colors, self.scrollbars.vertical.clone(), &lane);
+        let horizontal_bar = scrollbar::bar(
+            "editor-scrollbar-horizontal",
+            &scroll,
+            &horizontal_in,
+            slider_colors,
+            self.scrollbars.horizontal.clone(),
+            &overview_ruler::Lane::default(),
+        );
         let bounds_cell = self.bounds.clone();
         let input_focus = focus.clone();
         let entity = cx.entity();
@@ -1364,3 +1392,5 @@ mod sticky_e2e;
 mod scroll_e2e;
 #[cfg(test)]
 mod scrollbar_e2e;
+#[cfg(test)]
+mod overview_ruler_e2e;

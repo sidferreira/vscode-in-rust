@@ -1762,7 +1762,37 @@ from the text area) and `scrollByPage` are wired. Colours are `scrollbarSlider.b
 - `hidden` takes no width, where upstream's layout keeps `verticalScrollbarSize` reserved (`editorOptions.ts`).
 - The drag is a gpui window listener, so it follows the pointer anywhere in the window, not through the bar's
   own pointer capture.
-- Overview ruler decorations (ADR-0055, next) and sash grippers are separate features.
+- Overview ruler decorations: see ADR-0055.
+
+**Superseded in part by ADR-0055.** The vertical lane is now reserved whenever `editor.scrollbar.vertical` is not
+`hidden` (upstream's layout does this), so an `auto` bar that is not needed still leaves its column, without a slider.
+
+## ADR-0055 — Overview ruler: cursor, selection and find marks on the scrollbar lane; border and cursor settings wired (2026-11-10)
+
+**Context.** Upstream's overview ruler draws the cursor, selection and find-match marks down the lane beside the
+vertical scrollbar, at the height of their line in the whole document. The zone placement is
+`overviewZoneManager.ts`, pure math with its own tests. `editor.overviewRulerBorder` and
+`editor.hideCursorInOverviewRuler` were blocked with the glyph margin (ADR-0053's neighbour rule).
+
+**Decision.**
+- The lane is the vertical scrollbar's track: reserved whenever `editor.scrollbar.vertical` is not `hidden`, as upstream
+  reserves `verticalScrollbarSize` in its layout (`editorOptions.ts`). This supersedes the "no column for an `auto` bar
+  that is not needed" part of ADR-0054, so a short document keeps the lane, and its cursor mark shows.
+- `editor_view/overview_ruler/zones.rs` ports `overviewZoneManager.ts`, and all three of upstream's
+  `OverviewZoneManager` tests are ported (the DOM width they set changes no zone, so it is not modelled).
+- Marks: the cursor (unless `editor.hideCursorInOverviewRuler`), the selection when it is not empty, and every find
+  match (while the find widget is open). Colours: `editorCursor.foreground`,
+  `editorOverviewRuler.selectionHighlightForeground`, `editorOverviewRuler.findMatchForeground`.
+- `editor.overviewRulerBorder` (default on) draws a one-pixel border along the lane, in `editorOverviewRuler.border`.
+- Both settings are wired. `editor.glyphMargin` stays blocked (the margin is not drawn).
+
+**Not done.**
+- Marks use document lines. With folding, upstream's view lines would put them elsewhere, so they can sit off their
+  line in a folded document.
+- Multi-cursor and bracket-match zones; error and warning zones (rscode has no diagnostics yet); the lane's own
+  background colour.
+- With `editor.scrollbar.vertical: hidden` there is no lane, so no ruler. Upstream keeps the reserved column and draws
+  the ruler in it; this stays a deliberate difference, as in ADR-0054.
 
 ## ADR-0060 — Extension host spike (P0): Option A is feasible, the handshake works (2026-11-10)
 

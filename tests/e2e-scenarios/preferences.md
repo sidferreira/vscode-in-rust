@@ -144,6 +144,17 @@ Headless (`crates/vsr-app/src/editor_view/scroll_e2e.rs`). The check is the list
 | `editor.scrollBeyondLastColumn` (default 4) adds that many character widths after the widest line, live; 0 removes the room | ready | `scroll_beyond_last_column_adds_room_after_the_widest_line_live` |
 | with `editor.wordWrap` on there is no horizontal room, whatever the setting | ready | `scroll_beyond_last_column_does_not_apply_with_word_wrap` |
 
+### Overview ruler (ADR-0055)
+
+Headless (`crates/vsr-app/src/editor_view/overview_ruler_e2e.rs`). The marks and the border are found by their debug selectors.
+
+| scenario | status | test |
+|---|---|---|
+| `editor.overviewRulerBorder` (default on) draws a border along the lane, live | ready | `the_border_is_drawn_by_default_and_removed_by_overview_ruler_border` |
+| the cursor is marked on the lane at its line's height (top for line 1) | ready | `the_cursor_is_marked_at_the_top_of_the_lane_for_a_caret_on_the_first_line` |
+| `editor.hideCursorInOverviewRuler` removes the cursor mark, live | ready | `hide_cursor_in_overview_ruler_removes_the_cursor_mark` |
+| `editor.glyphMargin` | blocked (needs the glyph margin) | |
+
 ### Editor scrollbars (`editor.scrollbar.*`, ADR-0054)
 
 Headless (`crates/vsr-app/src/editor_view/scrollbar_e2e.rs`). The bars are found by their debug selectors, and driven by simulated pointers.

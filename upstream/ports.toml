@@ -236,6 +236,24 @@ synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Editor vertical and horizontal scrollbars (ADR-0054): the slider math of scrollbarState.ts (both upstream ScrollbarState tests ported), click on the track (jump, or a page with scrollByPage), drag, visibility auto/visible/hidden, sizes, and scrollbarSlider colours. Not ported: the arrow buttons, the fade after scrolling (scrollbarVisibilityController), the active colour (scrollbarSlider.activeBackground), and ignoreHorizontalScrollbarInContentHeight (the scroll height would need the bar's height as a spacer row). The drag uses gpui window listeners, so it follows the pointer anywhere in the window."
 
 [[port]]
+id = "editor-overview-ruler"
+status = "partial"
+upstream = [
+  "src/vs/editor/common/viewModel/overviewZoneManager.ts",
+  "src/vs/editor/test/common/view/overviewZoneManager.test.ts",
+  "src/vs/editor/browser/viewParts/overviewRuler/decorationsOverviewRuler.ts",
+  "src/vs/editor/browser/viewParts/overviewRuler/overviewRuler.ts",
+]
+rust = [
+  "crates/vsr-app/src/editor_view/overview_ruler.rs",
+  "crates/vsr-app/src/editor_view/overview_ruler/zones.rs",
+  "crates/vsr-app/src/editor_view/overview_ruler/upstream_tests.rs",
+  "crates/vsr-app/src/editor_view/overview_ruler_e2e.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Overview ruler (ADR-0055): the zone math of overviewZoneManager.ts (all three upstream OverviewZoneManager tests ported; the DOM width they set changes no zone), the marks for the cursor, the selection and the find matches on the vertical scrollbar's lane, editor.overviewRulerBorder and editor.hideCursorInOverviewRuler. Not ported: the multi-cursor and bracket-match zones, error and warning zones (no diagnostics yet), the lane's own background colour, and view-line positions (marks use document lines, so folding misplaces them)."
+
+[[port]]
 id = "editor-minimap"
 status = "partial"
 upstream = [

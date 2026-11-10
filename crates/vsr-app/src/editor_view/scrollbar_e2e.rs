@@ -17,7 +17,7 @@ const V_BAR: &str = "editor-scrollbar-vertical";
 const V_SLIDER: &str = "editor-scrollbar-vertical-slider";
 const H_BAR: &str = "editor-scrollbar-horizontal";
 
-fn workbench<'a>(
+pub(super) fn workbench<'a>(
     cx: &'a mut TestAppContext,
     name: &str,
     settings: &str,
@@ -63,7 +63,12 @@ fn wide_text() -> String {
     format!("let a = \"{}\";\n", "0123456789".repeat(40))
 }
 
-fn set(wb: &Entity<Workbench>, cx: &mut VisualTestContext, key: &str, value: serde_json::Value) {
+pub(super) fn set(
+    wb: &Entity<Workbench>,
+    cx: &mut VisualTestContext,
+    key: &str,
+    value: serde_json::Value,
+) {
     cx.update(|_, cx| AppConfig::set_value(cx, key, Some(value)))
         .unwrap();
     // The bars are built with the editor, so repaint the workbench after a change.
@@ -72,14 +77,14 @@ fn set(wb: &Entity<Workbench>, cx: &mut VisualTestContext, key: &str, value: ser
 }
 
 /// Rebuilds the editor (the bars are built with it) and paints it.
-fn settle(wb: &Entity<Workbench>, cx: &mut VisualTestContext) {
+pub(super) fn settle(wb: &Entity<Workbench>, cx: &mut VisualTestContext) {
     wb.update(cx, |_, cx| cx.notify());
     cx.run_until_parked();
     wb.update(cx, |_, cx| cx.notify());
     cx.run_until_parked();
 }
 
-fn bar(cx: &mut VisualTestContext, selector: &'static str) -> Option<Bounds<Pixels>> {
+pub(super) fn bar(cx: &mut VisualTestContext, selector: &'static str) -> Option<Bounds<Pixels>> {
     cx.debug_bounds(selector)
 }
 
@@ -127,12 +132,19 @@ fn auto_shows_the_vertical_bar_when_the_document_is_taller_than_the_viewport(
 }
 
 #[gpui_kit::test]
-fn auto_hides_the_vertical_bar_when_the_document_fits(cx: &mut TestAppContext) {
+fn auto_draws_the_lane_without_a_slider_when_the_document_fits(cx: &mut TestAppContext) {
     // One line and no trailing newline: a second line would overflow by a row, as upstream's
-    // `scrollBeyondLastLine` height does.
+    // `scrollBeyondLastLine` height does. The lane stays (the overview ruler draws in it, ADR-0055).
     let (wb, cx) = workbench(cx, "auto-short", "{}", "let a = 1;");
     settle(&wb, cx);
-    assert!(bar(cx, V_BAR).is_none(), "no bar for a document that fits");
+    assert!(
+        bar(cx, V_BAR).is_some(),
+        "the lane is reserved as upstream does"
+    );
+    assert!(
+        bar(cx, V_SLIDER).is_none(),
+        "no slider for a document that fits"
+    );
 }
 
 #[gpui_kit::test]

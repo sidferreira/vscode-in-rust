@@ -123,13 +123,9 @@ impl BackupStore {
         self.file_of(path).is_file()
     }
 
-    /// Writes (replaces) the backup of `path` atomically, without a language.
-    pub fn write(&self, path: &Path, text: &str) -> io::Result<()> {
-        self.write_with(path, text, None)
-    }
-
-    /// Writes (replaces) the backup of `path` atomically, with the editor's language id.
-    pub fn write_with(&self, path: &Path, text: &str, language: Option<&str>) -> io::Result<()> {
+    /// Writes (replaces) the backup of `path` atomically, with the editor's language id (`None` when
+    /// it is not known).
+    pub fn write(&self, path: &Path, text: &str, language: Option<&str>) -> io::Result<()> {
         let backup = Backup::new(path, text, language);
         let bytes = serde_json::to_vec(&backup).map_err(io::Error::other)?;
         write_atomic(&self.file_of(path), &bytes)
@@ -196,7 +192,7 @@ mod tests {
     #[test]
     fn a_backup_keeps_its_language_and_an_old_one_without_it_still_loads() {
         let store = BackupStore::new(unique_dir("backup-language").join("b"));
-        store.write_with(Path::new("untitled:Untitled-1"), "fn x() {}", Some("rust")).unwrap();
+        store.write(Path::new("untitled:Untitled-1"), "fn x() {}", Some("rust")).unwrap();
         let loaded = store.load_all();
         assert_eq!(loaded.backups[0].language.as_deref(), Some("rust"));
         // A backup written before the language was recorded has no `language` key.
@@ -212,7 +208,7 @@ mod tests {
         let store = BackupStore::new(unique_dir("backup").join("b"));
         let file = Path::new("/w/a.txt");
         let text = "héllo\r\nwörld \u{1F600}\r\n\"quoted\"\t";
-        store.write(file, text).unwrap();
+        store.write(file, text, None).unwrap();
         let loaded = store.load_all();
         assert!(loaded.problems.is_empty());
         assert_eq!(loaded.backups.len(), 1);
@@ -225,8 +221,8 @@ mod tests {
         let dir = unique_dir("backup-replace");
         let store = BackupStore::new(&dir);
         let file = Path::new("/w/a.txt");
-        store.write(file, "one").unwrap();
-        store.write(file, "two").unwrap();
+        store.write(file, "one", None).unwrap();
+        store.write(file, "two", None).unwrap();
         assert_eq!(store.load_all().backups[0].text, "two");
         let names = fs::read_dir(&dir).unwrap().count();
         assert_eq!(names, 1, "no temp files");
@@ -236,14 +232,14 @@ mod tests {
     fn a_partial_or_damaged_backup_is_kept_aside_and_not_restored() {
         let dir = unique_dir("backup-corrupt");
         let store = BackupStore::new(&dir);
-        store.write(Path::new("/w/good.txt"), "good").unwrap();
-        store.write(Path::new("/w/bad.txt"), "bad text").unwrap();
+        store.write(Path::new("/w/good.txt"), "good", None).unwrap();
+        store.write(Path::new("/w/bad.txt"), "bad text", None).unwrap();
         // Truncate the second file in place, as a crash during a non-atomic write would have.
         let bad = dir.join(format!("{}.json", path_key(Path::new("/w/bad.txt"))));
         let full = fs::read(&bad).unwrap();
         fs::write(&bad, &full[..full.len() / 2]).unwrap();
         // A parseable file whose text no longer matches its checksum.
-        store.write(Path::new("/w/tampered.txt"), "original").unwrap();
+        store.write(Path::new("/w/tampered.txt"), "original", None).unwrap();
         let tampered = dir.join(format!("{}.json", path_key(Path::new("/w/tampered.txt"))));
         let text = fs::read_to_string(&tampered).unwrap().replace("original", "changed!");
         fs::write(&tampered, &text).unwrap();
@@ -263,8 +259,8 @@ mod tests {
         let dir = unique_dir("backup-remove");
         let store = BackupStore::new(&dir);
         let (a, b) = (Path::new("/w/a.txt"), Path::new("/w/b.txt"));
-        store.write(a, "a").unwrap();
-        store.write(b, "b").unwrap();
+        store.write(a, "a", None).unwrap();
+        store.write(b, "b", None).unwrap();
         assert!(store.remove_saved(a));
         assert!(!store.remove_saved(a));
         let moved = store.discard(b).unwrap();

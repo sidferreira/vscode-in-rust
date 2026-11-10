@@ -20,8 +20,8 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 
 | source | count | attributed to a node |
 |---|---|---|
-| settings: wired | 185 | n/a (done) |
-| settings: blocked | 342 | 342 of 342 (by reason) |
+| settings: wired | 213 | n/a (done) |
+| settings: blocked | 314 | 314 of 314 (by reason) |
 | settings: exthost | 426 | 426 of 426 (by built-in extension) |
 | settings: todo | 559 | 335 of 559 matched by a node's todo_globs |
 | settings: n/a | 550 | not dependency-blocked (policy: product, Windows, deprecated) |
@@ -29,8 +29,8 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 73 | every ADR cited by a node exists (latest ADR-0081) |
-| upstream/ports.toml entries | 55 | not nodes (file ports, not features): partial 52, planned 1, ported 2 |
+| ADR headings in DECISIONS.md | 76 | every ADR cited by a node exists (latest ADR-0087) |
+| upstream/ports.toml entries | 56 | not nodes (file ports, not features): partial 53, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.
 
@@ -82,7 +82,9 @@ flowchart LR
   n_workspace_symbols["Workspace symbols (symbol provider) (todo)"]:::todo
   n_color_decorators["Colour decorators (document colour provider) (todo)"]:::todo
   n_smart_select["Expand Selection (smart select with selection range providers) (todo)"]:::todo
-  n_document_symbols["Document symbols: Outline view and breadcrumb symbols (todo)"]:::todo
+  n_document_symbols["Document symbols: outline model, breadcrumb symbols, Go to Symbol (done)"]:::done
+  n_outline_view["Outline view (symbols of the active file in the Explorer) (todo)"]:::todo
+  n_copy_breadcrumbs_path["Copy Breadcrumbs Path command (todo)"]:::todo
   n_diagnostics_view["Problems view (diagnostics list) (todo)"]:::todo
   n_ext_errorlens(["ErrorLens (in-progress)"]):::inprogress
   n_ext_oxc(["oxc (LSP over stdio) (todo)"]):::todo
@@ -204,6 +206,8 @@ flowchart LR
   n_lang_providers_main --> n_color_decorators
   n_lang_providers_main --> n_smart_select
   n_lang_providers_main --> n_document_symbols
+  n_document_symbols --> n_outline_view
+  n_document_symbols --> n_copy_breadcrumbs_path
   n_diagnostics_model --> n_diagnostics_view
   n_ext_host_p1 --> n_ext_errorlens
   n_text_decorations --> n_ext_errorlens
@@ -298,7 +302,7 @@ flowchart LR
 |---|---|---|---|---|---|---|---|---|
 | 1 | child-process-main | Child processes on the main side (spawn, stdio) | S (guess) | 106 (+132) | 34 (+0) | 0 (+0) | 2 (+5) | debugger-dap, ext-claude-code, ext-kotlin, ext-php, ext-ts-features, ext-xml, lsp-client |
 | 2 | completion-suggest | Completion provider and suggest widget | M (guess) | 70 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 3 | document-symbols | Document symbols: Outline view and breadcrumb symbols | M (guess) | 60 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 3 | outline-view | Outline view (symbols of the active file in the Explorer) | M (guess) | 31 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 4 | navigation-providers | Definition, hover, code lens and inlay hint providers | M (guess) | 28 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 5 | custom-editors | Custom editors (editor types per file) | L (guess) | 10 (+0) | 78 (+0) | 7 (+0) | 0 (+0) | diff-editor, non-text-editors, notebook-editor |
 | 6 | ext-emmet | Emmet (built-in) | M (guess) | 12 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
@@ -309,7 +313,7 @@ flowchart LR
 | 11 | accessibility-tree | Accessibility tree from gpui (screen readers) | L (guess) | 4 (+0) | 0 (+0) | 4 (+0) | 0 (+0) | - |
 | 12 | editor-groups | Editor splits and editor groups | L (guess) | 7 (+0) | 3 (+0) | 0 (+0) | 0 (+0) | - |
 
-Top 12 of 76 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
+Top 12 of 77 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
 
 ### Waiting on in-progress work
 
@@ -338,13 +342,14 @@ None.
 | completion-suggest | Completion provider and suggest widget | todo | feature | M (guess) | lang-providers-main | 70 (+0) | 70 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | config-service | Configuration service and live reload (ADR-0022) | done | feature | - | - | 0 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | context-menus | Context menus | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| copy-breadcrumbs-path | Copy Breadcrumbs Path command | todo | feature | S (guess) | document-symbols | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | cross-version-migration | Cross-version state migration (needs a stable VS Code install) | blocked-external | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | custom-editors | Custom editors (editor types per file) | todo | feature | L (guess) | - | 1 (+0) | 10 (+78) | 0 (+0) | 0 | 7 (+0) | 0 (+0) |
 | debugger-dap | Debugger: debug adapter protocol and debug views | todo | feature | XL (guess) | ext-host-p1, child-process-main | 12 (+34) | 12 (+34) | 0 (+0) | 0 | 0 (+0) | 0 (+1) |
 | diagnostics-model | Diagnostics store (problems reported by language features) | done | feature | S (guess) | ext-host-p1 | 1 (+0) | 1 (+6) | 0 (+0) | 0 | 3 (+0) | 1 (+0) |
 | diagnostics-view | Problems view (diagnostics list) | todo | feature | M (guess) | diagnostics-model | 0 (+6) | 0 (+6) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | diff-editor | Diff editor (side by side and inline) | todo | feature | XL (guess) | custom-editors | 1 (+22) | 1 (+22) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| document-symbols | Document symbols: Outline view and breadcrumb symbols | todo | feature | M (guess) | lang-providers-main | 60 (+0) | 60 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| document-symbols | Document symbols: outline model, breadcrumb symbols, Go to Symbol | done | feature | M (guess) | lang-providers-main | 0 (+0) | 32 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-double-click-block | Double click block selection | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-drag-drop | Text drag and drop in the editor | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-find-widget | Editor Find widget (ADR-0027) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -361,8 +366,8 @@ None.
 | ext-emmet | Emmet (built-in) | todo | extension | M (guess) | lang-providers-main | 12 (+0) | 12 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-errorlens | ErrorLens | in-progress | extension | M (source) | ext-host-p1, text-decorations, diagnostics-model | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-gitlens | GitLens | todo | extension | XL (source) | ext-host-p1, webview-service, tree-views, integrated-terminal, tasks-runner, git-scm | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 434 (+57) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
-| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 434 (+57) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
+| ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 406 (+57) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
+| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 406 (+57) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
 | ext-kotlin | Kotlin (LSP, runtime server download, DAP) | todo | extension | L (source) | lsp-client, lang-providers-main, child-process-main, debugger-dap | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-merge-conflict | Merge conflict (CodeLens and decorations, built-in) | todo | extension | S (guess) | lang-providers-main, text-decorations | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-oxc | oxc (LSP over stdio) | todo | extension | L (source) | lsp-client, lang-providers-main, workspace-fs-api | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -385,7 +390,7 @@ None.
 | hot-exit-undo | Undo history saved with the hot exit backup | todo | feature | S (guess) | session-restore | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | hover-delay | Hover widgets with a configurable delay | todo | feature | S (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | integrated-terminal | Integrated terminal (pty, shell integration, terminal editors) | blocked-external | feature | L (guess) | cargo-proxy-token, bottom-panel | 0 (+119) | 13 (+131) | 0 (+0) | 52 | 56 (+0) | 1 (+2) |
-| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 193 (+0) | 280 (+0) | 4 | 4 (+0) | 2 (+7) |
+| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 165 (+0) | 280 (+0) | 4 | 4 (+0) | 2 (+7) |
 | language-config | Language configuration: typing rules, comments, indentation (ADR-0046) | done | feature | - | - | 0 (+0) | 7 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | language-detection | Language detection for untitled and unknown files | todo | feature | M (guess) | untitled-editors | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | large-file-mode | Large file mode (features off for very big files) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -408,6 +413,7 @@ None.
 | notifications | Notification toasts and the notifications centre | todo | feature | M (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | open-editors-pane | Open Editors pane in the Explorer | todo | feature | S (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | os-appearance | OS high contrast signal and native window appearance | todo | feature | M (guess) | - | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| outline-view | Outline view (symbols of the active file in the Explorer) | todo | feature | M (guess) | document-symbols | 31 (+0) | 31 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | overtype-input | Overtype input mode (Insert key) | todo | feature | S (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | overview-ruler-glyph-margin | Overview ruler (decoration lane beside the vertical scrollbar) | done | feature | M (guess) | editor-scrollbar | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | paste-indentation | Paste re-indentation (AutoIndentOnPaste) | todo | feature | S (guess) | language-config | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |

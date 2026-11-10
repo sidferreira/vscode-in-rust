@@ -398,15 +398,35 @@ reasons = [
 
 [[node]]
 id = "document-symbols"
-title = "Document symbols: Outline view and breadcrumb symbols"
-status = "todo"
+title = "Document symbols: outline model, breadcrumb symbols, Go to Symbol"
+status = "done"
 effort = "M"
 effort_source = "guess"
 needs = ["lang-providers-main"]
+note = "Done (ADR-0085..0087): OutlineModel, worker query with debounce, breadcrumb symbols and dropdown, Go to Symbol in Editor (@, @:). 28 breadcrumbs settings wired."
+
+[[node]]
+id = "outline-view"
+title = "Outline view (symbols of the active file in the Explorer)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["document-symbols"]
 reasons = [
-  "needs document symbols (outline provider from the extension host)",
+  "needs the Outline view (the symbols of the active file in a view of the Explorer)",
 ]
-note = "Includes the 29 breadcrumbs.symbol*/show* settings, which were mis-filed under sash grippers until the settings.toml rule was repaired (ADR-0055 commit)."
+note = "The model, query and cache exist (ADR-0085, ADR-0086); the tree view, follow cursor, sort/filter actions and problem markers on symbols do not."
+
+[[node]]
+id = "copy-breadcrumbs-path"
+title = "Copy Breadcrumbs Path command"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["document-symbols"]
+reasons = [
+  "needs the Copy Breadcrumbs Path command (the symbol path joined by this separator)",
+]
 
 [[node]]
 id = "diagnostics-view"

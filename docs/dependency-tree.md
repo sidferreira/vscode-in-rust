@@ -25,14 +25,14 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | settings: exthost | 426 | 426 of 426 (by built-in extension) |
 | settings: todo | 559 | 335 of 559 matched by a node's todo_globs |
 | settings: n/a | 550 | not dependency-blocked (policy: product, Windows, deprecated) |
-| smoke scenarios: ready | 65 | not blocked |
+| smoke scenarios: ready | 73 | not blocked |
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 72 | every ADR cited by a node exists (latest ADR-0081) |
+| ADR headings in DECISIONS.md | 73 | every ADR cited by a node exists (latest ADR-0081) |
 | upstream/ports.toml entries | 55 | not nodes (file ports, not features): partial 52, planned 1, ported 2 |
 
-Settings in the export: 2062. Scenario rows: 190.
+Settings in the export: 2062. Scenario rows: 198.
 
 ## Graph
 

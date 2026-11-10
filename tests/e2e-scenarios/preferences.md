@@ -56,6 +56,27 @@ the minimap model are asserted; the test platform's text system is a no-op, so n
 | zoom in, out and reset change `window.zoomLevel` and scale the editor text | ready | `zoom_commands_change_the_level_and_scale_the_editor_text` (chrome does not zoom yet, ADR-0035) |
 | `workbench.startupEditor: readme` opens the README; the default opens the Welcome page; `none` opens nothing | ready | `startup_editor_readme_opens_the_readme_and_the_default_opens_nothing`, `startup_editor_default_is_the_welcome_page`, `startup_editor_none_opens_nothing` |
 
+### Folding, sticky scroll and minimap section headers
+
+Headless (`crates/vsr-app/src/editor_view/folding_e2e.rs`, `sticky_e2e.rs`, `minimap/headers_e2e.rs`, ADR-0042).
+The pure behaviour (regions, hidden lines, caret rules) is tested in `crates/vsr-editor/tests/folding.rs`.
+
+| scenario | status | test |
+|---|---|---|
+| Fold (Alt+Cmd+[) at a header hides its lines (view line count drops, `⋯` and the highlight show, line numbers skip), Unfold (Alt+Cmd+]) restores them | ready | `fold_at_a_header_hides_lines_and_unfold_restores_them` |
+| Fold All (Cmd+K Cmd+0), Unfold All (Cmd+K Cmd+J), Fold Level N leaves the caret's region | ready | `fold_all_and_unfold_all_use_their_chords` |
+| the caret skips a fold; Enter at the end of a folded line (an edit inside the region) unfolds it | ready | `the_caret_skips_a_fold_and_editing_inside_one_unfolds_it` |
+| `#region` markers fold in Rust and TypeScript files; Fold/Unfold All Regions | ready | `region_markers_fold_in_rust_and_typescript_files` |
+| a fold follows edits above it | ready | `folds_follow_edits_above_them` |
+| `editor.folding` off shows every line and disables the commands; `foldingMaximumRegions`, `foldingStrategy` | ready | `folding_off_and_the_maximum_follow_the_settings` |
+| `editor.showFoldingControls` always / never / mouseover; `foldingHighlight` | ready | `show_folding_controls_always_never_and_mouseover` |
+| clicking the control toggles, Shift click folds the children first; clicking the `⋯` unfolds (`unfoldOnClickAfterEndOfLine` after the end is a unit test) | ready | `clicking_the_control_toggles_the_fold`, `clicking_the_placeholder_unfolds` |
+| a 10k-line file with a fold stays responsive; fold all of 2,500 regions | ready | `folding_a_10k_line_file_stays_responsive` |
+| sticky scroll pins the headers of the enclosing regions when scrolled, outermost first | ready | `scrolled_headers_stay_pinned_at_the_top` |
+| `editor.stickyScroll.maxLineCount` and `enabled`; a click on a pinned header moves the caret there | ready | `max_line_count_enabled_and_folding_follow_the_settings`, `clicking_a_pinned_header_moves_the_caret_there` |
+| minimap section headers show `#region` and `MARK:` names (`-` makes a separator) | ready | `region_and_mark_headers_show_their_names` |
+| `showRegionSectionHeaders`, `showMarkSectionHeaders`, `markSectionHeaderRegex`, `sectionHeaderFontSize` | ready | `the_settings_switch_each_kind_and_change_the_regex_and_size`, `plain_text_has_no_mark_headers_but_regions_need_a_marker` |
+
 ### Word wrap
 
 Headless (`crates/vsr-app/src/editor_view/wrap_e2e.rs`, ADR-0036). The test platform measures no text, so the viewport

@@ -23,6 +23,7 @@ mod e2e_files;
 #[cfg(test)]
 mod e2e_syntax;
 pub mod files;
+pub mod folding;
 pub mod glob;
 pub mod minimap;
 pub mod settings;

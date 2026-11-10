@@ -49,6 +49,8 @@ fn column_after(line: &str, column: usize) -> usize {
 impl Editor {
     /// Moves the caret to `p`, or the active end to `p` when `extend` is set.
     pub(crate) fn move_to(&mut self, p: Position, extend: bool, leftover: i64) {
+        // The caret never rests on a line a collapsed fold hides.
+        let p = self.skip_hidden(self.selection.active, p);
         if extend {
             self.selection.active = p;
         } else {

@@ -28,7 +28,7 @@ pub(crate) struct WrapState {
     pub(crate) params: Option<WrapParams>,
     pub(crate) lines: ViewLines,
     /// The editor version `lines` was synced at.
-    pub(crate) synced: Option<u64>,
+    pub(crate) synced: Option<(u64, u64)>,
 }
 
 impl Editor {
@@ -48,21 +48,32 @@ impl Editor {
         self.wrap.borrow().params.is_some()
     }
 
-    /// The projection into view lines, brought up to date with the buffer; `None` when not wrapping.
+    /// The projection into view lines, brought up to date with the buffer; `None` when neither
+    /// wrapping nor hiding lines (folding).
     pub fn view_lines(&self) -> Option<Ref<'_, ViewLines>> {
+        self.refresh_folding();
         let version = self.version();
+        let (revision, has_hidden) = {
+            let f = self.folding.borrow();
+            (f.revision, f.has_hidden())
+        };
         // Shared borrows when it is up to date, so callers can hold the result and call again.
         let stale = {
             let w = self.wrap.borrow();
-            w.params.as_ref()?;
-            w.synced != Some(version)
+            if w.params.is_none() && !has_hidden {
+                return None;
+            }
+            w.synced != Some((version, revision))
         };
         if stale {
+            let hidden = self.folding.borrow().hidden_pairs();
             let mut w = self.wrap.borrow_mut();
             let w = &mut *w;
-            let params = w.params.as_ref()?;
-            w.lines.sync(&self.buffer, params);
-            w.synced = Some(version);
+            let params = w.params.clone().unwrap_or_else(|| {
+                WrapParams::monospace(self.options.tab_size, -1, crate::wrap::WrappingIndent::None)
+            });
+            w.lines.sync_hidden(&self.buffer, &params, &hidden);
+            w.synced = Some((version, revision));
         }
         Some(Ref::map(self.wrap.borrow(), |w| &w.lines))
     }

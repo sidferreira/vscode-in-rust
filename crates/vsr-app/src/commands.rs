@@ -25,7 +25,7 @@ use vsr_quickinput::quick_access::{ProviderDescriptor, QuickAccessRegistry};
 
 use crate::editor_view::Run;
 use crate::editor_view::find as fnd;
-use crate::keymap::{BINDINGS, Command, Motion};
+use crate::keymap::{BINDINGS, Command, Motion, UNBOUND};
 use crate::quick_open::GoToFile;
 use crate::search_view as sv;
 use crate::settings_view::OpenSettings;
@@ -197,7 +197,7 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
 
     // Editor commands from the key map (the one table of default bindings).
     let mut seen: Vec<Command> = Vec::new();
-    for &(_, cmd) in BINDINGS {
+    for &cmd in BINDINGS.iter().map(|(_, c)| c).chain(UNBOUND) {
         if seen.contains(&cmd) || matches!(cmd, Command::Save | Command::CloseTab) {
             continue;
         }
@@ -315,6 +315,36 @@ fn editor_command(cmd: Command) -> (&'static str, &'static str, bool) {
         Save => ("workbench.action.files.save", "Save", true),
         CloseTab => ("workbench.action.closeActiveEditor", "Close Editor", true),
         ToggleWordWrap => ("editor.action.toggleWordWrap", "Toggle Word Wrap", true),
+        Fold(a) => fold_command(a),
+    }
+}
+
+/// Id, title and palette visibility of a folding command (`folding.ts`). All are in the palette.
+fn fold_command(a: vsr_editor::FoldAction) -> (&'static str, &'static str, bool) {
+    use vsr_editor::FoldAction::*;
+    match a {
+        Fold => ("editor.fold", "Fold", true),
+        Unfold => ("editor.unfold", "Unfold", true),
+        ToggleFold => ("editor.toggleFold", "Toggle Fold", true),
+        FoldRecursively => ("editor.foldRecursively", "Fold Recursively", true),
+        UnfoldRecursively => ("editor.unfoldRecursively", "Unfold Recursively", true),
+        ToggleFoldRecursively => ("editor.toggleFoldRecursively", "Toggle Fold Recursively", true),
+        FoldAll => ("editor.foldAll", "Fold All", true),
+        UnfoldAll => ("editor.unfoldAll", "Unfold All", true),
+        FoldLevel(1) => ("editor.foldLevel1", "Fold Level 1", true),
+        FoldLevel(2) => ("editor.foldLevel2", "Fold Level 2", true),
+        FoldLevel(3) => ("editor.foldLevel3", "Fold Level 3", true),
+        FoldLevel(4) => ("editor.foldLevel4", "Fold Level 4", true),
+        FoldLevel(5) => ("editor.foldLevel5", "Fold Level 5", true),
+        FoldLevel(6) => ("editor.foldLevel6", "Fold Level 6", true),
+        FoldLevel(_) => ("editor.foldLevel7", "Fold Level 7", true),
+        FoldAllMarkerRegions => ("editor.foldAllMarkerRegions", "Fold All Regions", true),
+        UnfoldAllMarkerRegions => ("editor.unfoldAllMarkerRegions", "Unfold All Regions", true),
+        FoldAllExcept => ("editor.foldAllExcept", "Fold All Except Selected", true),
+        UnfoldAllExcept => ("editor.unfoldAllExcept", "Unfold All Except Selected", true),
+        GotoParentFold => ("editor.gotoParentFold", "Go to Parent Fold", true),
+        GotoPreviousFold => ("editor.gotoPreviousFold", "Go to Previous Folding Range", true),
+        GotoNextFold => ("editor.gotoNextFold", "Go to Next Folding Range", true),
     }
 }
 

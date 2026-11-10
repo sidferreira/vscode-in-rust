@@ -123,6 +123,9 @@ theme_fields! {
     bracket_match_border: ["editorBracketMatch.border"],
     selection_highlight_bg: ["editor.selectionHighlightBackground"],
     word_highlight_bg: ["editor.wordHighlightBackground"],
+    fold_bg: ["editor.foldBackground"],  // folding (ADR-0042)
+    fold_placeholder_fg: ["editor.foldPlaceholderForeground"],
+    folding_control_fg: ["editorGutter.foldingControlForeground"],
     input_option_active_bg: ["inputOption.activeBackground"],  // Search view (searchview.css, inputOption.*, badge.*)
     input_option_active_border: ["inputOption.activeBorder"],
     input_option_active_fg: ["inputOption.activeForeground"],
@@ -290,6 +293,9 @@ mod tests {
         ("bracket_match_border", "#888888"),
         ("selection_highlight_bg", "#ADD6FF26"),
         ("word_highlight_bg", "#575757B8"),
+        ("fold_bg", "#264F784D"),
+        ("fold_placeholder_fg", "#808080"),
+        ("folding_control_fg", "#CCCCCC"),
         ("input_option_active_bg", "#2489DB82"),
         ("input_option_active_border", "#2488DB"),
         ("input_option_active_fg", "#FFFFFF"),

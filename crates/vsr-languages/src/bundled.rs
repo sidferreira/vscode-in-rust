@@ -64,6 +64,65 @@ pub fn scope_name_for_language(language_id: &str) -> Option<&'static str> {
     .map(String::as_str)
 }
 
+/// The `folding` section of a language configuration (upstream `FoldingRules`): whether the
+/// language is indentation based (`offSide`: blank lines belong to the block above), and the
+/// regular expressions (JavaScript syntax, as written in `language-configuration.json`) of its
+/// region markers, such as `//#region` and `//#endregion`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRules {
+    #[serde(default)]
+    pub off_side: bool,
+    #[serde(default)]
+    pub markers: Option<FoldingMarkerPatterns>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct FoldingMarkerPatterns {
+    pub start: String,
+    pub end: String,
+}
+
+fn folding_table() -> &'static HashMap<String, FoldingRules> {
+    #[derive(Deserialize)]
+    struct Entry {
+        id: String,
+        folding: Option<FoldingRules>,
+    }
+    static MAP: OnceLock<HashMap<String, FoldingRules>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let entries: Vec<Entry> = serde_json::from_str(LANGUAGES_JSON).expect("bundled languages.json is valid");
+        entries.into_iter().filter_map(|e| e.folding.map(|f| (e.id, f))).collect()
+    })
+}
+
+/// The folding rules of `language_id`, `None` when its configuration has none.
+pub fn folding_rules(language_id: &str) -> Option<&'static FoldingRules> {
+    folding_table().get(language_id)
+}
+
+/// The block comment tokens of `language_id` (`/*` and `*/`), from its language configuration.
+pub fn block_comment(language_id: &str) -> Option<(&'static str, &'static str)> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Entry {
+        id: String,
+        block_comment: Option<(String, String)>,
+    }
+    static MAP: OnceLock<HashMap<String, (String, String)>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let entries: Vec<Entry> = serde_json::from_str(LANGUAGES_JSON).expect("bundled languages.json is valid");
+        entries.into_iter().filter_map(|e| e.block_comment.map(|b| (e.id, b))).collect()
+    })
+    .get(language_id)
+    .map(|(a, b)| (a.as_str(), b.as_str()))
+}
+
+/// Every language id that has folding rules.
+pub fn folding_rule_language_ids() -> Vec<&'static str> {
+    folding_table().keys().map(String::as_str).collect()
+}
+
 /// A registry holding plain text and every built-in language (upstream's registry after the
 /// built-in extensions registered).
 pub fn builtin_registry() -> LanguagesRegistry {

@@ -5,7 +5,8 @@
 
 Writes:
   data/languages.json   every `contributes.languages` entry of every built-in extension, in
-                        extension-directory order (the order upstream registers them in)
+                        extension-directory order (the order upstream registers them in), with the
+                        `folding` rules of its language configuration (ADR-0042)
   data/grammars.json    the `contributes.grammars` entries of the bundled extensions
   data/grammars/<scopeName>.json   the grammar files (strict JSON copies)
   data/themes/*.json    dark_vs, dark_plus, dark_modern (comments and trailing commas stripped)
@@ -84,6 +85,16 @@ def main():
                      if k in lang}
             if "configuration" in lang:
                 entry["configuration"] = f"{ext}/{lang['configuration'].lstrip('./')}"
+                # The `folding` section of the language configuration (offSide, markers start/end).
+                cfg_path = os.path.join(ext_root, ext, lang["configuration"])
+                if os.path.isfile(cfg_path):
+                    cfg = load_jsonc(cfg_path)
+                    if cfg.get("folding"):
+                        entry["folding"] = cfg["folding"]
+                    # The block comment tokens, for the minimap's mark section headers.
+                    block = (cfg.get("comments") or {}).get("blockComment")
+                    if block:
+                        entry["blockComment"] = block
             entry["extension"] = ext
             languages.append(entry)
         if ext not in BUNDLED_EXTENSIONS:

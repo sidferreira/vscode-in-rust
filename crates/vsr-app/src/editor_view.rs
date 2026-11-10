@@ -25,6 +25,8 @@
 
 mod decorations;
 pub(crate) mod find;
+mod folding;
+mod sticky_scroll;
 mod minimap;
 pub(crate) mod wrap;
 mod view_state; // restoreViewState: scroll, selection, word wrap (ADR-0040)
@@ -43,7 +45,7 @@ use gpui_kit::{
     SharedString, Styled, Task, TextRun, UTF16Selection, UniformListScrollHandle, Window, canvas,
     div, font, point, px, uniform_list,
 };
-use gpui_kit::InteractiveElement;
+use gpui_kit::{InteractiveElement, StatefulInteractiveElement};
 use vsr_editor::Position;
 
 use crate::config::settings::{
@@ -98,6 +100,8 @@ pub struct EditorView {
     /// Active IME composition, as a UTF-16 document range.
     marked: Option<Range<usize>>,
     dragging: bool,
+    /// The mouse is over the gutter (`editor.showFoldingControls: mouseover`).
+    fold_hover: bool,
     /// The path the editor was last auto-focused for (focus follows tab changes).
     focused_for: Option<PathBuf>,
     /// The editor settings of the last `element` call (fonts, cursor, line numbers, ...).
@@ -251,6 +255,8 @@ impl EditorView {
         self.gutter = gutter;
         // Word wrap: the wrapping column comes from the settings and, for `on` and `bounded`, from the
         // width painted last; the paint below asks for another frame when that width changes.
+        folding::sync(editor, &cfg);
+        let fold_paint = folding::Paint { gutter_hover: self.fold_hover };
         let wrap_mode = wrap::effective_mode(cfg.word_wrap, self.wrap_override.get(&editor.path).copied());
         let viewport_dependent = matches!(wrap_mode, WordWrap::On | WordWrap::Bounded);
         let used_width = f32::from(self.bounds.get().size.width);
@@ -288,6 +294,9 @@ impl EditorView {
             }));
         }
         let theme = theme.clone();
+        let pinned = sticky_scroll::lines(editor, &scroll, &cfg);
+        let (_, scroll_x) = sticky_scroll::viewport_top(&scroll, cfg.line_height);
+        let sticky = sticky_scroll::overlay(pinned, &cfg, &theme, gutter, scroll_x, fold_paint, cx);
         let id: SharedString = editor.path.display().to_string().into();
         let list_focus = focus.clone();
         // `editor.scrollBeyondLastLine`: empty rows after the last line (the page is measured at paint).
@@ -308,7 +317,7 @@ impl EditorView {
                 }
                 let find = view.find.highlights(e, &theme);
                 let pair = view.brackets.get(&e.path, e.buffer(), e.editor.version(), e.editor.selection().active, cfg.match_brackets);
-                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator)
+                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator, fold_paint)
             }),
         )
         .track_scroll(&scroll);
@@ -370,6 +379,13 @@ impl EditorView {
             .on_mouse_move(cx.listener(|this: &mut T, ev: &MouseMoveEvent, window, cx| {
                 mouse_move(this, ev, window, cx)
             }))
+            .on_hover(cx.listener(|this: &mut T, hovered: &bool, _, cx| {
+                let view = this.editor_host().1;
+                if !*hovered && view.fold_hover {
+                    view.fold_hover = false;
+                    cx.notify();
+                }
+            }))
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|this: &mut T, _: &MouseUpEvent, _, _| {
@@ -377,7 +393,8 @@ impl EditorView {
                 }),
             )
             .child(list)
-            .child(input_surface);
+            .child(input_surface)
+            .children(sticky);
         // The editor and the Find widget side by side, so the find keys work from both.
         find::register_actions(
             div()
@@ -553,6 +570,11 @@ fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Win
     }
     e.editor.set_word_separators(&view.cfg.word_separators);
     let (pos, trailing) = hit_test(view, e, ev.position, window);
+    if view.cfg.folding.enabled && fold_click(view, e, ev, pos, window) {
+        view.after_change(e, false, true, window); // a click on a fold control
+        cx.notify();
+        return;
+    }
     match ev.click_count {
         0 | 1 => e.editor.set_cursor_with_affinity(pos, ev.modifiers.shift, trailing),
         2 => {
@@ -574,8 +596,43 @@ fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Win
     cx.notify();
 }
 
+/// A click on a fold control, on the `⋯` of a folded line, or (with
+/// `editor.unfoldOnClickAfterEndOfLine`) after its end toggles the fold (upstream `onEditorMouseUp`).
+/// Shift or a middle click act recursively, Alt on the surrounding regions.
+fn fold_click(view: &mut EditorView, e: &mut OpenEditor, ev: &MouseDownEvent, pos: Position, window: &Window) -> bool {
+    let bounds = view.bounds.get();
+    let local_x = f32::from(ev.position.x - bounds.origin.x);
+    let Some(info) = e.editor.fold_at_line(pos.line) else { return false };
+    let recursive = ev.modifiers.shift || ev.button == MouseButton::Middle;
+    if folding::in_control_column(local_x, view.gutter) {
+        if view.cfg.folding.show_controls == crate::config::folding::ShowFoldingControls::Never {
+            return false;
+        }
+        return e.editor.toggle_fold_at(pos.line, recursive, ev.modifiers.alt);
+    }
+    if !info.collapsed || pos.column != e.buffer().line_max_column(pos.line) {
+        return false;
+    }
+    // On the `⋯` (a click that lands after the end of the text is always at its end column).
+    let scroll_x = view.scrolls.get(&e.path).map_or(0.0, |s| f32::from(s.0.borrow().base_handle.offset().x));
+    let text_x = local_x - view.gutter - scroll_x;
+    let tab = e.editor.options().tab_size;
+    let expanded = expand_tabs(e.buffer().line_content(pos.line), tab);
+    let end_x = shape(window, &view.cfg, &expanded).map_or(0.0, |s| f32::from(s.width));
+    if folding::unfolds_on_click(text_x, end_x, view.char_width(), view.cfg.folding.unfold_on_click_after_end_of_line) {
+        return e.editor.toggle_fold_at(pos.line, recursive, ev.modifiers.alt);
+    }
+    false
+}
+
 fn mouse_move<T: EditorHost>(this: &mut T, ev: &MouseMoveEvent, window: &mut Window, cx: &mut Context<T>) {
     let (editors, view) = this.editor_host();
+    let local_x = f32::from(ev.position.x - view.bounds.get().origin.x);
+    let over_gutter = local_x >= 0.0 && local_x < view.gutter;
+    if over_gutter != view.fold_hover {
+        view.fold_hover = over_gutter;
+        cx.notify();
+    }
     if !view.dragging {
         return;
     }
@@ -918,6 +975,7 @@ fn rows(
     find: Option<&find::Highlights<'_>>,
     brackets: Option<(Position, Position)>,
     wrap_indicator: Option<usize>,
+    fold_paint: folding::Paint,
 ) -> Vec<AnyElement> {
     e.sync_syntax(); // tokens follow the buffer (ADR-0038)
     let buf = e.buffer();
@@ -953,6 +1011,8 @@ fn rows(
                 None => return div().h(px(lh)).into_any_element(),
             };
             let line = seg.line;
+            let fold_info = if seg.first { e.editor.fold_at_line(line) } else { None };
+            let collapsed_fold = fold_info.filter(|f| f.collapsed);
             let text = buf.line_content(line);
             // `editor.renderControlCharacters`: each control character is a space in the text (one byte
             // for one byte) and a picture drawn over its cell.
@@ -1107,6 +1167,11 @@ fn rows(
             } else {
                 text_box.child(gpui_kit::StyledText::new(expanded.clone()).with_highlights(highlights))
             };
+            if collapsed_fold.is_some() && seg.last {
+                // The `⋯` after a folded line.
+                let w = shape(window, cfg, &expanded).map_or(expanded.chars().count() as f32 * space_w, |s| f32::from(s.width));
+                text_box = text_box.child(folding::placeholder(t, cfg, w, line));
+            }
             if has_caret {
                 // The caret's column in the row's text (`caret_view` includes the continuation indent).
                 let col = caret_view.map_or(sel.active.column, |(_, vcol)| vcol);
@@ -1135,6 +1200,9 @@ fn rows(
                 .font_features(font_features(cfg))
                 .text_size(px(cfg.font_size))
                 .debug_selector(|| format!("row:{ix}"));
+            if cfg.folding.highlight && collapsed_fold.is_some() {
+                row = row.child(folding::highlight(t, gutter, line));
+            }
             if let Some(f) = find.filter(|f| f.line_in_scope(line)) {
                 // "Find in Selection": the lines of the scope get the range highlight.
                 row = row.child(
@@ -1207,7 +1275,11 @@ fn rows(
             if seg.first {
                 number_box = number_box.debug_selector(|| format!("gutter:{line}"));
             }
-            row.child(number_box).child(text_box).into_any_element()
+            let mut row = row.child(number_box).child(text_box);
+            if let Some(control) = folding::control(fold_info, cfg, t, gutter, fold_paint, line) {
+                row = row.child(control);
+            }
+            row.into_any_element()
         })
         .collect()
 }
@@ -1245,3 +1317,7 @@ mod find_e2e;
 mod wrap_e2e;
 #[cfg(test)]
 mod cursor_e2e;
+#[cfg(test)]
+mod folding_e2e;
+#[cfg(test)]
+mod sticky_e2e;

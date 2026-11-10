@@ -8,3 +8,4 @@ publish.workspace = true
 
 [dependencies]
 vsr-text.workspace = true
+regex = "1"

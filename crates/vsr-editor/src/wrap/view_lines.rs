@@ -76,6 +76,8 @@ pub struct ViewLines {
     lines: Vec<Entry>,
     /// `starts[i]` is the index of the first view line of model line `i + 1`; the last entry is the total.
     starts: Vec<usize>,
+    /// Model lines hidden by collapsed folds (`start..=end`, 1-based, sorted): no view lines.
+    hidden: Vec<(usize, usize)>,
 }
 
 impl Default for ViewLines {
@@ -121,7 +123,7 @@ pub fn slice_utf16(s: &str, from: usize, to: usize) -> &str {
 
 impl ViewLines {
     pub fn new() -> Self {
-        Self { params: None, computer: LineBreaksComputer::with_defaults(), lines: Vec::new(), starts: vec![0] }
+        Self { params: None, computer: LineBreaksComputer::with_defaults(), lines: Vec::new(), starts: vec![0], hidden: Vec::new() }
     }
 
     /// A projection built from known wrappings, one `(line length in UTF-16 units, wrapping)` per
@@ -138,8 +140,16 @@ impl ViewLines {
         self.starts.clear();
         self.starts.reserve(self.lines.len() + 1);
         let mut total = 0;
-        for e in &self.lines {
+        let mut h = 0;
+        for (i, e) in self.lines.iter().enumerate() {
             self.starts.push(total);
+            let line = i + 1;
+            while h < self.hidden.len() && self.hidden[h].1 < line {
+                h += 1;
+            }
+            if h < self.hidden.len() && self.hidden[h].0 <= line {
+                continue; // hidden by a fold: no view lines
+            }
             total += e.data.as_ref().map_or(1, |d| d.output_line_count());
         }
         self.starts.push(total);
@@ -152,6 +162,16 @@ impl ViewLines {
     /// Brings the projection up to date with `buf` under `params`. A change of `params` recomputes
     /// every line; otherwise only the lines that differ from the last sync.
     pub fn sync(&mut self, buf: &TextBuffer, params: &WrapParams) {
+        let hidden = self.hidden.clone();
+        self.sync_hidden(buf, params, &hidden);
+    }
+
+    /// Like `sync`, with model lines hidden (folding): `(start, end)` ranges, sorted, disjoint.
+    pub fn sync_hidden(&mut self, buf: &TextBuffer, params: &WrapParams, hidden: &[(usize, usize)]) {
+        let hidden_changed = self.hidden != hidden;
+        if hidden_changed {
+            self.hidden = hidden.to_vec();
+        }
         if self.params.as_ref() != Some(params) {
             self.params = Some(params.clone());
             self.computer = LineBreaksComputer::new(&params.break_before, &params.break_after);
@@ -169,6 +189,9 @@ impl ViewLines {
             suf += 1;
         }
         if pre == n_old && pre == n_new {
+            if hidden_changed {
+                self.rebuild_starts();
+            }
             return;
         }
         let breaks = &params.breaks;
@@ -186,6 +209,11 @@ impl ViewLines {
     /// The number of view lines.
     pub fn view_line_count(&self) -> usize {
         self.starts.last().copied().unwrap_or(0)
+    }
+
+    /// Whether model line `line` is hidden by a fold.
+    pub fn is_hidden(&self, line: usize) -> bool {
+        self.hidden.iter().any(|&(s, e)| s <= line && line <= e)
     }
 
     /// The number of model lines the projection covers.
@@ -248,7 +276,13 @@ impl ViewLines {
     /// The view line and view column (1-based, indent included) of model position `p`.
     /// On a wrap boundary `Left` picks the end of the earlier view line.
     pub fn view_position_of(&self, p: Position, affinity: PositionAffinity) -> (usize, usize) {
-        let line = p.line.clamp(1, self.lines.len().max(1));
+        let mut line = p.line.clamp(1, self.lines.len().max(1));
+        if let Some(&(start, _)) = self.hidden.iter().find(|&&(s, e)| s <= line && line <= e) {
+            // A hidden line shows as the end of the visible line above its fold.
+            line = start - 1;
+            let end = self.lines[line - 1].len + 1;
+            return self.view_position_of(Position::new(line, end), affinity);
+        }
         let base = self.starts[line - 1];
         match &self.lines[line - 1].data {
             None => (base, p.column),

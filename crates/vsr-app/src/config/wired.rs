@@ -132,6 +132,30 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.minimap.renderCharacters",
             "editor.minimap.maxColumn",
             "editor.minimap.scale",
+            "editor.minimap.showRegionSectionHeaders",
+            "editor.minimap.showMarkSectionHeaders",
+            "editor.minimap.markSectionHeaderRegex",
+            "editor.minimap.sectionHeaderFontSize",
+        ],
+    ),
+    (
+        "Folding",
+        &[
+            "editor.folding",
+            "editor.foldingStrategy",
+            "editor.foldingHighlight",
+            "editor.foldingMaximumRegions",
+            "editor.showFoldingControls",
+            "editor.unfoldOnClickAfterEndOfLine",
+        ],
+    ),
+    (
+        "Sticky scroll",
+        &[
+            "editor.stickyScroll.enabled",
+            "editor.stickyScroll.maxLineCount",
+            "editor.stickyScroll.defaultModel",
+            "editor.stickyScroll.scrollWithEditor",
         ],
     ),
     ("Saving", &["files.insertFinalNewline", "files.trimTrailingWhitespace"]),
@@ -299,7 +323,7 @@ mod tests {
             assert!(seen.insert(key), "{key} is listed twice");
         }
         assert_eq!(seen.len(), count());
-        assert!(is_wired("editor.fontSize") && !is_wired("editor.minimap.showMarkSectionHeaders"));
+        assert!(is_wired("editor.fontSize") && !is_wired("editor.minimap.sectionHeaderLetterSpacing"));
     }
 
     #[test]

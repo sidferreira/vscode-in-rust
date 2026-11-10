@@ -8,7 +8,7 @@
 //! supports is bound. Not yet: word delete (Alt+Backspace), line delete (Cmd+Backspace),
 //! outdent (Shift+Tab), line copy/cut when nothing is selected, multi-cursor.
 
-use vsr_editor::Editor;
+use vsr_editor::{Editor, FoldAction};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Motion {
@@ -47,6 +47,8 @@ pub enum Command {
     CloseTab,
     /// Alt+Z: wrap long lines at the viewport, or stop wrapping (`editor.action.toggleWordWrap`).
     ToggleWordWrap,
+    /// The folding commands (`editor.fold`, `editor.foldAll`, ...; ADR-0042).
+    Fold(FoldAction),
 }
 
 use Command::*;
@@ -97,6 +99,33 @@ pub const BINDINGS: &[(&str, Command)] = &[
     ("cmd-s", Save),
     ("cmd-w", CloseTab),
     ("alt-z", ToggleWordWrap),
+    // Folding (folding.ts): macOS keys.
+    ("alt-cmd-[", Fold(FoldAction::Fold)),
+    ("alt-cmd-]", Fold(FoldAction::Unfold)),
+    ("cmd-k cmd-l", Fold(FoldAction::ToggleFold)),
+    ("cmd-k cmd-[", Fold(FoldAction::FoldRecursively)),
+    ("cmd-k cmd-]", Fold(FoldAction::UnfoldRecursively)),
+    ("cmd-k cmd-shift-l", Fold(FoldAction::ToggleFoldRecursively)),
+    ("cmd-k cmd-0", Fold(FoldAction::FoldAll)),
+    ("cmd-k cmd-j", Fold(FoldAction::UnfoldAll)),
+    ("cmd-k cmd-1", Fold(FoldAction::FoldLevel(1))),
+    ("cmd-k cmd-2", Fold(FoldAction::FoldLevel(2))),
+    ("cmd-k cmd-3", Fold(FoldAction::FoldLevel(3))),
+    ("cmd-k cmd-4", Fold(FoldAction::FoldLevel(4))),
+    ("cmd-k cmd-5", Fold(FoldAction::FoldLevel(5))),
+    ("cmd-k cmd-6", Fold(FoldAction::FoldLevel(6))),
+    ("cmd-k cmd-7", Fold(FoldAction::FoldLevel(7))),
+    ("cmd-k cmd-8", Fold(FoldAction::FoldAllMarkerRegions)),
+    ("cmd-k cmd-9", Fold(FoldAction::UnfoldAllMarkerRegions)),
+    ("cmd-k cmd--", Fold(FoldAction::FoldAllExcept)),
+    ("cmd-k cmd-=", Fold(FoldAction::UnfoldAllExcept)),
+];
+
+/// Commands without a default key binding (they are in the Command Palette).
+pub const UNBOUND: &[Command] = &[
+    Fold(FoldAction::GotoParentFold),
+    Fold(FoldAction::GotoPreviousFold),
+    Fold(FoldAction::GotoNextFold),
 ];
 
 #[cfg(test)]
@@ -144,6 +173,9 @@ pub fn apply(editor: &mut Editor, cmd: Command, page: usize) -> bool {
         }
         Redo => {
             editor.redo();
+        }
+        Fold(action) => {
+            editor.fold_action(action);
         }
         Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap => return false,
     }

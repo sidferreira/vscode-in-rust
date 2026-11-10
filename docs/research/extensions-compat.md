@@ -154,10 +154,23 @@ The goal (ADR-0001) is unmodified extensions in a Node extension host that talks
 - **Protocol.** Upstream's ext host code is the reference implementation of the RPC and API semantics (`src/vs/workbench/api/common/extHost*.ts`, `src/vs/workbench/api/node/extensionHostProcess.ts`, `src/vs/workbench/services/extensions/common/rpcProtocol.ts`, `extHost.protocol.ts`). Rust implements the MainThread side (`vsr-rpc`).
 - **Build.** Code-OSS compiles from `vscode-original` (MIT). Requirements:
   - `pnpm install` plus `npm run compile` in a separate copy, not in place (ADR-0002 forbids building in `vscode-original`; ADR-0004 says the disk filled up before).
-  - The package proxy quarantines some versions (ADR-0007/0012). Expect 403s on installs and step-backs. **Not tried here.**
+  - The package proxy quarantines some versions (ADR-0007/0012). Expect 403s on installs and step-backs. **Tried in P0 (ADR-0060): see "P0 spike result" below. One 403 (`@github/copilot-sdk`, unrelated to the host); everything else installed.**
   - The built-in extensions that PR and GitLens depend on must be compiled too: `extensions/git`, `extensions/github-authentication`, `extensions/typescript-language-features`, `extensions/git-base`, `extensions/diff` (`vscode.diff` is a command used by PR and GitLens).
 - **Gains.** `vscode` module semantics (types, converters, events, proposals gating), manifest handling, activation, all the built-in extension behaviour PR relies on. This is the only route that does not re-implement ~21.5k lines of API.
 - **Costs.** Disk, build time, and a large main-side protocol surface: ~172 `createProxyIdentifier` calls at `extHost.protocol.ts` (architecture-map §4 counts 89 MainThread and 83 ExtHost shapes; the grep I ran on this file found fewer shape declarations, so the count needs a proper generator). Wire ids are declaration-order (`proxyIdentifier.ts:33-52`), so a generated table is needed.
+
+#### P0 spike result (2026-11-10, ADR-0060)
+
+**Option A is feasible.** Upstream's `extensionHostProcess` runs under plain Node 24 and completes `Ready` -> `IExtensionHostInitData` -> `Initialized` against a Rust main-thread side (`crates/vsr-rpc`).
+
+- **Build recipe** (`scripts/build-codeoss-exthost`, fresh folder, never in `vscode-original`): `git archive` of the pin; `pnpm@12.16.0` installed beside it (the machine's pnpm 10 cannot read upstream's `.pnpmfile.mjs`, and Node must be 24.22+, upstream's `.nvmrc`); `pnpm install --ignore-scripts` at the root and in `build/`; `node build/next/index.ts transpile` (esbuild, 13.5 s, 11,336 files, 351 MB). No gulp, no Electron, no native builds.
+- **Blocker met, not bypassed:** the proxy answers 403 for `@github/copilot-sdk@1.0.30-preview.0` (quarantine). Only the Copilot agent code and its tests import it, so the scratch `package.json` drops that dependency.
+- **Launch:** `node out/bootstrap-fork.js --type=extensionHost`, env `VSCODE_ESM_ENTRYPOINT=vs/workbench/api/node/extensionHostProcess`, `VSCODE_EXTHOST_IPC_HOOK=<unix socket>`. The host connects to a socket the main side listens on (`IPCExtHostConnection`); no `process.send` handle passing, no Electron `MessagePort`.
+- **Wire, as observed:** `Resume` frame, then regular frame id 1 = `[2]` (`Ready`); we reply with the init data JSON; the host sends `[1]` (`Initialized`); then RPC requests to `MainThread*` proxies (`$registerLogger`, `$getInitialState`, `$registerCommand`, `$registerTaskSystem`, ...). Proxy ids are construction-order numbers (`MainContext` 1-89, `ExtHostContext` 90-171), confirmed against the live module.
+- **Both directions verified:** our requests (JSON args, buffer args) are decoded by the real `ExtHostExtensionService` and answered; its requests get `Acknowledged` plus a reply from us; `Terminate` ends the process with code 0.
+- **Costs and caveats:** 2.5 GB scratch (1.4 GB root `node_modules`, 0.37 GB `build/node_modules`, 0.35 GB `out/`); a pruned/bundled form is a later decision. Native modules were skipped (`@vscode/spdlog` logs a missing binding). Option C was not needed. No extension was loaded yet (P1).
+- **Min init data** for a host with no extensions: `version`, `parentPid: 0`, `environment` (URIs as `{scheme, authority, path, query, fragment}`), `workspace`, `extensions` snapshot, `telemetryInfo`, `logLevel`, `loggers: []`, `logsLocation`, `autoStart: true`, `remote`, `consoleForward`, `uiKind: 1`. Omit `commit` (skips the version check).
+- **Startup replies the host needs a real value for:** `MainThreadWindow.$getInitialState` -> `{isFocused, isActive}` and `MainThreadChatSkills.$getTools` -> `[]`; an `undefined` reply makes it log an unhandled rejection. Expect more such cases as P1 turns features on: use the recording handler's call log as the work list.
 
 ### 3.2 Option B: reuse the installed VS Code app bundle
 
@@ -191,7 +204,7 @@ Effort is rough and assumes Option A. Dependencies first.
 
 | Phase | Goal | Needs | Rough effort |
 |---|---|---|---|
-| P0 | Ext host spike: build Code-OSS elsewhere, run `extensionHostProcess` under Node, complete handshake (`Ready` → `IExtensionHostInitData` → `Initialized`) | Build spike; `vsr-rpc` framing (`ipc.net.ts` `PersistentProtocol`, 13-byte header); `rpcProtocol.ts` MessageBuffer codec; generated id table from `extHost.protocol.ts` | M-L |
+| P0 | **Done (ADR-0060).** Ext host spike: build Code-OSS elsewhere, run `extensionHostProcess` under Node, complete handshake (`Ready` → `IExtensionHostInitData` → `Initialized`) | Build spike; `vsr-rpc` framing (`ipc.net.ts` `PersistentProtocol`, 13-byte header); `rpcProtocol.ts` MessageBuffer codec; generated id table from `extHost.protocol.ts` | M-L |
 | P1 (**first milestone: ErrorLens**) | Activate ErrorLens, register 17 commands, read config, status bar, decorations, diagnostics | MainThread shapes: ExtensionService, Commands, Configuration, DocumentsAndEditors/Documents/TextEditors (mirror models), Diagnostics, StatusBar, TextEditorDecorations, Workspace (minimal), MessageService, Storage, Logger | M |
 | P2 | oxc (LSP over stdio) | LanguageClient plumbing needs child processes on main side; LanguageFeatures shapes (completion, hover, codeaction, codelens, semantic tokens, folding, inlay, signature, formatting, definition); notebook doc sync; workspace.fs; `languages.match` | L |
 | P2b | TypeScript language features (for TS/JS) | Compile `typescript-language-features`; tsserver child process; ts-next install discovery | M |
@@ -221,7 +234,7 @@ Each milestone has these levels. Running installed extension code needs the user
 
 ## 6. Open items and not verified
 
-- The `vscode-original` `out/` directory is absent (per ADR-0002); Option A's build has not been attempted. Disk and proxy behaviour are unknown.
+- The `vscode-original` `out/` directory is absent (per ADR-0002). Option A's build was attempted in a separate folder in P0 and worked (ADR-0060); the full gulp `compile`, the bundled host and native modules were not tried. Disk: 2.5 GB for the scratch copy with `node_modules`.
 - Proposal allowlist location in upstream (`product.json`) was not found at the `vscode-original` root in this check.
 - Scanner limits: bundled webpack externals (PR, GitLens, ErrorLens, Kotlin) report heuristic counts only; top-level module functions (`createCommentController`) are missed in such bundles; `spawn`-like sites include false positives (e.g. `RegExp.exec`). The scanner classifies ErrorLens as "browser" only because its `browser` field points to the same file.
 - The oxc language server location and the Kotlin Java discovery were not traced through the source.

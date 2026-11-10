@@ -1634,3 +1634,116 @@ missing feature, so the policy has to say what each one waits for.
   `auto_reveal_exclude_skips_matching_paths_live`, `sash_size_sets_the_drag_area_live`) and the
   `LayoutSettings` clamp test. The sash test reads the drag area's laid-out width through a debug
   selector.
+
+## ADR-0060 — Extension host spike (P0): Option A is feasible, the handshake works (2026-11-10)
+
+Context: ADR-0020 chose Option A (run upstream's own compiled `extensionHostProcess` under Node,
+Rust on the main-thread side) and said to prove the Code-OSS build through the proxy first, with the
+Option C shim as the fallback. This is that proof.
+
+**Verdict: Option A is feasible. No shim is needed for P0.** What was done, in a fresh folder outside
+the repo (`git archive` of the pinned `50e1350fc78d`, so `vscode-original` was never built in place):
+
+1. Upstream's `packageManager` is `pnpm@12.16.0` and its `.pnpmfile.mjs` imports a `.ts` file, so the
+   machine's pnpm 10.26 failed and so did Node 24.11 (the pnpmfile hook died with "Broken pipe").
+   `npm i pnpm@12.16.0` into a separate tools folder (through the configured registry, no config
+   change) plus Node 24.22.1 (upstream's `.nvmrc`, already installed by mise) fixed both.
+2. `pnpm install --ignore-scripts` at the root: the proxy answered **HTTP 403 for
+   `@github/copilot-sdk@1.0.30-preview.0`** (the registry's release-age quarantine of ADR-0007/0012).
+   I did not bypass it. The package is only imported by the Copilot agent code and its tests
+   (`grep -rl '@github/copilot-sdk' src` lists only `src/vs/platform/agentHost/test/**`), not by the
+   extension host, so the scratch copy's `package.json` drops that one dependency. Everything else
+   (1,469 packages) installed; so did the separate `build/` install root (`--ignore-workspace`).
+3. `node build/next/index.ts transpile` (esbuild) wrote `out/` in 13.5 s: 11,336 files, 351 MB.
+   No gulp, no full `compile`, no Electron.
+4. Launch: `node out/bootstrap-fork.js --type=extensionHost` with
+   `VSCODE_ESM_ENTRYPOINT=vs/workbench/api/node/extensionHostProcess` and
+   `VSCODE_EXTHOST_IPC_HOOK=<unix socket>`: the host connects to a socket we listen on (the
+   `IPCExtHostConnection` branch of `extensionHostProcess.ts`), which is what a Rust listener wants.
+   First bytes on the wire: `Resume` (type 8) then a regular frame id 1 holding `[2]` (`Ready`), then
+   a `KeepAlive`.
+
+**What works end to end** (`crates/vsr-rpc/tests/handshake_real_host.rs`, headless, no window):
+`Ready` -> `IExtensionHostInitData` (JSON, built by Rust) -> `Initialized`; the host then sends 13
+requests to 9 `MainThread*` proxies (`MainThreadLogger.$registerLogger`, `MainThreadCommands.$registerCommand`,
+`MainThreadTask`, `MainThreadSearch`, `MainThreadFileSystem.$ensureActivation`, ...), our Rust side
+answers every request (`Acknowledged`, then a reply), and the proxy ids resolve through the generated
+table (ADR-0061). The other direction works too: requests we encode (JSON args, a buffer argument in
+the mixed layout) reach the real `ExtHostExtensionService` (`$test_latency`, `$test_up`, `$test_down`
+round-trip with JSON and buffer replies), and `Terminate` makes the host exit cleanly (code 0).
+Nothing the host does at startup reports `$onUnexpectedError` once `$getInitialState` and `$getTools`
+get real replies (an `undefined` reply to those makes the host log an unhandled rejection).
+
+**What is not proven, and what to know:**
+- No native module was built (`--ignore-scripts`): the host logs `Could not locate the bindings file`
+  for `@vscode/spdlog` and carries on (file logging is off). `@vscode/native-watchdog` is only
+  required when `parentPid != 0`; we send 0. Real native builds target Electron
+  (`nativeBuild.runtime = electron` in `package.json`); P0 runs under plain Node, which is the plan.
+  Native modules extensions need (`node-pty`, `@vscode/ripgrep`, watchers) come with P1+.
+- Only `out/` of the transpile is used: no bundled `extensionHostProcess`, so start-up reads ~11k small
+  files. Fine for a spike; production wants the bundle (`build/next/index.ts bundle`) or a pruned copy.
+- The Code-OSS output is a developer artifact: 2.5 GB with `node_modules` (1.4 GB root + 0.37 GB
+  `build/`). A release needs the pruned form and a decision on where it lives (P1 follow-up).
+- No extension was loaded: the init data has an empty extension list. Loading ErrorLens is P1.
+- `$startExtensionHost` did not answer in a probe with no extensions and `autoStart: true`; not
+  investigated (the host starts itself), noted for P1.
+
+**Reproducing:** `scripts/build-codeoss-exthost [DEST]` runs the steps above (it only ever writes to a
+fresh folder), then `RSCODE_CODE_OSS=<DEST> cargo test -p vsr-rpc --test handshake_real_host`. Without
+`RSCODE_CODE_OSS` that test skips; `handshake_fake_host.rs` (a Node stand-in written independently of
+the Rust code) always runs where `node` is on PATH and skips otherwise.
+
+**Consequences.** ADR-0020's roadmap stands; the proxy-quarantine risk it listed is real but small (one
+unrelated package). Option C stays unused. The next risk is not the build but the size of the
+`MainThread*` surface (89 shapes): P1 should implement only what ErrorLens triggers, in the order the
+host asks for it, with the recording handler as the guide.
+
+## ADR-0061 — `vsr-rpc`: framing, codec, id table and handshake driver (2026-11-10)
+
+New crate `crates/vsr-rpc`, UI-free, no async runtime, no new dependencies (only `serde_json`, already
+in `Cargo.lock`: the cargo proxy token is not available to agents, ADR-0045 note).
+
+- **`framing`**: the 13-byte-header frames of `PersistentProtocol` (`ipc.net.ts`): `TYPE u8 | ID u32be
+  | ACK u32be | LEN u32be`. `FrameReader` cuts a byte stream into frames; `Protocol` is the sans-IO
+  state machine: numbering of regular frames, our ack piggybacked on every regular frame (the host
+  times out an unacknowledged send after 20 s otherwise), the unacknowledged queue, replay on gap or
+  request, `Pause`/`Resume`. Timers (ack after 2 s, keep-alive, reconnection grace) are left to the
+  driver; `ack_due()` / `make_ack()` are the hooks. Only the plain-socket form is implemented (the
+  extension host's IPC pipe), not the WebSocket framing.
+- **`codec`**: `MessageBuffer` / `MessageIO` of `rpcProtocol.ts`: JSON-args and mixed-args requests (with
+  and without the cancellation flag), `Acknowledged`, `Cancel`, the five reply kinds and the two error
+  kinds. `Arg` has `Json`, `Buffer`, `Undefined` and `ObjectWithBuffers`; the layout choice is
+  upstream's (`_useMixedArgSerialization`). `$$ref$$` substitution of buffers inside objects is not
+  done (the JSON and the buffer list stay apart) until a shape needs it.
+- **`rpc`**: `RpcPeer` numbers our requests, decodes incoming messages, acknowledges and answers
+  requests through a synchronous `Handler` (like `_receiveRequest`: ack first, then the reply; errors as
+  `{ $isError, name, message }`), and reports replies to our requests. Synchronous handlers are a P0
+  simplification: a handler that waits for the UI will be driven from the app's event loop (P1 decides
+  how the `MainThread*` actors reach `vsr-app` state; a channel of `Call`s with a reply slot is the
+  likely shape).
+- **`proxy_ids`**: generated by `scripts/gen-rpc-ids` from `extHost.protocol.ts`. Upstream numbers a
+  proxy by construction order (`ProxyIdentifier.nid = ++count`), `MainContext` then `ExtHostContext`
+  (89 + 82 = 171 ids; one byte on the wire). The generator fails if a `createProxyIdentifier` call is
+  outside the two contexts, so the numbering cannot silently drift. Cross-checked once against the
+  live `nid` values of the transpiled module: identical. Only ids are generated, not the shape
+  interfaces (method lists); those are written per feature. Re-run on every upstream bump
+  (`upstream/ports.toml`: `exthost-proxy-ids`; `scripts/gen-rpc-ids --check` for CI).
+- **`handshake`**: `Host::spawn` (listen on a Unix socket, run Node, accept), `handshake` (Resume, wait
+  for `Ready`, send init data, wait for `Initialized`), `request` (call a proxy on the host and wait),
+  `serve` (answer the host's requests for a while), `terminate` (`Terminate` message, then kill after a
+  grace). `init_data` builds the minimal `IExtensionHostInitData`: no extensions, `parentPid: 0` (turns
+  off the parent poll and the native watchdog), no `commit` (skips the version check), no remote.
+  Blocking I/O with read timeouts and two pump threads for the child's output.
+
+Tests (all headless): ported `ipc.net.test.ts` (read/write, object data, acks piggybacked, ack after
+a while as `ack_due`) and `rpcProtocol.test.ts` (simple call, without result, buffers both ways, error
+kinds, undefined arguments, objects with buffers) as round trips between two `RpcPeer`s; wire-layout
+tests with exact bytes; truncated and unknown input returns errors (no panics); the id table pinned;
+the real-host handshake (needs `RSCODE_CODE_OSS`) and the Node stand-in handshake (needs `node`).
+Both integration tests skip with a printed reason, they do not fail. Registered in `upstream/ports.toml`
+as `exthost-rpc-wire`, `exthost-proxy-ids`, `exthost-handshake`.
+
+**Not in P0 (P1 input):** a connection that outlives a call (a reader thread plus a channel into the
+app), cancellation tokens, URI transformers (remote only), `MessagePort`/`process.send` connection
+types, reconnection, the `IExtensionDescription` list and activation (`$startExtensionHost`,
+`$activate`), the `MainThread*` implementations themselves.

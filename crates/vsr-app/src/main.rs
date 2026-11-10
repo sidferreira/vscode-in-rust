@@ -1279,9 +1279,11 @@ impl Render for Workbench {
                     div()
                         .absolute()
                         .top_0()
-                        .left(px(-2.))
-                        .w(px(5.))
+                        // `workbench.sash.size` is the drag area, centred on the 1px border.
+                        .left(px(-layout.sash_size / 2.))
+                        .w(px(layout.sash_size))
                         .h_full()
+                        .debug_selector(|| "sidebar-resize-hit".to_string())
                         .cursor_col_resize()
                         .hover(|s| s.bg(to_gpui(t.sash_hover_border)))
                         .on_mouse_down(

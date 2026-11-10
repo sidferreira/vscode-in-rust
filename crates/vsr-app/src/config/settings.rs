@@ -641,6 +641,8 @@ pub struct LayoutSettings {
     pub status_bar_visible: bool,
     pub show_tabs: ShowTabs,
     pub tree_indent: f32,
+    /// `workbench.sash.size`: the width in pixels of the area that drags a sash (default 4).
+    pub sash_size: f32,
     /// `window.commandCenter`: the search box in the title bar.
     pub command_center: bool,
     /// `window.density.editorTabHeight`: compact tabs are shorter (22px, default 35px).
@@ -675,6 +677,11 @@ pub enum TabHeight {
     Compact,
 }
 
+/// `workbench.sash.size`, clamped to upstream's range (1 to 20 pixels).
+pub fn sash_size(c: &Configuration) -> f32 {
+    c.get_f64("workbench.sash.size").unwrap_or(4.0).clamp(1.0, 20.0) as f32
+}
+
 impl LayoutSettings {
     pub fn from_configuration(c: &Configuration) -> Self {
         Self {
@@ -683,6 +690,7 @@ impl LayoutSettings {
             status_bar_visible: c.get_bool("workbench.statusBar.visible").unwrap_or(true),
             show_tabs: c.get_enum("workbench.editor.showTabs").unwrap_or(ShowTabs::Multiple),
             tree_indent: c.get_f64("workbench.tree.indent").unwrap_or(8.0) as f32,
+            sash_size: sash_size(c),
             command_center: c.get_bool("window.commandCenter").unwrap_or(true),
             compact_tabs: c.get_enum::<TabHeight>("window.density.editorTabHeight") == Some(TabHeight::Compact),
         }
@@ -900,6 +908,7 @@ mod tests {
             status_bar_visible: true,
             show_tabs: ShowTabs::Multiple,
             tree_indent: 8.0,
+            sash_size: 4.0,
             command_center: true,
             compact_tabs: false,
         });
@@ -1065,6 +1074,14 @@ mod tests {
         let l = LayoutSettings::from_configuration(&config(r#"{ "workbench.sideBar.location": "top", "workbench.editor.showTabs": "x" }"#));
         assert_eq!(l.side_bar, SideBarLocation::Left);
         assert_eq!(l.show_tabs, ShowTabs::Multiple);
+    }
+
+    #[test]
+    fn sash_size_is_clamped_to_upstream_range() {
+        assert_eq!(LayoutSettings::from_configuration(&config("")).sash_size, 4.0);
+        assert_eq!(LayoutSettings::from_configuration(&config(r#"{ "workbench.sash.size": 9 }"#)).sash_size, 9.0);
+        assert_eq!(LayoutSettings::from_configuration(&config(r#"{ "workbench.sash.size": 0 }"#)).sash_size, 1.0);
+        assert_eq!(LayoutSettings::from_configuration(&config(r#"{ "workbench.sash.size": 99 }"#)).sash_size, 20.0);
     }
 }
 

@@ -306,6 +306,19 @@ fn auto_reveal_exclude_skips_matching_paths_live(cx: &mut TestAppContext) {
     assert_eq!(wb.read_with(cx, |wb, _| wb.explorer.selected.clone()), Some(file), "no longer excluded: revealed");
 }
 
+/// `workbench.sash.size` is the drag area of the side bar sash: it changes live, clamped to 1 to 20.
+#[gpui::test]
+fn sash_size_sets_the_drag_area_live(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("sash-size");
+    let (_wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let width = |cx: &mut VisualTestContext| cx.debug_bounds("sidebar-resize-hit").map(|b| f32::from(b.size.width));
+    assert_eq!(width(cx), Some(4.0), "upstream default");
+    set(cx, "workbench.sash.size", json!(9));
+    assert_eq!(width(cx), Some(9.0));
+    set(cx, "workbench.sash.size", json!(50));
+    assert_eq!(width(cx), Some(20.0), "clamped to upstream's maximum");
+}
+
 /// A tree taller than the window: 120 files at the root, so the last one is out of view.
 fn tall_workspace(tag: &str) -> (TempWorkspace, TempWorkspace) {
     let (ws, bin) = workspace(tag);

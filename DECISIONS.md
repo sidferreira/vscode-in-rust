@@ -2388,9 +2388,12 @@ a host (`tests/language_features_dto.rs`).
 save error for a dirty untitled text (the quit stayed blocked); closing several tabs gave the name box to
 the first dirty untitled text only; a restored untitled text lost its language and went to the end of the
 tab order; `workbench.editor.limit` was not applied to a restore; the name box offered only the workspace
-root, no extension, and committed on blur; and the Welcome page had no New File entry. Upstream asks for
-a name for each untitled text through the save dialog during Save All and on quit
-(`textFileService` `saveAll` with `includeUntitled`), so a cancelled dialog cancels the quit.
+root, no extension, and committed on blur; and the Welcome page had no New File entry. Upstream's shutdown
+save (`src/vs/workbench/services/workingCopy/electron-browser/workingCopyBackupTracker.ts`,
+`doSaveAllBeforeShutdown`) calls `editorService.saveAll({ includeUntitled: { includeScratchpad: true } })`,
+which switches to each untitled editor and saves it through Save As, the dialog that asks for the name
+(`src/vs/workbench/services/editor/browser/editorService.ts`). Its direct saves run only when that save
+succeeded, so a cancelled name leaves the rest unsaved.
 
 **Decision.**
 

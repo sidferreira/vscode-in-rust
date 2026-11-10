@@ -10,11 +10,12 @@
 //! the "Show welcome page on startup" checkbox at the bottom) with the colours of the active
 //! theme. What upstream has and this page leaves out, and why:
 //!
-//! - New File...: opens an untitled text, the command File: New Untitled Text File (Cmd+N) runs (ADR-0058, ADR-0074).
 //! - Open Folder... / Clone Git Repository / Connect to...: no folder dialog, no git clone, no remotes.
 //! - Walkthroughs, Help links, videos: they come from extensions and the web. The `workbench.welcomePage.*`
 //!   settings only configure those, so none of them applies.
 //! - Recent *folders*: they are remembered (`recents.json`) but cannot be opened without a folder picker.
+//!
+//! New File... opens an untitled text, the command File: New Untitled Text File (Cmd+N) runs (ADR-0058, ADR-0074).
 //!
 //! The page is one tab, like the Settings editor: it is not a file, so it lives next to the file
 //! editors and is not part of `Editors`. It is not restored on the next run; whether it shows is

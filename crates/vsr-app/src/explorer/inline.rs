@@ -132,7 +132,14 @@ impl Workbench {
                 this.validate_inline(cx);
             }
         })];
-        subs.push(cx.on_focus_out(&focus, window, |this, _ev, window, cx| this.blur_inline(window, cx)));
+        // Only the box that owns this focus handle may act on the focus-out: a box that was replaced (the
+        // next Save As box opens as the previous one commits) must not cancel its successor (ADR-0074).
+        let owner = input.clone();
+        subs.push(cx.on_focus_out(&focus, window, move |this, _ev, window, cx| {
+            if this.explorer.inline.as_ref().is_some_and(|edit| edit.input == owner) {
+                this.blur_inline(window, cx);
+            }
+        }));
         input.update(cx, |s, cx| {
             if !initial.is_empty() {
                 s.set_value(initial.clone(), window, cx);

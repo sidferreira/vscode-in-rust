@@ -949,3 +949,17 @@ rust = ["crates/vsr-app/src/explorer/nesting.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "explorer.fileNesting.enabled, expand and patterns (ADR-0052): the trie (SufTrie, PreTrie, ExplorerFileNestingTrie) and its 26 upstream tests in nesting.rs, with the nests shown in the tree (explorer/view.rs flatten, chevron per parent). Not ported: the `is fast` test (skipped upstream), the tree's nested item model (nestedParent/nestedChildren) and keyboard behaviour of nests beyond the rows, and the file-nesting sort of nested files."
 
+
+[[port]]
+id = "untitled-editors"
+status = "partial"
+upstream = [
+  "src/vs/workbench/services/untitled/common/**",
+  "src/vs/workbench/services/untitled/test/**",
+]
+rust = [
+  "crates/vsr-editor/src/untitled.rs",
+  "crates/vsr-editor/tests/upstream_untitled_text_editor.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Untitled text editors (ADR-0057, ADR-0058): naming, dirty rules, first-line titles and the new file's language are the pure rules in vsr-editor. The service, input and working copy tests are covered headlessly in the workbench. Working copy events and encodings are not modelled."

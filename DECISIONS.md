@@ -2071,3 +2071,30 @@ workbench needs an `ExtensionHost` owned by the app, `pump` driven from its even
 view reading `editors.decorations_for` / `diagnostics.markers_for`. Also open: ESM extensions, extension
 scanning of `~/.vscode/extensions`, `$activateByEvent` for `onLanguage:`/`workspaceContains:` from the
 document model, bundling the Code-OSS host (ADR-0060), activation timing out.
+
+---
+
+## ADR-0057 — Untitled text editors, step 1: the rules are pure functions in `vsr-editor` (2026-11-10)
+
+**Context.** The dependency tree ranks untitled editors first (11 settings, +6 transitively). Upstream
+keeps untitled text in a service with a model per `untitled:` resource; its name, dirty state and tab
+title are rules over the text. rscode's open editor owns the buffer, so a second copy of the text in a
+model would have to stay in step with every edit path.
+
+**Decision.** `vsr_editor::untitled` holds the rules and nothing else: `next_name` (the lowest free
+`Untitled-N`), `is_dirty` (an untitled text is dirty when it has text; empty is clean), `new_language`
+(explicit language, then `files.defaultLanguage` with `${activeEditorLanguage}`, then plain text),
+`first_line_name` and `label` (the tab title from the first line under `labelFormat: content`, else
+`Untitled-N`), and `LabelFormat`. The workbench asks them on each read. The untitled identity and the
+editor wiring are ADR-0058.
+
+**Ported.** Five upstream tests in `untitledTextEditor.test.ts` (dirty and language rules), in
+`crates/vsr-editor/tests/upstream_untitled_text_editor.rs`. The first-line title rules are not an
+upstream test; they are unit tests next to the code, with `Upstream source` in the module header.
+
+**Not modelled.** Working-copy registration and events, encodings, backups as working copies, the
+associated-file-path case (save-as makes a file, so the untitled rules stop applying), and
+`getCharContainingOffset` (the title is cut at 40 chars, not grapheme clusters).
+
+**Consequences.** `files.defaultLanguage` and `workbench.editor.untitled.labelFormat` can be wired
+once the workbench creates untitled editors (ADR-0058, ADR-0059).

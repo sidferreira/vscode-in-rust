@@ -232,6 +232,11 @@ impl Workbench {
                 }
             }
             FromHost::Save(keys) => self.ext_save(&keys, cx),
+            FromHost::Completions { id, path, line, column, results } => {
+                if self.suggest.deliver(crate::suggest::Answer { id, path, line, column, results }) {
+                    cx.notify();
+                }
+            }
             FromHost::Symbols { path, version, groups } => {
                 if self.outline.deliver(&path, version, groups) {
                     cx.notify();

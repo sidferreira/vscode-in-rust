@@ -9,7 +9,7 @@ use super::snapshot::Snapshot;
 use crate::config::glob::Glob;
 use futures::channel::mpsc::UnboundedSender;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::thread::JoinHandle;
@@ -20,11 +20,12 @@ use vsr_exthost::configuration::ConfigUpdate;
 use vsr_exthost::description::ExtensionDescription;
 use vsr_exthost::discovery::{self, ContributedCommand};
 use vsr_exthost::host::{BootParams, ExtensionHost};
-use vsr_exthost::language_features::dto::DocumentSymbol;
+use vsr_exthost::language_features::dto::{CompletionList, DocumentSymbol, Position};
 use vsr_exthost::language_features::main_thread::Kind;
 use vsr_exthost::language_features::outline::ProviderSymbols;
-use vsr_exthost::language_features::query::Query;
+use vsr_exthost::language_features::query::{CompletionTrigger, Query};
 use vsr_rpc::handshake::Launch;
+use vsr_suggest::adapter::{char_to_utf16_column, line_text, list_to_chars};
 
 /// How long one call into the host may take before the worker gives up on it.
 const CALL: Duration = Duration::from_secs(30);
@@ -56,6 +57,9 @@ pub enum ToHost {
     /// The document symbols of an open document at this version (ADR-0086). A newer request
     /// replaces the one in flight.
     Symbols { path: PathBuf, version: u64 },
+    /// Completions at a 1-based position of an open document (ADR-0082). `column` counts `char`s,
+    /// as the editor does. A newer request replaces the one in flight.
+    Complete { id: u64, path: PathBuf, line: u32, column: u32, trigger: CompletionTrigger },
     Shutdown,
 }
 
@@ -72,6 +76,10 @@ pub enum FromHost {
     AppCommand { id: String, args: Vec<Value>, reply: Sender<Result<Option<Value>, String>> },
     /// The providers' document symbols for `path` at `version`, one group per provider.
     Symbols { path: PathBuf, version: u64, groups: Vec<ProviderSymbols> },
+    /// The providers' completion lists for request `id`, one per provider that answered. Ranges
+    /// are in `char`s (converted here, where the document's text is); the lists stay cached in the
+    /// host until released (ADR-0082).
+    Completions { id: u64, path: PathBuf, line: u32, column: u32, results: Vec<(u32, CompletionList)> },
     /// Something went wrong that is worth showing (a command that failed, a call that timed out).
     Problem(String),
     /// The host process is gone.
@@ -167,6 +175,7 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
 
     let mut last: Option<Snapshot> = None;
     let mut symbols: Option<SymbolJob> = None;
+    let mut completion: Option<CompletionJob> = None;
     'main: loop {
         let mut dirty = false;
         loop {
@@ -177,6 +186,12 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
                         host.cancel_query(&mut old.query);
                     }
                     symbols = start_symbols(&mut host, path, version);
+                }
+                Ok(ToHost::Complete { id, path, line, column, trigger }) => {
+                    if let Some(mut old) = completion.take() {
+                        cancel_completion(&mut host, &mut old);
+                    }
+                    completion = start_completion(&mut host, id, path, line, column, trigger, &out);
                 }
                 Ok(msg) => {
                     handle(&mut host, &index, &mut fired, msg, &out);
@@ -191,6 +206,13 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
         {
             let job = symbols.take().expect("the job is in flight");
             finish_symbols(&mut host, job, &out);
+        }
+        if let Some(job) = completion.as_mut()
+            && let Some(q) = job.query.as_mut()
+            && host.poll_query(q)
+        {
+            let job = completion.take().expect("the job is in flight");
+            completion = completion_answered(&mut host, job, &out);
         }
         let updates = std::mem::take(&mut host.main_thread.configuration.updates);
         if !updates.is_empty() {
@@ -249,6 +271,121 @@ fn finish_symbols(host: &mut ExtensionHost, mut job: SymbolJob, out: &UnboundedS
     let _ = out.unbounded_send(FromHost::Symbols { path: job.path, version: job.version, groups });
 }
 
+/// A completion request on its way (ADR-0082). The providers are asked group by group (upstream's
+/// `provideSuggestionItems`): the next group is asked only when the one before offered nothing.
+struct CompletionJob {
+    id: u64,
+    path: PathBuf,
+    line: u32,
+    column: u32,
+    trigger: CompletionTrigger,
+    /// The document's text when the request came in: the answer's columns are converted with it.
+    text: String,
+    groups: VecDeque<Vec<u32>>,
+    query: Option<Query<CompletionList>>,
+    /// The lists of the groups answered so far.
+    collected: Vec<(u32, CompletionList)>,
+}
+
+/// Starts a completion request. `None` when it was answered at once (no provider applies, or the
+/// call failed); the answer has been sent then.
+fn start_completion(
+    host: &mut ExtensionHost,
+    id: u64,
+    path: PathBuf,
+    line: u32,
+    column: u32,
+    trigger: CompletionTrigger,
+    out: &UnboundedSender<FromHost>,
+) -> Option<CompletionJob> {
+    let text = host
+        .main_thread
+        .documents
+        .open
+        .get(&resource_key(&path))
+        .map(|d| d.text.clone())
+        .unwrap_or_default();
+    let groups = host.completion_groups(&path, trigger).unwrap_or_else(|e| {
+        let _ = out.unbounded_send(FromHost::Problem(format!("completion: {e}")));
+        Vec::new()
+    });
+    let mut job = CompletionJob {
+        id,
+        path,
+        line,
+        column,
+        trigger,
+        text,
+        groups: groups.into(),
+        query: None,
+        collected: Vec::new(),
+    };
+    if start_next_group(host, &mut job, out) {
+        return Some(job);
+    }
+    send_completions(job, out);
+    None
+}
+
+/// Asks the next group of providers. False when no group is left or the call could not start.
+fn start_next_group(host: &mut ExtensionHost, job: &mut CompletionJob, out: &UnboundedSender<FromHost>) -> bool {
+    let Some(group) = job.groups.pop_front() else {
+        return false;
+    };
+    let column = char_to_utf16_column(line_text(&job.text, job.line), job.column);
+    match host.begin_completion_group(&job.path, group, Position::new(job.line, column), job.trigger) {
+        Ok(q) => {
+            job.query = Some(q);
+            true
+        }
+        Err(e) => {
+            let _ = out.unbounded_send(FromHost::Problem(format!("completion: {e}")));
+            false
+        }
+    }
+}
+
+/// A group's answers arrived. Returns the job while it still waits for a group: when no list of
+/// the groups so far offered items, the next group is asked.
+fn completion_answered(host: &mut ExtensionHost, mut job: CompletionJob, out: &UnboundedSender<FromHost>) -> Option<CompletionJob> {
+    let mut query = job.query.take().expect("a group is in flight");
+    let got = query.take();
+    for (handle, message) in &got.errors {
+        let name = host.main_thread.language_features.registration(*handle).and_then(|r| r.meta_str("displayName").map(String::from));
+        let _ = out.unbounded_send(FromHost::Problem(format!("completion ({}): {message}", name.unwrap_or_default())));
+    }
+    let answered = got.results.iter().any(|(_, list)| !list.items.is_empty());
+    job.collected.extend(got.results);
+    if !answered && start_next_group(host, &mut job, out) {
+        return Some(job);
+    }
+    send_completions(job, out);
+    None
+}
+
+/// Sends the lists collected, in `char` columns.
+fn send_completions(job: CompletionJob, out: &UnboundedSender<FromHost>) {
+    let CompletionJob { id, path, line, column, text, mut collected, .. } = job;
+    for (_, list) in &mut collected {
+        list_to_chars(list, &text);
+    }
+    let _ = out.unbounded_send(FromHost::Completions { id, path, line, column, results: collected });
+}
+
+/// A request replaced by a newer one: its calls are cancelled, and the lists it already got are
+/// released in the host.
+fn cancel_completion(host: &mut ExtensionHost, job: &mut CompletionJob) {
+    if let Some(q) = job.query.as_mut() {
+        job.collected.extend(q.take().results);
+        host.cancel_query(q);
+    }
+    for (handle, list) in job.collected.drain(..) {
+        if let Some(cache) = list.cache_id {
+            host.release(Kind::Completion, handle, cache);
+        }
+    }
+}
+
 fn fire(host: &mut ExtensionHost, index: &EventIndex, fired: &mut HashSet<String>, event: String, out: &UnboundedSender<FromHost>) {
     if !index.is_declared(&event) || !fired.insert(event.clone()) {
         return;
@@ -292,7 +429,7 @@ fn handle(host: &mut ExtensionHost, index: &EventIndex, fired: &mut HashSet<Stri
             }
             problem(&id, host.execute_contributed_command(&id, args, CALL).map(|_| ()));
         }
-        ToHost::Symbols { .. } | ToHost::Shutdown => {}
+        ToHost::Symbols { .. } | ToHost::Complete { .. } | ToHost::Shutdown => {}
     }
 }
 

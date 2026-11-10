@@ -2551,6 +2551,46 @@ placement). `vsr-suggest::model` is `CompletionModel`.
 **Ported tests.** 13 of 13 `completionModel.test.ts` cases (suite `CompletionModel`), with the
 `suggest.ts` comparator behaviour they depend on.
 
+## ADR-0082 — Completion requests: the worker answers `ToHost::Complete`, the DTOs become suggest items, columns convert where the text is (2026-11-10)
+
+The suggest widget's data path, without any UI yet (ADR-0073's "suggest widget" plumbing, on the worker
+thread as ADR-0086 set for symbols).
+
+- **Exthost** (`language_features::query`, additive): `completion_groups(path, trigger)` returns the provider
+  groups a request asks, trigger-character filtering applied, and `begin_completion_group` starts one group
+  without waiting. `provide_completion_items` is rebuilt on the two, unchanged in behaviour (ask group by
+  group; stop at the first group that offered items).
+- **Worker** (`extensions/worker.rs`): `ToHost::Complete { id, path, line, column, trigger }` (1-based,
+  `column` in `char`s) and `FromHost::Completions { id, path, line, column, results }`. A `CompletionJob`
+  asks one group at a time and polls it from the loop (nothing blocks, as for symbols); the next group is
+  asked only when none of the lists so far offered items. A newer `Complete` cancels the job in flight
+  (`cancel_query`) and releases the cached lists it had already collected (`release`).
+- **Columns.** The host counts UTF-16 units, the editor counts `char`s. The worker converts the request
+  column with the document's text (`Complete` and `Change` share the channel, so the host document is at the
+  editor's version) and converts every range of the answer (items, insert/replace, additional edits) with
+  the text the request was made against, so nothing UTF-16 crosses `FromHost`. A column inside a surrogate
+  pair rounds down to its character; a column past the line keeps counting one unit per position.
+- **`vsr-suggest::adapter`** (new dependency `vsr-suggest` -> `vsr-exthost`; the reverse does not exist):
+  `utf16_to_char_column`, `char_to_utf16_column`, `range_to_chars`, `list_to_chars`, and `from_dto` (a
+  `CompletionItem` to a `SuggestItem`; a missing kind is `Property`, as upstream's `CompletionItemKind.from`).
+  Items with neither their own range nor a list default are dropped, as `CompletionItem::from_json` does.
+  Not carried yet: insert text and rules, commit characters, command, preselect, the cache id for
+  resolve. Step 3 adds them with the widget.
+- **`vsr-app::suggest`**: `SuggestState` keeps only the newest request's answer (`request` replaces the
+  waiting id, `deliver` drops any other). `Workbench::suggest_request` sends `ToHost::Complete` when a host
+  runs, and answers in-process through `SuggestState::fake` otherwise (tests only, as `OutlineState::fake`).
+  Nothing calls `suggest_request` outside tests until the trigger machine (ADR-0083).
+
+**Known gap, closed by the widget (ADR-0084).** A list delivered to the UI keeps its cache in the host until
+`release` is sent; nothing sends it yet. The widget releases the lists it holds when it closes. An answer
+the UI drops (not the newest) is not released either, so a host with many keystrokes keeps those caches.
+
+**Tests.** `vsr-suggest` adapter: 9 unit tests on DTO fixtures (`a`, `b`, `e`, `f`, `j`, `l`, `x`, `c`) with
+UTF-16 cases (an emoji before the cursor, a column inside a surrogate pair, columns past the end, default
+ranges converted once, a range on another line is invalid). `vsr-app`: one `TestAppContext` test (the fake
+source answers two requests; the late answer to the first is dropped). The real host is not exercised by
+this step; step 3 adds the real-host E2E.
+
 ## ADR-0085 — The outline model: symbols grouped by provider, ids, markers, sort and kind filter (2026-11-10)
 
 `vsr-exthost::language_features::outline` (UI-free; next to the `DocumentSymbol` DTO it consumes, as

@@ -7305,6 +7305,7 @@ dependencies = [
  "vsr-rpc",
  "vsr-search",
  "vsr-settings",
+ "vsr-suggest",
  "vsr-syntax",
  "vsr-text",
  "vsr-textmate",
@@ -7393,6 +7394,10 @@ dependencies = [
 [[package]]
 name = "vsr-suggest"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "vsr-exthost",
+]
 
 [[package]]
 name = "vsr-syntax"

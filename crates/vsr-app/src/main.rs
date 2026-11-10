@@ -20,6 +20,7 @@ mod quick_access; // Command Palette, Go to Line, help on the Quick Pick (ADR-00
 mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
 mod outline; // the document outline: symbols per document, debounced (ADR-0086)
+mod suggest; // completion suggestions: requests to the worker, answers kept (ADR-0082)
 mod search_view; // Search view (ADR-0023)
 mod syntax; // syntax highlighting glue (ADR-0038)
 mod session; // session restore, hot exit (ADR-0040)
@@ -231,6 +232,7 @@ struct Workbench {
     ext: extensions::Extensions,
     /// The document outline the breadcrumbs and Go to Symbol read (ADR-0086).
     outline: outline::OutlineState,
+    suggest: suggest::SuggestState,
     branch: Option<String>,
     error: Option<String>,
 }
@@ -308,6 +310,7 @@ impl Workbench {
             auto_save: Default::default(),
             ext: Default::default(),
             outline: Default::default(),
+            suggest: Default::default(),
             branch: git_branch(&root),
             error: None,
         };

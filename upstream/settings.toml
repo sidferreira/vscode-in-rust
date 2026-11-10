@@ -621,3 +621,21 @@ status = "blocked"
 reason = "needs drag and drop in the Explorer"
 comment = "explorer.autoOpenDroppedFile opens a file that is dropped into the tree, and explorer.confirmDragAndDrop asks before a drag moves files. Both wait for drag and drop in the Explorer (see explorer.enableDragAndDrop above)."
 match = ["explorer.autoOpenDroppedFile"]
+
+[[rule]]
+status = "blocked"
+reason = "needs drag and drop in the Explorer"
+comment = "explorer.confirmDragAndDrop asks before a drag moves files and folders. The tree has no drag and drop yet (see explorer.enableDragAndDrop above)."
+match = ["explorer.confirmDragAndDrop"]
+
+[[rule]]
+status = "blocked"
+reason = "needs copy and paste in the Explorer"
+comment = "explorer.confirmPasteNative asks before pasting files from the OS clipboard. rscode's Explorer has no paste yet (see explorer.incrementalNaming above)."
+match = ["explorer.confirmPasteNative"]
+
+[[rule]]
+status = "blocked"
+reason = "needs undo for Explorer file operations"
+comment = "explorer.confirmUndo asks before an undo of an Explorer operation. There is no undo stack yet (see explorer.enableUndo above)."
+match = ["explorer.confirmUndo"]

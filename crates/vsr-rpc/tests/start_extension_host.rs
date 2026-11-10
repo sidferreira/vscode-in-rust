@@ -106,7 +106,10 @@ fn init_workspace(r: &mut Rig) {
         .request(
             ext_host::EXT_HOST_CONFIGURATION,
             "$initializeConfiguration",
-            &[Arg::Json(configuration_data(serde_json::json!({})))],
+            &[Arg::Json(configuration_data(
+                serde_json::json!({}),
+                serde_json::json!({}),
+            ))],
             &mut r.handler,
             &mut r.report,
             Duration::from_secs(10),

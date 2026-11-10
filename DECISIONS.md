@@ -1908,3 +1908,43 @@ cross-thread replies, timeout, close, undecodable message), and against the real
 configuration init, `$startExtensionHost` and five `$test_latency` in flight waited on in reverse,
 `MainThread*` requests served on another thread, clean exit). `Host` was split into `Host` +
 `HostProcess` for this.
+
+## ADR-0064 — `vsr-exthost`: extension descriptions, activation, and a fixture for ErrorLens (2026-11-10)
+
+New UI-free crate `crates/vsr-exthost` (depends on `vsr-rpc` and `vsr-settings`, no new external
+crates). `vsr-rpc` stays the wire; `vsr-exthost` is the meaning of the `MainThread*` shapes.
+
+- **`description`**: `ExtensionDescription::from_dir` turns a folder with a `package.json` into the
+  `IExtensionDescription` JSON the host takes: the manifest plus `identifier`, `id`,
+  `extensionLocation` (the canonicalised path: the host indexes real paths, and a mismatch makes
+  `require('vscode')` fall back with "Could not identify extension"), `targetPlatform: "undefined"` and
+  the four flags. `delta_adding` builds the `IExtensionDescriptionDelta` for `$startExtensionHost`.
+  Two things that are easy to get wrong, both verified against the host: `ExtensionIdentifier` goes on
+  the wire as `{ value, _lower }` (the host never revives it; its maps key on `_lower`), and activation
+  events come from the delta's `addActivationEvents`, not from the manifest (`SyncedActivationEventsReader`).
+  `configuration_defaults` reads `contributes.configuration` defaults, which `boot` folds into the
+  `defaults` layer sent with `$initializeConfiguration` (without them `getConfiguration().get()` of an
+  unset key is `undefined`).
+- **`main_thread`**: `MainThread::handle(&Call)` routes by proxy id and method. `ExtensionService`
+  records `$onWillActivateExtension`, `$onDidActivateExtension` (times and the reason),
+  `$onExtensionActivationError` (the `SerializedError` is kept: errors are surfaced, never dropped),
+  `$onExtensionRuntimeError`, and answers `$getExtension`, `$asBrowserUri`, `$setPerformanceMarks`.
+  Requests no model implements yet go to `MainThread::unhandled` and get `undefined`; the host's
+  console messages are kept in `console` (the test uses them to catch a wrong extension location).
+- **`host::ExtensionHost`**: `boot` = spawn, handshake, `Session`, then `$initializeWorkspace`,
+  `$initializeConfiguration`, `$startExtensionHost(delta)` with `autoStart: false` (ADR-0062);
+  `pump(wait)` applies the reader thread's events to the models on the caller's thread (so models need
+  no locks and the app drives them from its loop); `wait` / `call` serve the host's requests while
+  waiting for a reply, which activation needs (`$onWillActivateExtension` is awaited by the host).
+  Typed calls: `activate_by_event`, `activate`, `execute_contributed_command`, `shutdown`.
+- **Fixture**: `crates/vsr-exthost/tests/fixtures/errorlens-fixture` (plain CommonJS, written here;
+  ErrorLens itself is not copied or downloaded). It registers commands, reads configuration, creates a
+  status bar item, a decoration type and a diagnostic collection, and reports what it saw through a
+  command. It lives next to the tests that use it, not under `vsr-rpc`, because the host driver and its
+  tests moved to this crate.
+- The host answers `$activate` with `true` even when `activate()` throws; failure arrives only through
+  `$onExtensionActivationError`, so tests assert on that, not on the reply.
+
+Tests (`tests/extension_service.rs`, real host, skip without `RSCODE_CODE_OSS`): description shape (no
+host), activation by event + command round trip + contributed default reaches `getConfiguration`, activation
+error surfaced, clean shutdown.

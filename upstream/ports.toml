@@ -847,6 +847,29 @@ synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "The main-thread side of the extension host start-up over the IPC pipe connection (VSCODE_EXTHOST_IPC_HOOK): Ready -> IExtensionHostInitData -> Initialized, then serving the host's MainThread* requests. Only the IPC (Unix socket) connection type; not the Socket (process.send handle) or MessagePort ones. The init data is the minimum for a host with no extensions and no remote. The real-host test needs a Code-OSS build (scripts/build-codeoss-exthost, RSCODE_CODE_OSS); the Node stand-in test needs only node."
 
 [[port]]
+id = "exthost-main-thread"
+status = "partial"
+upstream = [
+  "src/vs/workbench/api/common/extHost.protocol.ts",
+  "src/vs/workbench/api/browser/mainThreadExtensionService.ts",
+  "src/vs/workbench/api/common/extHostExtensionService.ts",
+  "src/vs/workbench/services/extensions/common/extensionHostManager.ts",
+  "src/vs/platform/extensions/common/extensions.ts",
+  "src/vs/workbench/services/extensions/common/extensionHostProtocol.ts",
+]
+rust = [
+  "crates/vsr-exthost/src/lib.rs",
+  "crates/vsr-exthost/src/description.rs",
+  "crates/vsr-exthost/src/main_thread.rs",
+  "crates/vsr-exthost/src/host.rs",
+  "crates/vsr-exthost/tests/common/mod.rs",
+  "crates/vsr-exthost/tests/extension_service.rs",
+  "crates/vsr-exthost/tests/fixtures/errorlens-fixture/extension.js",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "The UI-free main-thread side of the extension host (ADR-0064): IExtensionDescription from a folder, the MainThread* shapes as models (extension service first), and ExtensionHost, which boots the real host, pumps its events and makes the typed calls. Tested against upstream's real extension host with a fixture extension written in this repo (it stands in for ErrorLens); needs RSCODE_CODE_OSS."
+
+[[port]]
 id = "explorer-file-nesting"
 status = "partial"
 upstream = [

@@ -1,0 +1,20 @@
+{
+  "name": "errorlens-fixture",
+  "displayName": "ErrorLens fixture",
+  "publisher": "rscode-test",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onCommand:fixture.hello"],
+  "contributes": {
+    "commands": [{ "command": "fixture.hello", "title": "Fixture: hello" }],
+    "configuration": {
+      "title": "Fixture",
+      "properties": {
+        "fixture.enabled": { "type": "boolean", "default": true },
+        "fixture.message": { "type": "string", "default": "from the default" },
+        "fixture.statusPrefix": { "type": "string", "default": "$(error)" }
+      }
+    }
+  }
+}

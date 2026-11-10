@@ -203,7 +203,7 @@ fn real_host_long_lived_session() {
     let cfg = call(
         ext_host::EXT_HOST_CONFIGURATION,
         "$initializeConfiguration",
-        &[Arg::Json(configuration_data(json!({})))],
+        &[Arg::Json(configuration_data(json!({}), json!({})))],
     );
     assert!(ws.wait(T).unwrap().result.is_ok());
     assert!(cfg.wait(T).unwrap().result.is_ok());

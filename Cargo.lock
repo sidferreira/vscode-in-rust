@@ -7323,6 +7323,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vsr-exthost"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "vsr-rpc",
+ "vsr-settings",
+]
+
+[[package]]
 name = "vsr-find"
 version = "0.1.0"
 dependencies = [

@@ -75,14 +75,14 @@ pub fn find_on_path(name: &str) -> Option<PathBuf> {
 }
 
 /// A `file` URI as `UriComponents` JSON.
-fn uri(path: &Path) -> Value {
+pub fn file_uri(path: &Path) -> Value {
     json!({ "$mid": 1, "scheme": "file", "authority": "", "path": path.to_string_lossy(), "query": "", "fragment": "" })
 }
 
 /// `IWorkspaceData` for a single-folder workspace: what `ExtHostWorkspace.$initializeWorkspace`
 /// takes (and what the init data carries).
 pub fn workspace_data(name: &str, path: &Path) -> Value {
-    json!({ "id": name, "name": name, "configuration": null, "isUntitled": false, "transient": false, "folders": [{ "uri": uri(path), "name": name, "index": 0 }] })
+    json!({ "id": name, "name": name, "configuration": null, "isUntitled": false, "transient": false, "folders": [{ "uri": file_uri(path), "name": name, "index": 0 }] })
 }
 
 /// An empty `IExtensionDescriptionDelta` (nothing to add or remove): the argument of
@@ -92,14 +92,15 @@ pub fn empty_delta() -> Value {
 }
 
 /// `IConfigurationInitData` with empty layers: the argument of `ExtHostConfiguration.$initializeConfiguration`.
-/// The host's `initialize()` (`_beforeAlmostReadyToRunExtensions`) waits for that call. Pass
-/// `user` as the contents of the user settings layer.
-pub fn configuration_data(user: Value) -> Value {
+/// The host's `initialize()` (`_beforeAlmostReadyToRunExtensions`) waits for that call. `defaults`
+/// and `user` are the (nested) contents of the default and user settings layers;
+/// `getConfiguration(section).get(key)` in an extension reads them.
+pub fn configuration_data(defaults: Value, user: Value) -> Value {
     let empty = json!({ "contents": {}, "keys": [], "overrides": [] });
-    let keys: Vec<String> = flatten_keys("", &user);
+    let layer = |v: Value| json!({ "keys": flatten_keys("", &v), "contents": v, "overrides": [] });
     json!({
-        "defaults": empty, "policy": empty, "application": empty,
-        "userLocal": { "contents": user, "keys": keys, "overrides": [] },
+        "defaults": layer(defaults), "policy": empty, "application": empty,
+        "userLocal": layer(user),
         "userRemote": empty, "workspace": empty, "folders": [],
         "configurationScopes": [],
     })
@@ -149,19 +150,19 @@ pub fn init_data(p: &InitParams) -> Value {
             "isExtensionDevelopmentDebug": false,
             "appName": "rscode",
             "appHost": "desktop",
-            "appRoot": uri(&p.app_root),
+            "appRoot": file_uri(&p.app_root),
             "appLanguage": "en",
             "isExtensionTelemetryLoggingOnly": false,
             "appUriScheme": "rscode",
-            "globalStorageHome": uri(&p.storage_root.join("globalStorage")),
-            "workspaceStorageHome": uri(&p.storage_root.join("workspaceStorage")),
+            "globalStorageHome": file_uri(&p.storage_root.join("globalStorage")),
+            "workspaceStorageHome": file_uri(&p.storage_root.join("workspaceStorage")),
         },
         "workspace": p.workspace.as_ref().map(|(name, path)| workspace_data(name, path)),
         "extensions": { "versionId": 0, "allExtensions": [], "activationEvents": {}, "myExtensions": [] },
         "telemetryInfo": { "sessionId": "rscode-session", "machineId": "rscode-machine", "sqmId": "", "devDeviceId": "", "firstSessionDate": "2026-01-01T00:00:00.000Z" },
         "logLevel": 3,
         "loggers": [],
-        "logsLocation": uri(&p.storage_root.join("logs")),
+        "logsLocation": file_uri(&p.storage_root.join("logs")),
         "autoStart": p.auto_start,
         "remote": { "isRemote": false, "authority": null, "connectionData": null },
         "consoleForward": { "includeStack": false, "logNative": false },

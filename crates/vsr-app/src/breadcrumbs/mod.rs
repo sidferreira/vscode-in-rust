@@ -275,15 +275,7 @@ impl Workbench {
         let Some(path) = self.active_path() else { return };
         let Some(range) = self.outline.model(&path).and_then(|m| m.symbol(node)).map(|s| s.selection_range) else { return };
         self.hide_quick_open(false, window, cx);
-        // Editor positions are 0-based; the symbol ranges are 1-based.
-        let range = vsr_search::SearchRange {
-            start_line: range.start_line.saturating_sub(1) as usize,
-            start_column: range.start_column.saturating_sub(1) as usize,
-            end_line: range.end_line.saturating_sub(1) as usize,
-            end_column: range.end_column.saturating_sub(1) as usize,
-        };
-        self.open_at(&path, range, OpenSource::QuickOpen, window, cx);
-        cx.notify();
+        self.select_symbol(&path, range, OpenSource::QuickOpen, window, cx);
     }
 
     /// Crumb `index` was clicked, or Enter on the focused crumb: list the entries of its parent

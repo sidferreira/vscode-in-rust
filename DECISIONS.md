@@ -2799,3 +2799,96 @@ lives on the worker:
   session); `tests/workspace_watch_real_host.rs` (a fixture arms a watcher: the forwarded rename and trash
   delete arrive, the native write does not, an app change arrives through `file_changed`, and after the
   watcher is disposed nothing arrives).
+
+## ADR-0092 — The Outline view: a section under the Explorer tree, rows from the model, the click selects the symbol (2026-11-10)
+
+Upstream: `outlinePane.ts` (the view, its messages, `collapsed: true` by default) and `documentSymbolsTree.ts`
+(rows, icons). The view is a section under the Explorer tree in the side bar (`side_bar()`), not a view
+container of its own.
+
+- **Rows are pure.** `outline::view::rows` turns the model into `OutlineRow`s (depth first, through
+  `visible_children` with the `show<Kind>` filter, so the filter, sort and expansion live in one place).
+  Expansion is `collapseItems` XOR a toggled set keyed by the node's stable id, per document. Every
+  behaviour test asserts on these rows; the section only draws them.
+- **Status.** `status_of` decides the empty states, with upstream's words: no editor showing a file, or
+  no provider (none answered, or no host runs), gives "The active editor cannot provide outline
+  information."; a host that is still answering gives "Loading document symbols for '<file>'..."; a
+  provider that answered with nothing gives "No symbols found in document '<file>'". The answer count per
+  document is kept by `OutlineState` (`answered`), since empty groups are dropped by the model.
+- **Icons.** `symbol_glyph` is upstream's `SymbolKinds.toIcon` table as codicon code points; an unknown
+  kind shows the property icon, as upstream.
+- **Click.** A symbol row selects its `selection_range` in its editor (`Workbench::select_symbol`, the
+  helper Go to Symbol uses too, with its own open source). A group row toggles. The chevron toggles
+  without selecting.
+- **Coordinates are 1-based.** `vsr_text::Position` and `Selection` start at 1:1 (a fresh editor reports
+  1:1), and the symbol ranges are 1-based. The earlier conversions subtracted 1 before selecting (Go to
+  Symbol, and the breadcrumbs' accept), and the breadcrumbs' caret added 1; the tests had pinned the
+  shifted values. All three now pass the values through. The breadcrumbs tests' expected positions moved
+  by one.
+- **Section state.** Closed at start (upstream), opened by its header. The state is in memory; it is not
+  kept per workspace yet (step 2 decides that).
+- **Settings.** `outline.collapseItems` is wired (`alwaysCollapse` starts every item closed; a chevron
+  flips one). `outline.icons` and the rest follow in the next steps.
+
+Tests: `outline/view.rs` unit tests (rows, collapse, the kind filter, groups, status, glyphs) and
+`outline/e2e_tests.rs` headless tests through the workbench (rows after the debounce, the section's
+header, the selection by click, the chevron and collapseItems, the empty states, a refresh after an edit).
+
+## ADR-0093 — The Outline view's follow cursor, sort and filter on type, kept per workspace (2026-11-10)
+
+Upstream: `outlinePane.ts` (the view state: `followCursor`, `sortBy`, `filterOnType`, kept with the
+workspace), `outlineTree.ts` (the sorter). Upstream puts the three in the view's menu; here they are icon
+actions in the section header, shown while the section is open (sort, follow cursor, filter on type).
+
+- **One row function.** `rows` takes a `RowView` (the toggled ids, the sort order, the caret's symbol, the
+  filter text). The sort is `position`, `name` (natural order, case-insensitive: `m` sorts between `C` and
+  `X`) or `category` (by kind, upstream's `type`). Every mode is asserted on the rows.
+- **Follow cursor.** The caret of the active editor, read in the model's 1-based positions, picks the
+  enclosing symbol (`item_enclosing`, as the breadcrumbs). That row is selected, and its ancestors are
+  shown open even when `collapseItems` closes them, so the symbol is visible. The ancestors open on every
+  refresh while follow is on; a manual collapse of one of them is undone by the next caret move (upstream
+  reveals on every change too).
+- **Filter on type.** While the filter is on, the section's keys edit the filter text (printable keys;
+  Backspace takes one back, Escape clears). The rows are the names that contain the text, case-insensitively,
+  with their ancestors, all shown open (upstream filters with fuzzy matching; a substring is used here).
+  The text is not kept between sessions; the toggle is. Turning the filter on focuses the section.
+- **Persistence.** `WorkspaceState.outline` (`OutlineViewState`: `follow_cursor`, `sort_by`, `filter_on_type`),
+  saved with the session and restored at its start. `#[serde(default)]` keeps older session files
+  loading. The section's open state is not kept (it starts closed, as upstream's `collapsed: true`).
+
+Tests: `outline/view.rs` (follow cursor with its ancestors, sort by name and category, the filter's matches
+and ancestors, the empty filter); `outline/e2e_tests.rs` (follow through the caret, the header's sort cycle,
+typing into the filter and Escape). The session's round trip covers the new fields.
+
+## ADR-0094 — Problems on the Outline's symbols: the diagnostics mark the model, and the settings decide what shows (2026-11-10)
+
+Upstream: `documentSymbolsTree.ts` (the decoration: a problem count, the colours, the badge),
+`outlineModel.ts` (`updateMarker`), `outline.contribution.ts` (`outline.problems.*`).
+
+- **Source.** The diagnostics of the active document come from the extension host's snapshot (the
+  same `diagnostics` the squiggles read, ADR-0067). `markers_from_json` keeps errors and warnings
+  (hints and infos are not counted, as the squiggles draw them but upstream's outline shows the
+  problems only), with their 1-based ranges, sorted by start as `updateMarker` consumes them.
+- **Marked model.** The outline keeps, per document, a copy of the model with the markers attached
+  (`OutlineState::mark`), rebuilt when the marker signature changes and dropped when a new answer is
+  delivered, since the answer's symbols are new. `view_model` gives the view the marked copy. The
+  cached model stays unmarked for the breadcrumbs and Go to Symbol, which do not show problems.
+- **Settings.** `outline.problems.enabled` (off: no marker is read at all), `outline.problems.colors`
+  (the name takes the severity's colour: `editorError.foreground`, and a new `warning_fg` key for
+  `editorWarning.foreground`), `outline.problems.badges` (the severity icon at the row's end). A
+  symbol that contains a problem but whose own count is 0 still shows the severity (ADR-0085).
+- **Not done.** `problems.visibility` (the Problems view's visibility) does not exist yet, so it
+  does not overwrite these settings, as upstream says it does when off. Problem counts in the badge
+  (upstream shows the count for a symbol with several) are the icon only.
+
+Tests: unit (`markers_from_json`, the marked model's lifetime, a marker on a parent and its child,
+the three settings' effect); headless E2E (a diagnostic marks the row and draws its badge; `badges` off
+and `enabled` off hide them).
+
+**Settings (step 4).** All 31 `outline.*` settings are wired (the group "Outline" in `config/wired.rs`):
+`collapseItems` and `icons` (ADR-0092), the three `problems.*` (above), and the 26 `show<Kind>` filters
+through `KindFilter` (the view's rows, so a hidden kind hides its subtree). The rule that blocked them
+("needs the Outline view") is removed from `upstream/settings.toml`. Tests: a table test sets each
+`outline.show<Kind>` to false in turn and checks that only that kind leaves the view; `outline.icons` off
+removes the icon from every row. Upstream smoke has no Outline area, so there is no scenario row for it;
+the headless tests in `crates/vsr-app/src/outline/` are the coverage.

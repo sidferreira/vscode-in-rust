@@ -833,12 +833,6 @@ match = ["breadcrumbs.showEditorType"]
 
 [[rule]]
 status = "blocked"
-reason = "needs the Outline view (the symbols of the active file in a view of the Explorer)"
-comment = "outline.* configures the Outline view, which lists the symbols of the active file. The symbols and their provider ask (ADR-0086) exist; the view itself does not yet (ADR-0087 follow-up). The outline.problems.* settings also need the diagnostics of the outline (markers per symbol)."
-match = ["outline*"]
-
-[[rule]]
-status = "blocked"
 reason = "needs the Search Editor"
 comment = "search.searchEditor.* configures search results shown in an editor tab (the Search Editor). rscode only has the Search view (ADR-0023); search.mode is blocked for the same reason."
 match = ["search.searchEditor*"]

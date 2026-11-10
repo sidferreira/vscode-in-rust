@@ -366,7 +366,7 @@ pub fn get_indent_for_enter(
     let ctx = processed_context_around_range(model, support, range);
     let before_enter_indent = leading_whitespace(&ctx.before_range).to_string();
     let virtual_model = ModifiedLine { model, line: range.start_line, text: ctx.before_range.clone() };
-    let after_enter_action = get_inherit_indent_for_line(auto_indent, &virtual_model, support, range.start_line + 1, false);
+    let after_enter_action = get_inherit_indent_for_line(auto_indent, &virtual_model, support, range.start_line + 1, true);
     let Some(action) = after_enter_action else {
         return Some((before_enter_indent.clone(), before_enter_indent));
     };

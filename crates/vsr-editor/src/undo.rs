@@ -150,6 +150,14 @@ impl Editor {
         self.history.future.clear();
     }
 
+    /// Sets the selection redo restores for the last step (a command that moves the selection
+    /// itself after its edits, such as toggling a block comment).
+    pub(crate) fn amend_last_after(&mut self, selection: Selection) {
+        if let Some(step) = self.history.past.last_mut() {
+            step.after = selection;
+        }
+    }
+
     /// Records several already-applied changes (in application order) as one undo step.
     pub(crate) fn record_group(&mut self, changes: Vec<Change>, before: Selection, after: Selection) {
         let version = self.history.next_version;

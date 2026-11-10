@@ -9,6 +9,7 @@
 //! port notes and simplifications are in each module's header.
 
 mod brackets;
+pub mod comments;
 mod cursor_columns;
 mod edit_ops;
 mod editor;

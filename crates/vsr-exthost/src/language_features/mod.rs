@@ -9,7 +9,9 @@
 //!   from what the host sends;
 //! * [`query`]: `$provide*` calls on [`crate::host::ExtensionHost`] with typed results.
 
+pub mod dto;
 pub mod main_thread;
+pub mod query;
 pub mod registry;
 pub mod selector;
 pub mod uri;

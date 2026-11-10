@@ -17,6 +17,7 @@ use super::files::AutoSaveMode;
 use crate::model::SaveTransforms;
 
 use super::minimap::MinimapSettings;
+use super::scrollbar::ScrollbarVisibility;
 use crate::theme::{Rgba8, hex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -421,6 +422,15 @@ pub struct EditorSettings {
     /// `editor.scrollBeyondLastColumn`: columns of room after the widest line when not wrapping
     /// (upstream `ViewLayout`: `maxLineWidth + scrollBeyondLastColumn * typicalHalfwidthCharacterWidth`).
     pub scroll_beyond_last_column: usize,
+    /// `editor.scrollbar.vertical` / `horizontal`, the sizes of the bars and `editor.scrollbar.scrollByPage`.
+    pub scrollbar_vertical: ScrollbarVisibility,
+    pub scrollbar_horizontal: ScrollbarVisibility,
+    pub scrollbar_vertical_size: f32,
+    pub scrollbar_horizontal_size: f32,
+    pub scrollbar_scroll_by_page: bool,
+    /// `editor.overviewRulerBorder` and `editor.hideCursorInOverviewRuler` (the overview ruler, ADR-0055).
+    pub overview_ruler_border: bool,
+    pub hide_cursor_in_overview_ruler: bool,
     /// `editor.wordWrap`, `editor.wordWrapColumn`, `editor.wrappingIndent`, `editor.wrappingStrategy`,
     /// `editor.wordWrapIndicator`, `editor.wordBreak`.
     pub word_wrap: WordWrap,
@@ -496,6 +506,13 @@ impl Default for EditorSettings {
             font_features: parse_font_ligatures(None),
             scroll_beyond_last_line: true,
             scroll_beyond_last_column: 4,
+            scrollbar_vertical: ScrollbarVisibility::Auto,
+            scrollbar_horizontal: ScrollbarVisibility::Auto,
+            scrollbar_vertical_size: 14.0,
+            scrollbar_horizontal_size: 12.0,
+            scrollbar_scroll_by_page: false,
+            overview_ruler_border: true,
+            hide_cursor_in_overview_ruler: false,
             word_wrap: WordWrap::Off,
             word_wrap_column: 80,
             wrapping_indent: WrappingIndentSetting::Same,
@@ -625,6 +642,13 @@ impl EditorSettings {
             font_features: parse_font_ligatures(c.get_value("editor.fontLigatures")),
             scroll_beyond_last_line: c.get_bool("editor.scrollBeyondLastLine").unwrap_or(true),
             scroll_beyond_last_column: c.get_f64("editor.scrollBeyondLastColumn").unwrap_or(4.0).round().max(0.0) as usize,
+            scrollbar_vertical: c.get_enum("editor.scrollbar.vertical").unwrap_or(ScrollbarVisibility::Auto),
+            scrollbar_horizontal: c.get_enum("editor.scrollbar.horizontal").unwrap_or(ScrollbarVisibility::Auto),
+            scrollbar_vertical_size: c.get_f64("editor.scrollbar.verticalScrollbarSize").unwrap_or(14.0).round().max(0.0) as f32,
+            scrollbar_horizontal_size: c.get_f64("editor.scrollbar.horizontalScrollbarSize").unwrap_or(12.0).round().max(0.0) as f32,
+            scrollbar_scroll_by_page: c.get_bool("editor.scrollbar.scrollByPage").unwrap_or(false),
+            overview_ruler_border: c.get_bool("editor.overviewRulerBorder").unwrap_or(true),
+            hide_cursor_in_overview_ruler: c.get_bool("editor.hideCursorInOverviewRuler").unwrap_or(false),
             word_wrap: c.get_enum("editor.wordWrap").unwrap_or(WordWrap::Off),
             word_wrap_column: c.get_f64("editor.wordWrapColumn").unwrap_or(80.0).round().max(1.0) as usize,
             wrapping_indent: c.get_enum("editor.wrappingIndent").unwrap_or(WrappingIndentSetting::Same),
@@ -719,6 +743,10 @@ pub struct LayoutSettings {
     pub tree_indent: f32,
     /// `workbench.sash.size`: the width in pixels of the area that drags a sash (default 4).
     pub sash_size: f32,
+    /// `workbench.sash.autoHideGrippers` and `autoHideGrippersDelay`: whether the sash's grip recedes when the
+    /// mouse is idle, and after how many milliseconds (upstream `SashGrippersController`, ADR-0056).
+    pub sash_auto_hide_grippers: bool,
+    pub sash_auto_hide_grippers_delay: u64,
     /// `window.commandCenter`: the search box in the title bar.
     pub command_center: bool,
     /// `window.density.editorTabHeight`: compact tabs are shorter (22px, default 35px).
@@ -772,6 +800,8 @@ impl LayoutSettings {
             show_tabs: c.get_enum("workbench.editor.showTabs").unwrap_or(ShowTabs::Multiple),
             tree_indent: c.get_f64("workbench.tree.indent").unwrap_or(8.0) as f32,
             sash_size: sash_size(c),
+            sash_auto_hide_grippers: c.get_bool("workbench.sash.autoHideGrippers").unwrap_or(true),
+            sash_auto_hide_grippers_delay: c.get_f64("workbench.sash.autoHideGrippersDelay").unwrap_or(2000.0).max(0.0) as u64,
             command_center: c.get_bool("window.commandCenter").unwrap_or(true),
             compact_tabs: c.get_enum::<TabHeight>("window.density.editorTabHeight") == Some(TabHeight::Compact),
             activity_bar_compact: c.get_bool("workbench.activityBar.compact").unwrap_or(false),
@@ -992,6 +1022,8 @@ mod tests {
             show_tabs: ShowTabs::Multiple,
             tree_indent: 8.0,
             sash_size: 4.0,
+            sash_auto_hide_grippers: true,
+            sash_auto_hide_grippers_delay: 2000,
             command_center: true,
             compact_tabs: false,
             activity_bar_compact: false,

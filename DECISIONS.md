@@ -1683,6 +1683,8 @@ unit ports (`activitybarPart.test.ts`) are not ported, so the references are "Up
 
 ## ADR-0051 — Sash settings: size wired, grippers blocked (2026-11-10)
 
+**Superseded by ADR-0056** (the grip is drawn; `autoHideGrippers` and `autoHideGrippersDelay` are wired).
+
 **Context.** The sash group had `workbench.sash.size` (wired in ADR-0048), `hoverDelay` (blocked: gpui tooltips
 use a fixed delay) and `autoHideGrippers` / `autoHideGrippersDelay`. Upstream's `SashGrippersController` (sash.ts)
 hides the grippers, the dots drawn in the middle of a sash, after the mouse has been idle for the delay, and
@@ -1736,6 +1738,83 @@ no half-drawn scrollbar is shipped to satisfy the settings, and the policy is re
 
 **Not done.** `scrollbar_width` was not used to size the bars: gpui reserves the space but draws nothing in it,
 so the setting would change the layout without a visible bar.
+
+**Superseded by ADR-0054.** The editor draws its scrollbars now, and five of the six settings are wired.
+
+## ADR-0054 — Editor scrollbars: the bars are drawn, five of six `editor.scrollbar.*` settings wired (2026-11-10)
+
+**Context.** ADR-0053 blocked the `editor.scrollbar.*` group until rscode drew an editor scrollbar. Upstream's
+`scrollableElement` draws both bars and their slider math lives in `scrollbarState.ts`.
+
+**Decision.** The editor draws a vertical bar (the rightmost column, after the minimap) and a horizontal bar
+(under the text area), from the list's scroll handle: the viewport is the last paint and the scroll range is gpui's
+`max_offset`, so the slider follows the real scroll range, including the `scrollBeyondLastLine` and
+`scrollBeyondLastColumn` room. The slider math is `editor_view/scrollbar/state.rs`, a port of `scrollbarState.ts`
+(both upstream `ScrollbarState` tests ported). A click on the track jumps the slider's centre to the click, or pages
+one viewport with `editor.scrollbar.scrollByPage`; dragging the slider moves the list by the pointer's delta.
+`editor.scrollbar.vertical` and `horizontal` (`auto` shows the bar when the content overflows, `visible` always,
+`hidden` never), `verticalScrollbarSize` and `horizontalScrollbarSize` (the bar's thickness, and the room it takes
+from the text area) and `scrollByPage` are wired. Colours are `scrollbarSlider.background` and `hoverBackground`.
+
+**Not done.**
+- `editor.scrollbar.ignoreHorizontalScrollbarInContentHeight` stays `blocked`: upstream adds the horizontal bar's
+  height to the scroll height, and rscode's list measures whole rows, so that would need a spacer row.
+- The arrow buttons (arrowSize is 0), the fade after scrolling (`scrollbarVisibilityController`) and
+  `scrollbarSlider.activeBackground` (gpui-pre's element has no active state here).
+- `hidden` takes no width, where upstream's layout keeps `verticalScrollbarSize` reserved (`editorOptions.ts`).
+- The drag is a gpui window listener, so it follows the pointer anywhere in the window, not through the bar's
+  own pointer capture.
+- Overview ruler decorations: see ADR-0055.
+
+**Superseded in part by ADR-0055.** The vertical lane is now reserved whenever `editor.scrollbar.vertical` is not
+`hidden` (upstream's layout does this), so an `auto` bar that is not needed still leaves its column, without a slider.
+
+## ADR-0055 — Overview ruler: cursor, selection and find marks on the scrollbar lane; border and cursor settings wired (2026-11-10)
+
+**Context.** Upstream's overview ruler draws the cursor, selection and find-match marks down the lane beside the
+vertical scrollbar, at the height of their line in the whole document. The zone placement is
+`overviewZoneManager.ts`, pure math with its own tests. `editor.overviewRulerBorder` and
+`editor.hideCursorInOverviewRuler` were blocked with the glyph margin (ADR-0053's neighbour rule).
+
+**Decision.**
+- The lane is the vertical scrollbar's track: reserved whenever `editor.scrollbar.vertical` is not `hidden`, as upstream
+  reserves `verticalScrollbarSize` in its layout (`editorOptions.ts`). This supersedes the "no column for an `auto` bar
+  that is not needed" part of ADR-0054, so a short document keeps the lane, and its cursor mark shows.
+- `editor_view/overview_ruler/zones.rs` ports `overviewZoneManager.ts`, and all three of upstream's
+  `OverviewZoneManager` tests are ported (the DOM width they set changes no zone, so it is not modelled).
+- Marks: the cursor (unless `editor.hideCursorInOverviewRuler`), the selection when it is not empty, and every find
+  match (while the find widget is open). Colours: `editorCursor.foreground`,
+  `editorOverviewRuler.selectionHighlightForeground`, `editorOverviewRuler.findMatchForeground`.
+- `editor.overviewRulerBorder` (default on) draws a one-pixel border along the lane, in `editorOverviewRuler.border`.
+- Both settings are wired. `editor.glyphMargin` stays blocked (the margin is not drawn).
+
+**Not done.**
+- Marks use document lines. With folding, upstream's view lines would put them elsewhere, so they can sit off their
+  line in a folded document.
+- Multi-cursor and bracket-match zones; error and warning zones (rscode has no diagnostics yet); the lane's own
+  background colour.
+- With `editor.scrollbar.vertical: hidden` there is no lane, so no ruler. Upstream keeps the reserved column and draws
+  the ruler in it; this stays a deliberate difference, as in ADR-0054.
+
+## ADR-0056 — Sash grippers: the grip is drawn on the sidebar sash and recedes when the mouse is idle (2026-11-10)
+
+**Context.** `workbench.sash.autoHideGrippers` and `autoHideGrippersDelay` (ADR-0051) describe the gripper dots of a
+sash, which fade when the mouse is idle (upstream `SashGrippersController` in `sash.ts`, with the settings registered
+in `sash.contribution.ts`). rscode has one sash, the sidebar's, a 1px border with a hover colour.
+
+**Decision.** The sidebar sash draws a grip: a 3 by 24 pixel rounded bar, centred on the sash, in `sash.hoverBorder`.
+With `autoHideGrippers` on, a mouse move shows it again and it recedes after `autoHideGrippersDelay` milliseconds
+(default 2000) of mouse idle; each move restarts the timer, so an earlier timer cannot recede it. With the setting
+off the grip stays visible. Both settings are wired (`config/settings.rs` `LayoutSettings`, `main.rs` `sash_mouse_activity`).
+The E2E tests run the idle timer on the test clock (`config/e2e_sash.rs`).
+
+**Not done.**
+- Upstream starts its idle timer when the window opens, so the grip recedes without any mouse movement. Here it
+  stays until the first mouse move, then recedes after the delay.
+- Upstream also keeps the grippers of hovered sashes in their hover state; here only mouse movement keeps the grip.
+- Mouse movement is taken from the workbench root, not from nested webview frames (upstream's webview event).
+- rscode has no other sash, so the grip is drawn only on the sidebar's.
+
 
 ## ADR-0060 — Extension host spike (P0): Option A is feasible, the handshake works (2026-11-10)
 

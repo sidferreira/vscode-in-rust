@@ -595,9 +595,9 @@ match = ["editor.smoothScrolling"]
 
 [[rule]]
 status = "blocked"
-reason = "needs the glyph margin and the overview ruler (decoration lanes next to the editor)"
-comment = "glyphMargin reserves the margin for breakpoints and the code action lightbulb; hideCursorInOverviewRuler and overviewRulerBorder style the overview ruler. Neither exists yet (the minimap is the only side strip)."
-match = ["editor.glyphMargin", "editor.hideCursorInOverviewRuler", "editor.overviewRulerBorder"]
+reason = "needs the glyph margin (breakpoints and the code action lightbulb in the margin)"
+comment = "glyphMargin reserves the margin for breakpoints and the code action lightbulb, which rscode does not draw. editor.overviewRulerBorder and hideCursorInOverviewRuler are wired (the overview ruler, ADR-0055)."
+match = ["editor.glyphMargin"]
 
 [[rule]]
 status = "blocked"
@@ -881,10 +881,7 @@ match = ["workbench.sash.hoverDelay"]
 
 [[rule]]
 status = "blocked"
-reason = "needs sash grippers (the drawn handle in the middle of a sash)"
-comment = "workbench.sash.autoHideGrippers and autoHideGrippersDelay fade the gripper of a sash when the mouse is idle. rscode's sashes have a hover colour only, no gripper."
-match = ["workbench.sash.autoHideGrippers", "workbench.sash.autoHideGrippersDelay"]
-
+reason = "needs document symbols (outline provider from the extension host)"
 comment = "breadcrumbs.symbolPath, symbolSortOrder and symbolPathSeparator order and show the symbols of the file. breadcrumbs.show<Kind> (showFiles, showModules, ... showTypeParameters) filter the same symbol kinds in the outline, so they change nothing without symbols (documentSymbolsTree.ts)."
 match = ["breadcrumbs.symbol*", "breadcrumbs.show*"]
 
@@ -902,12 +899,6 @@ match = ["workbench.activityBar.autoHide"]
 
 [[rule]]
 status = "blocked"
-reason = "needs sash grippers (the dots drawn on a sash, which rscode does not draw)"
-comment = "workbench.sash.autoHideGrippers and autoHideGrippersDelay fade the grippers of the sashes when the mouse is idle. rscode's sashes are a 1px border that takes the hover colour (main.rs, sidebar-resize); there are no grippers to hide. They wait for the gripper dots of the sash (ADR-0051)."
-match = ["workbench.sash.autoHideGrippers", "workbench.sash.autoHideGrippersDelay"]
-
-[[rule]]
-status = "blocked"
-reason = "needs an editor scrollbar (rscode draws no editor scrollbar yet)"
-comment = "editor.scrollbar.vertical and horizontal (visible, auto, hidden), the vertical and horizontal sizes, scrollByPage (a click on the track) and ignoreHorizontalScrollbarInContentHeight all describe a scrollbar the editor draws. rscode scrolls the editor by wheel and keys and draws only the minimap slider (ADR-0053). The scrollbar is a feature of its own; these wait for it."
-match = ["editor.scrollbar.vertical", "editor.scrollbar.horizontal", "editor.scrollbar.verticalScrollbarSize", "editor.scrollbar.horizontalScrollbarSize", "editor.scrollbar.scrollByPage", "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight"]
+reason = "needs the horizontal bar's height in the scroll height (rscode's list measures whole rows)"
+comment = "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight decides whether the horizontal bar's height adds to the scroll height (viewLayout.ts getScrollHeight). rscode's editor is a uniform list of rows, so the bar's height would need a spacer row. The other five editor.scrollbar.* settings are wired (ADR-0054)."
+match = ["editor.scrollbar.ignoreHorizontalScrollbarInContentHeight"]

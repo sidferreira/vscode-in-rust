@@ -17,6 +17,8 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "workbench.editor.showTabs",
             "workbench.tree.indent",
             "workbench.sash.size",
+            "workbench.sash.autoHideGrippers",
+            "workbench.sash.autoHideGrippersDelay",
         ],
     ),
     (
@@ -125,7 +127,8 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
     ),
     ("Comments", &["editor.comments.insertSpace", "editor.comments.ignoreEmptyLines"]),
     ("Indentation", &["editor.detectIndentation", "editor.indentSize"]),
-    ("Editor scrolling", &["editor.scrollBeyondLastLine", "editor.scrollBeyondLastColumn"]),
+    ("Overview ruler", &["editor.overviewRulerBorder", "editor.hideCursorInOverviewRuler"]),
+    ("Editor scrolling", &["editor.scrollBeyondLastLine", "editor.scrollBeyondLastColumn", "editor.scrollbar.vertical", "editor.scrollbar.horizontal", "editor.scrollbar.verticalScrollbarSize", "editor.scrollbar.horizontalScrollbarSize", "editor.scrollbar.scrollByPage"]),
     (
         "Word wrap",
         &[

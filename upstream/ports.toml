@@ -215,6 +215,59 @@ synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Editable gpui editor surface (ADR-0018): blinking line cursor, selection and current-line highlight, active line number, key table for macOS defaults, platform text input (typing, IME marking). Not ported: smooth/phase/expand cursor styles, multi-cursor, overview ruler, selection rounded corners, glyph margin, word wrap. text_layout.rs (pixel/column mapping, adapts common/core/cursorColumns.ts) and editor_view/e2e.rs are ours and carry no header."
 
 [[port]]
+id = "editor-scrollbar"
+status = "partial"
+upstream = [
+  "src/vs/base/browser/ui/scrollbar/scrollbarState.ts",
+  "src/vs/base/browser/ui/scrollbar/abstractScrollbar.ts",
+  "src/vs/base/browser/ui/scrollbar/verticalScrollbar.ts",
+  "src/vs/base/browser/ui/scrollbar/horizontalScrollbar.ts",
+  "src/vs/base/test/browser/ui/scrollbar/scrollbarState.test.ts",
+  "src/vs/editor/common/config/editorOptions.ts",
+]
+rust = [
+  "crates/vsr-app/src/editor_view/scrollbar.rs",
+  "crates/vsr-app/src/editor_view/scrollbar/state.rs",
+  "crates/vsr-app/src/editor_view/scrollbar/upstream_tests.rs",
+  "crates/vsr-app/src/editor_view/scrollbar_e2e.rs",
+  "crates/vsr-app/src/config/scrollbar.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Editor vertical and horizontal scrollbars (ADR-0054): the slider math of scrollbarState.ts (both upstream ScrollbarState tests ported), click on the track (jump, or a page with scrollByPage), drag, visibility auto/visible/hidden, sizes, and scrollbarSlider colours. Not ported: the arrow buttons, the fade after scrolling (scrollbarVisibilityController), the active colour (scrollbarSlider.activeBackground), and ignoreHorizontalScrollbarInContentHeight (the scroll height would need the bar's height as a spacer row). The drag uses gpui window listeners, so it follows the pointer anywhere in the window."
+
+[[port]]
+id = "editor-overview-ruler"
+status = "partial"
+upstream = [
+  "src/vs/editor/common/viewModel/overviewZoneManager.ts",
+  "src/vs/editor/test/common/view/overviewZoneManager.test.ts",
+  "src/vs/editor/browser/viewParts/overviewRuler/decorationsOverviewRuler.ts",
+  "src/vs/editor/browser/viewParts/overviewRuler/overviewRuler.ts",
+]
+rust = [
+  "crates/vsr-app/src/editor_view/overview_ruler.rs",
+  "crates/vsr-app/src/editor_view/overview_ruler/zones.rs",
+  "crates/vsr-app/src/editor_view/overview_ruler/upstream_tests.rs",
+  "crates/vsr-app/src/editor_view/overview_ruler_e2e.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Overview ruler (ADR-0055): the zone math of overviewZoneManager.ts (all three upstream OverviewZoneManager tests ported; the DOM width they set changes no zone), the marks for the cursor, the selection and the find matches on the vertical scrollbar's lane, editor.overviewRulerBorder and editor.hideCursorInOverviewRuler. Not ported: the multi-cursor and bracket-match zones, error and warning zones (no diagnostics yet), the lane's own background colour, and view-line positions (marks use document lines, so folding misplaces them)."
+
+[[port]]
+id = "workbench-sash-grippers"
+status = "partial"
+upstream = [
+  "src/vs/workbench/contrib/sash/browser/sash.ts",
+  "src/vs/workbench/contrib/sash/browser/sash.contribution.ts",
+]
+rust = [
+  "crates/vsr-app/src/config/e2e_sash.rs",
+  "crates/vsr-app/src/main.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Sash grippers (ADR-0056): the sidebar sash draws its grip and recedes it when the mouse is idle (workbench.sash.autoHideGrippers and autoHideGrippersDelay, wired). Not ported: the idle timer at window open, the hover-state grippers, the webview mouse activity event, and grippers on other sashes (rscode has only the sidebar sash). e2e_sash.rs is ours."
+
+[[port]]
 id = "editor-minimap"
 status = "partial"
 upstream = [

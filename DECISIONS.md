@@ -1677,3 +1677,15 @@ already. Upstream 1.147 defines the compact layout in `ActivitybarPart` (default
 `activity_bar_icon_click_focus_keeps_the_side_bar_open`. The upstream test titles are cited in comments; the
 unit ports (`activitybarPart.test.ts`) are not ported, so the references are "Upstream source" comments.
 
+
+## ADR-0051 — Sash settings: size wired, grippers blocked (2026-11-10)
+
+**Context.** The sash group had `workbench.sash.size` (wired in ADR-0048), `hoverDelay` (blocked: gpui tooltips
+use a fixed delay) and `autoHideGrippers` / `autoHideGrippersDelay`. Upstream's `SashGrippersController` (sash.ts)
+hides the grippers, the dots drawn in the middle of a sash, after the mouse has been idle for the delay, and
+shows them again on a mouse move.
+
+**Decision.** `autoHideGrippers` and `autoHideGrippersDelay` are `blocked` (needs sash grippers). rscode's
+sashes are 1px borders that take the hover colour (`sidebar-resize` in `main.rs`); no dots are drawn, so there
+is nothing to fade. Drawing grippers is a visual feature of the sash itself, and it lands first. Until then the
+settings have no effect, which is what the rule says.

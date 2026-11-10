@@ -899,3 +899,9 @@ status = "blocked"
 reason = "needs view containers that can be hidden (rscode always shows four)"
 comment = "workbench.activityBar.autoHide hides a top or bottom activity bar when only one view container is shown. rscode always has four (Explorer, Search, Source Control, Extensions), so there is nothing to hide yet; it waits for the view containers of the extension host (ADR-0020)."
 match = ["workbench.activityBar.autoHide"]
+
+[[rule]]
+status = "blocked"
+reason = "needs sash grippers (the dots drawn on a sash, which rscode does not draw)"
+comment = "workbench.sash.autoHideGrippers and autoHideGrippersDelay fade the grippers of the sashes when the mouse is idle. rscode's sashes are a 1px border that takes the hover colour (main.rs, sidebar-resize); there are no grippers to hide. They wait for the gripper dots of the sash (ADR-0051)."
+match = ["workbench.sash.autoHideGrippers", "workbench.sash.autoHideGrippersDelay"]

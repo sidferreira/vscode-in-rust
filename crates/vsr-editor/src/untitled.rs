@@ -81,6 +81,30 @@ pub fn new_language(
     configured.unwrap_or(PLAINTEXT_LANGUAGE_ID).to_string()
 }
 
+/// The file name an untitled text is saved as by default (upstream `TextFileService.suggestFilename`,
+/// ADR-0074). `language` is the language's `(extensions, filenames)`, or `None` when the language is
+/// not registered: the name stays as it is. A name whose extension belongs to the language keeps it;
+/// otherwise the extension becomes the language's first one (or is added); a language with no
+/// extensions suggests its first file name.
+pub fn suggest_file_name(name: &str, language: Option<(&[String], &[String])>) -> String {
+    let Some((extensions, filenames)) = language else { return name.to_string() };
+    let ext = match name.rfind('.') {
+        Some(dot) if dot > 0 => &name[dot..],
+        _ => "",
+    };
+    if !ext.is_empty() && extensions.iter().any(|e| e == ext) {
+        return name.to_string();
+    }
+    if let Some(primary) = extensions.first() {
+        let stem = name.strip_suffix(ext).unwrap_or(name);
+        return format!("{stem}{primary}");
+    }
+    if filenames.iter().any(|f| f == name) {
+        return name.to_string();
+    }
+    filenames.first().cloned().unwrap_or_else(|| name.to_string())
+}
+
 /// The title taken from a first line of text (upstream `updateNameFromFirstLine`): whitespace is
 /// trimmed and collapsed, the right-to-left override is dropped, the title is cut to
 /// [`FIRST_LINE_NAME_MAX_LENGTH`] characters, and it is used only when it has a word character

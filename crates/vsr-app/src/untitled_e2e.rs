@@ -268,7 +268,7 @@ fn an_untitled_text_is_not_closed_as_a_missing_file(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn hot_exit_brings_the_untitled_text_back_as_an_untitled_text(cx: &mut TestAppContext) {
-    let env = env("hot-exit", "{}");
+    let env = env("hot-exit", r#"{ "files.defaultLanguage": "rust" }"#);
     {
         let (wb, cx) = start(cx, &env);
         new_untitled(&wb, cx);
@@ -280,7 +280,7 @@ fn hot_exit_brings_the_untitled_text_back_as_an_untitled_text(cx: &mut TestAppCo
     let (wb, cx) = start(cx, &env);
     let key = untitled_key("Untitled-1");
     assert!(with_untitled(&wb, cx, &key, |e| e.is_dirty() && e.buffer().value() == "draft\nnotes"));
-    assert_eq!(with_untitled(&wb, cx, &key, |e| e.language_id().to_string()), "plaintext");
+    assert_eq!(with_untitled(&wb, cx, &key, |e| e.language_id().to_string()), "rust", "the backup keeps the language");
 }
 
 #[gpui::test]
@@ -360,4 +360,210 @@ fn a_plain_save_as_keeps_the_tab_open(cx: &mut TestAppContext) {
     wb.update(cx, |wb, cx| wb.save_untitled_to(&k, &t, cx)).unwrap();
     cx.run_until_parked();
     assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&target).is_some()));
+}
+
+#[gpui::test]
+fn a_restored_untitled_text_keeps_its_tab_position(cx: &mut TestAppContext) {
+    let env = env("position", "{}");
+    {
+        let (wb, cx) = start(cx, &env);
+        wb.update(cx, |wb, _| wb.open(&env.root.join("a.rs")));
+        cx.run_until_parked();
+        new_untitled(&wb, cx);
+        type_in_active(&wb, cx, "draft");
+        wb.update(cx, |wb, _| wb.open(&env.root.join("notes.txt")));
+        cx.run_until_parked();
+        tick(cx);
+        tick(cx);
+        wb.update(cx, |wb, cx| wb.persist_on_quit(cx));
+    }
+    let (wb, cx) = start(cx, &env);
+    let order: Vec<PathBuf> = wb.read_with(cx, |wb, _| wb.editors.open.iter().map(|e| e.path.clone()).collect());
+    assert_eq!(order, vec![env.root.join("a.rs"), untitled_key("Untitled-1"), env.root.join("notes.txt")]);
+}
+
+#[gpui::test]
+fn restore_applies_the_editor_limit_to_the_saved_tabs(cx: &mut TestAppContext) {
+    let env = env("limit", "{}");
+    fs::write(env.root.join("c.txt"), "c\n").unwrap();
+    {
+        let (wb, cx) = start(cx, &env);
+        for name in ["a.rs", "notes.txt", "c.txt"] {
+            let path = env.root.join(name);
+            wb.update(cx, |wb, _| wb.open(&path));
+            cx.run_until_parked();
+        }
+        assert_eq!(wb.read_with(cx, |wb, _| wb.editors.open.len()), 3);
+        tick(cx);
+        wb.update(cx, |wb, cx| wb.persist_on_quit(cx));
+    }
+    fs::write(&env.settings, r#"{ "workbench.editor.limit.enabled": true, "workbench.editor.limit.value": 2 }"#).unwrap();
+    let (wb, cx) = start(cx, &env);
+    let open: Vec<PathBuf> = wb.read_with(cx, |wb, _| wb.editors.open.iter().map(|e| e.path.clone()).collect());
+    assert_eq!(open, vec![env.root.join("notes.txt"), env.root.join("c.txt")], "the least recently used tab goes, the active one stays");
+    let active = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().path.clone());
+    assert_eq!(active, env.root.join("c.txt"));
+}
+
+#[gpui::test]
+fn save_as_starts_in_the_folder_of_the_active_file(cx: &mut TestAppContext) {
+    let env = env("save-folder", "{}");
+    fs::create_dir_all(env.root.join("sub")).unwrap();
+    fs::write(env.root.join("sub").join("b.txt"), "b\n").unwrap();
+    let (wb, cx) = start(cx, &env);
+    let sub = env.root.join("sub").join("b.txt");
+    wb.update(cx, |wb, _| wb.open(&sub));
+    cx.run_until_parked();
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "hello");
+    wb.update_in(cx, |wb, window, cx| {
+        let i = wb.editors.active.unwrap();
+        wb.ask_save_untitled(i, window, cx);
+    });
+    cx.run_until_parked();
+    let parent = wb.read_with(cx, |wb, _| wb.explorer.inline.as_ref().unwrap().parent.clone());
+    assert_eq!(parent, env.root.join("sub"));
+}
+
+#[gpui::test]
+fn save_as_suggests_the_extension_of_the_language(cx: &mut TestAppContext) {
+    let env = env("save-extension", r#"{ "files.defaultLanguage": "rust" }"#);
+    let (wb, cx) = start(cx, &env);
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "notes");
+    wb.update_in(cx, |wb, window, cx| {
+        let i = wb.editors.active.unwrap();
+        wb.ask_save_untitled(i, window, cx);
+    });
+    cx.run_until_parked();
+    let value = wb.read_with(cx, |wb, cx| wb.explorer.inline.as_ref().unwrap().value(cx));
+    assert_eq!(value, "notes.rs");
+}
+
+#[gpui::test]
+fn blurring_the_save_as_box_does_not_save(cx: &mut TestAppContext) {
+    let env = env("save-blur", "{}");
+    let (wb, cx) = start(cx, &env);
+    new_untitled(&wb, cx);
+    let key = active_key(&wb, cx);
+    type_in_active(&wb, cx, "hello");
+    wb.update_in(cx, |wb, window, cx| {
+        let i = wb.editors.active.unwrap();
+        wb.ask_save_untitled(i, window, cx);
+    });
+    cx.run_until_parked();
+    // The name box has the focus; losing it runs the focus-out handler. Headless focus-out is not
+    // delivered to the box, so the handler is called directly (explorer/inline.rs).
+    wb.update_in(cx, |wb, window, cx| wb.blur_inline(window, cx));
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_none()), "the box closes");
+    assert!(!env.root.join("hello").exists(), "a blur writes nothing");
+    assert!(with_untitled(&wb, cx, &key, |e| e.is_dirty()), "the text stays an untitled text");
+}
+
+/// Types `name` into the open Save As name box and commits it (Enter), as the user does.
+fn commit_save_as_name(wb: &Entity<Workbench>, cx: &mut VisualTestContext, name: &str) {
+    wb.update_in(cx, |wb, window, cx| {
+        let input = wb.explorer.inline.as_ref().expect("the name box is open").input.clone();
+        input.update(cx, |s, cx| s.set_value(name.to_string(), window, cx));
+        wb.enter_inline(window, cx);
+    });
+    cx.run_until_parked();
+}
+
+fn save_as_box_is_open(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> bool {
+    wb.read_with(cx, |wb, _| wb.explorer.inline.as_ref().is_some_and(|e| e.kind == InlineKind::SaveUntitled))
+}
+
+#[gpui::test]
+fn closing_several_dirty_untitled_texts_asks_for_each_name_in_turn(cx: &mut TestAppContext) {
+    let env = env("close-several", "{}");
+    let (wb, cx) = start(cx, &env);
+    let notes = env.root.join("notes.txt");
+    wb.update(cx, |wb, _| wb.open(&notes));
+    cx.run_until_parked();
+    type_in_active(&wb, cx, "edit");
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "one");
+    let first = active_key(&wb, cx);
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "two");
+    let second = active_key(&wb, cx);
+    wb.update(cx, |wb, cx| wb.request_close(vec![notes.clone(), first.clone(), second.clone()], cx));
+    cx.run_until_parked();
+    wb.update_in(cx, |wb, window, cx| wb.close_prompt_save(window, cx));
+    cx.run_until_parked();
+    assert!(fs::read_to_string(&notes).unwrap().contains("edit"), "the file is saved by the bar");
+    assert!(save_as_box_is_open(&wb, cx), "the first untitled text gets the name box");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&first).is_some()));
+
+    commit_save_as_name(&wb, cx, "first.txt");
+    assert_eq!(fs::read_to_string(env.root.join("first.txt")).unwrap(), "one");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&first).is_none()), "the saved one closes");
+    assert!(save_as_box_is_open(&wb, cx), "the second one gets the name box next");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&second).is_some()));
+
+    commit_save_as_name(&wb, cx, "second.txt");
+    assert_eq!(fs::read_to_string(env.root.join("second.txt")).unwrap(), "two");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&second).is_none()));
+    assert!(!save_as_box_is_open(&wb, cx));
+}
+
+#[gpui::test]
+fn cancelling_the_name_box_leaves_the_rest_of_the_close_open_and_dirty(cx: &mut TestAppContext) {
+    let env = env("close-cancel", "{}");
+    let (wb, cx) = start(cx, &env);
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "one");
+    let first = active_key(&wb, cx);
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "two");
+    let second = active_key(&wb, cx);
+    wb.update(cx, |wb, cx| wb.request_close(vec![first.clone(), second.clone()], cx));
+    cx.run_until_parked();
+    wb.update_in(cx, |wb, window, cx| wb.close_prompt_save(window, cx));
+    cx.run_until_parked();
+    wb.update_in(cx, |wb, window, cx| wb.cancel_inline(window, cx));
+    cx.run_until_parked();
+    assert!(!save_as_box_is_open(&wb, cx), "no name box after Escape");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&first).is_some() && wb.editors.index_of(&second).is_some()));
+    assert!(with_untitled(&wb, cx, &first, |e| e.is_dirty()) && with_untitled(&wb, cx, &second, |e| e.is_dirty()));
+    assert!(!env.root.join("one.txt").exists() && !env.root.join("two.txt").exists());
+}
+
+#[gpui::test]
+fn quit_save_all_asks_for_the_name_of_each_untitled_text_then_quits(cx: &mut TestAppContext) {
+    let env = env("quit-names", "{}");
+    let (wb, cx) = start(cx, &env);
+    wb.update(cx, |wb, _| wb.open(&env.root.join("notes.txt")));
+    cx.run_until_parked();
+    type_in_active(&wb, cx, "edit");
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "draft");
+    assert!(!wb.update(cx, |wb, cx| wb.request_quit(true, cx)), "the quit asks first");
+    wb.update_in(cx, |wb, window, cx| wb.quit_prompt_save_all(window, cx));
+    cx.run_until_parked();
+    assert!(save_as_box_is_open(&wb, cx), "Save All asks for the name of the untitled text");
+    assert!(!wb.read_with(cx, |wb, _| wb.session.quit_requested), "the quit waits for the name");
+    commit_save_as_name(&wb, cx, "draft.txt");
+    assert_eq!(fs::read_to_string(env.root.join("draft.txt")).unwrap(), "draft");
+    assert!(fs::read_to_string(env.root.join("notes.txt")).unwrap().contains("edit"));
+    assert!(wb.read_with(cx, |wb, _| wb.session.quit_requested), "the quit goes on once every name is given");
+}
+
+#[gpui::test]
+fn cancelling_the_name_box_during_quit_aborts_the_quit(cx: &mut TestAppContext) {
+    let env = env("quit-cancel", "{}");
+    let (wb, cx) = start(cx, &env);
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "draft");
+    let key = active_key(&wb, cx);
+    assert!(!wb.update(cx, |wb, cx| wb.request_quit(true, cx)));
+    wb.update_in(cx, |wb, window, cx| wb.quit_prompt_save_all(window, cx));
+    cx.run_until_parked();
+    wb.update_in(cx, |wb, window, cx| wb.cancel_inline(window, cx));
+    cx.run_until_parked();
+    assert!(!wb.read_with(cx, |wb, _| wb.session.quit_requested), "Cancel aborts the quit");
+    assert!(with_untitled(&wb, cx, &key, |e| e.is_dirty()), "the untitled text stays open and dirty");
+    assert!(!wb.update(cx, |wb, cx| wb.request_quit(true, cx)), "a later quit asks again");
 }

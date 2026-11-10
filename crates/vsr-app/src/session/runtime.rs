@@ -30,14 +30,14 @@
 //! upstream: src/vs/workbench/services/workingCopy/common/workingCopyBackupTracker.ts @ 50e1350fc78df67b11049b903d96b530f28d26a5
 //! upstream: src/vs/workbench/services/workingCopy/electron-browser/workingCopyBackupTracker.ts @ 50e1350fc78df67b11049b903d96b530f28d26a5
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use gpui_kit::*;
 
-use super::backup::BackupStore;
+use super::backup::{Backup, BackupStore};
 use super::settings::SessionSettings;
 use super::state::{
     EditorState, FORMAT_VERSION, GlobalState, MAX_RECENT_FOLDERS, SearchState, SideBarState, ViewState, WorkspaceState, touch_recent,
@@ -130,9 +130,11 @@ pub struct Runtime {
     /// The tabs the user is closing while the "save the changes?" bar of a close is showing
     /// (ADR-0040), in tab order. Set by `request_close` (close.rs).
     pub close_prompt: Option<Vec<PathBuf>>,
-    /// The untitled text whose Save As the close prompt started: its tab closes once the file is
-    /// written (ADR-0058). Set after the name box opens; a plain Save clears it.
-    pub close_after_save: Option<PathBuf>,
+    /// Untitled texts waiting for their Save As, in order: each name box takes the first (ADR-0074).
+    /// The flag: the tab closes once its file is written (the close prompt, ADR-0058).
+    pub save_as_queue: VecDeque<(PathBuf, bool)>,
+    /// A quit waits for the names: it goes on when the queue is empty (ADR-0074).
+    pub save_as_quit: bool,
     /// The user chose at the prompt: the next quit goes through.
     pub confirmed: bool,
     /// Don't Save: no backups are written from now on.
@@ -186,6 +188,16 @@ impl Workbench {
         self.session.backups = Some(backups.clone());
         self.session.workspace_file = Some(workspace_file.clone());
 
+        // Backups are read first: an untitled text's tab is placed from its backup (ADR-0074).
+        let loaded = backups.load_all();
+        notices.extend(loaded.problems.iter().cloned());
+        let untitled_backups: HashMap<PathBuf, Backup> = loaded
+            .backups
+            .iter()
+            .filter(|b| untitled_name_of(Path::new(&b.path)).is_some())
+            .map(|b| (PathBuf::from(&b.path), b.clone()))
+            .collect();
+
         // Workspace state.
         let mut restored_views: Vec<(PathBuf, ViewState)> = Vec::new();
         match load_json::<WorkspaceState>(&workspace_file) {
@@ -194,7 +206,7 @@ impl Workbench {
                     self.restore_layout(&state);
                 }
                 if settings.restores_editors() {
-                    restored_views = self.restore_tabs(&state);
+                    restored_views = self.restore_tabs(&state, &untitled_backups);
                 }
             }
             Loaded::Corrupt { kept, error } => notices.push(format!("The saved session could not be read ({error}); kept at {}", shown(kept))),
@@ -202,8 +214,6 @@ impl Workbench {
         }
 
         // Backups: unsaved text always comes back.
-        let loaded = backups.load_all();
-        notices.extend(loaded.problems);
         for backup in &loaded.backups {
             self.restore_backup(backup, &backups);
         }
@@ -219,6 +229,8 @@ impl Workbench {
             let first = self.editors.mru.first().and_then(|p| self.editors.index_of(p)).unwrap_or(0);
             self.editors.activate(first);
         }
+        // The limit applies to the whole restore, once the order and the active tab are known (ADR-0074).
+        self.editors.enforce_limit();
         if !notices.is_empty() {
             self.error = Some(notices.join(" | "));
         }
@@ -259,15 +271,26 @@ impl Workbench {
         Some(editor)
     }
 
-    /// Opens the saved tabs in their order (files that are gone are skipped). Returns their view states.
-    fn restore_tabs(&mut self, state: &WorkspaceState) -> Vec<(PathBuf, ViewState)> {
+    /// Opens the saved tabs in their order (files that are gone are skipped; an untitled text comes back
+    /// from its backup, at its saved place, and one without a backup was clean and is not brought back).
+    /// Returns their view states.
+    fn restore_tabs(&mut self, state: &WorkspaceState, untitled: &HashMap<PathBuf, Backup>) -> Vec<(PathBuf, ViewState)> {
         let mut views = Vec::new();
         for saved in &state.editors {
             let path = PathBuf::from(&saved.path);
             if self.editors.index_of(&path).is_some() {
                 continue;
             }
-            let Some(editor) = self.build_editor(&path) else { continue };
+            let editor = match untitled_name_of(&path) {
+                Some(name) => match untitled.get(&path) {
+                    Some(backup) => self.editors.untitled_editor(name, &backup.text, backup.language.as_deref()),
+                    None => continue,
+                },
+                None => match self.build_editor(&path) {
+                    Some(editor) => editor,
+                    None => continue,
+                },
+            };
             self.editors.open.push(editor);
             if saved.preview && self.editors.preview.is_none() {
                 self.editors.preview = Some(path.clone());
@@ -296,7 +319,7 @@ impl Workbench {
         if let Some(name) = untitled_name_of(&path).map(str::to_string) {
             // An untitled text has no file: its text comes back as the untitled text it was (ADR-0058).
             if self.editors.index_of(&path).is_none() {
-                self.editors.restore_untitled(&name, &backup.text);
+                self.editors.restore_untitled(&name, &backup.text, backup.language.as_deref());
             }
             if let Some(i) = self.editors.index_of(&path) {
                 self.session.backed_up.insert(path, self.editors.open[i].editor.version());
@@ -334,13 +357,12 @@ impl Workbench {
 
     /// The state of this workbench as it would be saved now.
     pub(crate) fn session_snapshot(&self, cx: &App) -> WorkspaceState {
-        // Untitled texts are not tabs to reopen by path: their text is in the backups (ADR-0058).
+        // An untitled text is listed by its key: its text is in its backup, and its place is kept (ADR-0074).
         let editors = self
             .editors
             .open
             .iter()
             .enumerate()
-            .filter(|(_, e)| !e.is_untitled())
             .map(|(i, e)| EditorState {
                 path: e.path.to_string_lossy().into_owned(),
                 preview: self.editors.is_preview(i),
@@ -355,18 +377,8 @@ impl Workbench {
             find_history,
             replace_history,
             editors,
-            active: self
-                .editors
-                .active
-                .filter(|&a| self.editors.open.get(a).is_some_and(|e| !e.is_untitled()))
-                .map(|a| self.editors.open[..a].iter().filter(|e| !e.is_untitled()).count()),
-            mru: self
-                .editors
-                .mru
-                .iter()
-                .filter(|p| untitled_name_of(p).is_none())
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect(),
+            active: self.editors.active,
+            mru: self.editors.mru.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
             side_bar: SideBarState {
                 visible: self.sidebar_visible,
                 width: self.sidebar_width,
@@ -417,7 +429,7 @@ impl Workbench {
                     continue;
                 }
                 if flush || self.session.seen.get(&e.path) == Some(&version) {
-                    match backups.write(&e.path, &e.buffer().value()) {
+                    match backups.write(&e.path, &e.buffer().value(), Some(e.language_id())) {
                         Ok(()) => {
                             self.session.backed_up.insert(e.path.clone(), version);
                         }
@@ -533,17 +545,22 @@ impl Workbench {
     /// Save All, then quit (ADR-0040). Each dirty file is saved as Cmd+S saves it (ADR-0039): a file
     /// changed on disk is not overwritten while `files.saveConflictResolution` is `askUser`, and a failed
     /// save is an error. The other files are still saved. When any file is refused the app stays open:
-    /// the first refused editor is activated and shows its conflict bar (or the error).
+    /// the first refused editor is activated and shows its conflict bar (or the error). Each dirty
+    /// untitled text then gets its name box in turn; the quit goes on once every name is given, and
+    /// Cancel on a name box aborts the quit (upstream asks for each name through the save dialog, ADR-0074).
     pub(crate) fn quit_prompt_save_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let transforms = self.editor_settings.save_transforms(false);
         let ask_on_conflict = self.editor_settings.save_conflict_ask;
         let mut shown: Option<usize> = None;
+        let mut untitled: Vec<(PathBuf, bool)> = Vec::new();
         for i in 0..self.editors.open.len() {
             let e = &mut self.editors.open[i];
             if !e.is_dirty() {
                 continue;
             }
-            if e.disk_changed() && ask_on_conflict {
+            if e.is_untitled() {
+                untitled.push((e.path.clone(), false));
+            } else if e.disk_changed() && ask_on_conflict {
                 if shown.is_none() {
                     self.editor_view.save_conflict = Some(e.path.clone());
                 }
@@ -554,6 +571,14 @@ impl Workbench {
             } else if self.editor_view.save_conflict.as_deref() == Some(e.path.as_path()) {
                 self.editor_view.save_conflict = None;
             }
+        }
+        if shown.is_none() && !untitled.is_empty() {
+            self.session.prompt = false;
+            self.session.confirmed = false;
+            self.settings_active = false;
+            self.welcome_active = false;
+            self.start_save_as_queue(untitled, true, window, cx);
+            return;
         }
         let Some(i) = shown else {
             self.finish_quit(cx);
@@ -575,7 +600,7 @@ impl Workbench {
         if let Some(backups) = self.session.backups.clone() {
             for e in self.editors.open.iter().filter(|e| e.is_dirty()) {
                 // Make sure the text is on disk first, then move it aside.
-                if !backups.exists(&e.path) && backups.write(&e.path, &e.buffer().value()).is_err() {
+                if !backups.exists(&e.path) && backups.write(&e.path, &e.buffer().value(), Some(e.language_id())).is_err() {
                     self.error = Some(format!("Could not keep the changes of {}", e.path.display()));
                     self.session.dropping = false;
                     cx.notify();
@@ -588,7 +613,7 @@ impl Workbench {
         self.finish_quit(cx);
     }
 
-    fn finish_quit(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn finish_quit(&mut self, cx: &mut Context<Self>) {
         self.session.prompt = false;
         self.session.confirmed = true;
         self.session.quit_requested = true;

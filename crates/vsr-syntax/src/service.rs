@@ -91,6 +91,11 @@ impl SyntaxService {
         self.registry.read().expect("registry lock").extensions(id).to_vec()
     }
 
+    /// The file names that belong to a language on their own (`Makefile`), for a suggested file name.
+    pub fn language_filenames(&self, id: &str) -> Vec<String> {
+        self.registry.read().expect("registry lock").filenames(id).to_vec()
+    }
+
     // --- grammars ---
 
     /// The grammar of a language, built on first use. `None` for languages without a bundled one.

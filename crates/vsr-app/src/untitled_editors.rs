@@ -13,7 +13,7 @@ use vsr_editor::untitled::new_language;
 
 use crate::Workbench;
 use crate::config::AppConfig;
-use crate::model::OpenOptions;
+use crate::model::{OpenOptions, untitled_name_of};
 
 impl Workbench {
     /// File: New Untitled Text File (Cmd+N): an empty text, pinned and focused. Its language is
@@ -36,15 +36,72 @@ impl Workbench {
 
     /// Save (Cmd+S, or Save from the palette) on the untitled text at `index`: the Explorer's name
     /// box asks for the file, in the workspace folder. Nothing else happens until the name is
-    /// committed (Enter, or the box loses focus with a valid name).
+    /// committed (Enter). A plain Save keeps the tab open once the file is written, and drops any Save
+    /// As queue in flight.
     pub(crate) fn ask_save_untitled(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        // A plain Save keeps the tab open after the file is written; the close prompt sets this after this call.
-        self.session.close_after_save = None;
+        self.abandon_save_as();
+        self.open_save_as_box(index, window, cx);
+    }
+
+    /// Save As for `turns` (untitled texts with the flag "close the tab once written", in tab order):
+    /// each name box opens in turn (ADR-0074). `then_quit`: the app quits once every name is given.
+    pub(crate) fn start_save_as_queue(
+        &mut self,
+        turns: Vec<(PathBuf, bool)>,
+        then_quit: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.session.save_as_queue = turns.into();
+        self.session.save_as_quit = then_quit;
+        self.next_save_as(window, cx);
+    }
+
+    /// Opens the name box of the next queued untitled text that is still open. With the queue empty,
+    /// a quit that waited for the names goes on.
+    pub(crate) fn next_save_as(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        while let Some((key, _)) = self.session.save_as_queue.front().cloned() {
+            if let Some(i) = self.editors.index_of(&key) {
+                self.settings_active = false;
+                self.welcome_active = false;
+                self.editors.activate(i);
+                self.open_save_as_box(i, window, cx);
+                return;
+            }
+            self.session.save_as_queue.pop_front();
+        }
+        if std::mem::take(&mut self.session.save_as_quit) {
+            self.finish_quit(cx);
+        }
+        cx.notify();
+    }
+
+    /// The name box of Save As is cancelled: the queue ends, the rest of it stays open and dirty, and
+    /// a quit that waited for the names is aborted (ADR-0074).
+    pub(crate) fn abandon_save_as(&mut self) {
+        self.session.save_as_queue.clear();
+        self.session.save_as_quit = false;
+    }
+
+    /// The name box of Save As for the untitled text at `index`, with its suggested name.
+    fn open_save_as_box(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(e) = self.editors.open.get(index).filter(|e| e.is_untitled()) else { return };
         let key = e.path.clone();
-        let name = self.editors.title_of(e);
+        let name = self.editors.suggested_save_name(e);
+        let parent = self.save_as_folder();
         self.show_explorer(cx);
-        self.start_save_untitled_inline(key, &name, window, cx);
+        self.start_save_untitled_inline(key, &name, parent, window, cx);
+    }
+
+    /// The folder a Save As starts in (upstream `defaultFilePath`: the folder of the last active
+    /// file): the folder of the most recent file editor when it is inside the workspace, else the
+    /// workspace root (ADR-0074).
+    fn save_as_folder(&self) -> PathBuf {
+        let folder = self.editors.mru.iter().find(|p| untitled_name_of(p).is_none()).and_then(|p| p.parent());
+        match folder {
+            Some(dir) if dir.starts_with(&self.root) => dir.to_path_buf(),
+            _ => self.root.clone(),
+        }
     }
 
     /// Save As through the name box: creates `parent/name` with the text of the untitled text `key`.
@@ -73,11 +130,13 @@ impl Workbench {
             self.session.seen.remove(key);
             backups.remove_saved(key);
         }
-        if self.session.close_after_save.as_deref() == Some(key) {
-            self.session.close_after_save = None;
-            if let Some(i) = self.editors.index_of(target) {
-                self.close_tab(i);
-            }
+        // The head of the queue is done: its tab closes when the close prompt asked for that.
+        if self.session.save_as_queue.front().is_some_and(|(k, _)| k == key)
+            && let Some((_, close_tab)) = self.session.save_as_queue.pop_front()
+            && close_tab
+            && let Some(i) = self.editors.index_of(target)
+        {
+            self.close_tab(i);
         }
         cx.notify();
         Ok(())

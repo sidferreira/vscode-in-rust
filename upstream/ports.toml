@@ -984,10 +984,12 @@ status = "partial"
 upstream = [
   "src/vs/workbench/services/untitled/common/**",
   "src/vs/workbench/services/untitled/test/**",
+  "src/vs/workbench/services/textfile/test/browser/textFileService.test.ts",
 ]
 rust = [
   "crates/vsr-editor/src/untitled.rs",
   "crates/vsr-editor/tests/upstream_untitled_text_editor.rs",
+  "crates/vsr-editor/tests/upstream_text_file_service.rs",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Untitled text editors (ADR-0057, ADR-0058): naming, dirty rules, first-line titles and the new file's language are the pure rules in vsr-editor. The service, input and working copy tests are covered headlessly in the workbench. Working copy events and encodings are not modelled."

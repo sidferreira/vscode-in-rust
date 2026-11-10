@@ -455,12 +455,19 @@ impl Editors {
     /// `editor.detectIndentation` is on) and the typing rules, for the editors open now and the ones
     /// opened later.
     pub fn apply_editor_settings(&mut self, settings: &crate::config::settings::EditorSettings) {
-        self.options = settings.editor_options();
+        // Like upstream's `_setModelOptionsForModel`: the indentation is guessed again only when
+        // the tab size, spaces or detection changed, not for every setting (a font size change must
+        // not flip a file the user is editing).
+        let options = settings.editor_options();
+        let indentation_changed = self.options != options || self.detect_indentation != settings.detect_indentation;
+        self.options = options;
         self.typing = settings.typing;
         self.detect_indentation = settings.detect_indentation;
         for e in &mut self.open {
             e.editor.set_typing_options(settings.typing);
-            e.apply_indentation(settings.editor_options(), settings.detect_indentation);
+            if indentation_changed {
+                e.apply_indentation(options, settings.detect_indentation);
+            }
         }
     }
 

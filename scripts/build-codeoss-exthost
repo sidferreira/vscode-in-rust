@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# build-codeoss-exthost: produce a transpiled Code-OSS of the pinned commit in a FRESH folder, just
+# enough to run upstream's `extensionHostProcess` under Node (ADR-0060). Never builds in
+# ../vscode-original and never deletes anything.
+#
+#   scripts/build-codeoss-exthost [DEST]        # DEST must not exist yet (default: a mktemp folder)
+#   RSCODE_CODE_OSS=<printed path> cargo test -p vsr-rpc --test handshake_real_host -- --nocapture
+#
+# Needs Node 24.22+ on PATH (upstream's .nvmrc; pnpm 12 and its pnpmfile need it) and network
+# through the configured npm registry. It does not touch registry configuration. Steps:
+#   1. git archive of the pinned commit into DEST (sources only, no .git).
+#   2. pnpm@12.16.0 (the repo's packageManager) installed beside DEST, since an older pnpm cannot
+#      read upstream's .pnpmfile.mjs.
+#   3. `pnpm install --ignore-scripts` at the root and in build/ (no native modules are built:
+#      the host logs that @vscode/spdlog has no binding and carries on).
+#      `@github/copilot-sdk` is dropped from the root package.json: only the Copilot agent code and
+#      tests import it, not the extension host, and the proxy answered 403 for that version.
+#   4. `node build/next/index.ts transpile` (esbuild, about 15 s) -> DEST/out.
+set -euo pipefail
+here="$(cd "$(dirname "$0")/.." && pwd)"
+clone="${UPSTREAM_CLONE:-$here/../vscode-original}"
+pinned="$(sed -n 's/^pinned *= *"\([0-9a-f]*\)".*/\1/p' "$here/upstream/ports.toml" | head -1)"
+dest="${1:-$(mktemp -d "${TMPDIR:-/tmp}/codeoss-exthost.XXXXXX")}"
+if [ -e "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then
+  echo "build-codeoss-exthost: $dest exists and is not empty" >&2; exit 1
+fi
+mkdir -p "$dest"
+tools="$(mktemp -d "${TMPDIR:-/tmp}/codeoss-tools.XXXXXX")"
+echo "sources -> $dest   pnpm -> $tools"
+git -C "$clone" archive "$pinned" | tar -x -C "$dest"
+(cd "$tools" && npm init -y >/dev/null && npm i pnpm@12.16.0 >/dev/null)
+pnpm="$tools/node_modules/.bin/pnpm"
+cd "$dest"
+sed -i.bak '/"@github\/copilot-sdk"/d' package.json
+"$pnpm" install --ignore-scripts --no-frozen-lockfile
+(cd build && "$pnpm" install --ignore-scripts --ignore-workspace)
+node build/next/index.ts transpile
+echo
+echo "done. run the real-host test with:"
+echo "  RSCODE_CODE_OSS=$dest cargo test -p vsr-rpc --test handshake_real_host -- --nocapture"

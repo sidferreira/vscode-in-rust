@@ -373,6 +373,12 @@ def children_of(nodes):
     return children
 
 
+def is_gate(node):
+    """A gate is not built by this work: an external blocker or a deferred user decision.
+    Counting does not walk through a gate, so what sits behind one is reported apart."""
+    return node["status"] == "blocked-external" or node["deferred"]
+
+
 def downstream_of(nid, children):
     """Every node that transitively needs `nid` (not including nid)."""
     seen = set()
@@ -386,30 +392,76 @@ def downstream_of(nid, children):
     return seen
 
 
+def free_downstream(nid, children, nodes):
+    """Downstream nodes that building nid fully unblocks: each direct need is done, is nid, or is
+    itself free. A gate is never free, and neither is anything that needs one. Fixed point, so a
+    node whose other needs are still open (in progress or todo) stays out."""
+    downstream = downstream_of(nid, children)
+    free = set()
+    changed = True
+    while changed:
+        changed = False
+        for cand in sorted(downstream):
+            if cand in free or is_gate(nodes[cand]):
+                continue
+            if all(d == nid or d in free or nodes[d]["status"] == "done" for d in nodes[cand]["needs"]):
+                free.add(cand)
+                changed = True
+    return free
+
+
+def _union(attrs, nids, field):
+    out = set()
+    for other in nids:
+        out |= attrs[other][field]
+    return out
+
+
 def unlock_counts(model, att):
     nodes = model["nodes"]
+    attrs = att["attrs"]
     children = children_of(nodes)
+    status_of = {s["key"]: s["status"] for s in model["settings"]}
+
+    def split(keys):
+        dep = {k for k in keys if status_of.get(k) != "todo"}
+        return dep, keys - dep
+
     rows = {}
     for nid, node in nodes.items():
-        down = downstream_of(nid, children)
-        union_settings = set(att["attrs"][nid]["settings"])
-        union_scen = set(att["attrs"][nid]["scenarios"])
-        for other in down:
-            union_settings |= att["attrs"][other]["settings"]
-            union_scen |= att["attrs"][other]["scenarios"]
-        ext_down = {o for o in down if nodes[o]["kind"] == "extension"}
-        rows[nid] = {
-            "direct_settings": len(att["attrs"][nid]["settings"]),
-            "direct_scenarios": len(att["attrs"][nid]["scenarios"]),
-            "down_settings": len(union_settings),
-            "down_scenarios": len(union_scen),
-            "down_extensions": len(ext_down),
-            "down_extension_ids": sorted(ext_down),
-            "down_ids": sorted(down),
+        all_down = downstream_of(nid, children)
+        free = free_downstream(nid, children, nodes)
+        gated = all_down - free
+        free_set = {nid} | free
+        free_settings = _union(attrs, free_set, "settings")
+        free_scen = _union(attrs, free_set, "scenarios")
+        gated_settings = _union(attrs, gated, "settings") - free_settings
+        gated_scen = _union(attrs, gated, "scenarios") - free_scen
+        own_dep, own_todo = split(attrs[nid]["settings"])
+        free_dep, free_todo = split(free_settings)
+        gated_dep, gated_todo = split(gated_settings)
+        ext_free = sorted(o for o in free if nodes[o]["kind"] == "extension")
+        ext_gated = sorted(o for o in gated if nodes[o]["kind"] == "extension")
+        row = {
+            "direct_dep_settings": len(own_dep),
+            "direct_todo_settings": len(own_todo),
+            "direct_scenarios": len(attrs[nid]["scenarios"]),
+            "free_dep_settings": len(free_dep),
+            "free_todo_settings": len(free_todo),
+            "gated_dep_settings": len(gated_dep),
+            "gated_todo_settings": len(gated_todo),
+            "free_scenarios": len(free_scen),
+            "gated_scenarios": len(gated_scen),
+            "free_extensions": len(ext_free),
+            "gated_extensions": len(ext_gated),
+            "free_extension_ids": ext_free,
+            "gated_extension_ids": ext_gated,
+            "down_ids": sorted(all_down),
             "direct_dependents": sorted(children.get(nid, [])),
         }
-        rows[nid]["score"] = (rows[nid]["down_settings"] + rows[nid]["down_scenarios"]
-                              + SCORE_EXTENSION_WEIGHT * rows[nid]["down_extensions"])
+        row["score"] = (row["free_dep_settings"] + row["free_scenarios"]
+                        + SCORE_EXTENSION_WEIGHT * row["free_extensions"])
+        rows[nid] = row
     return rows
 
 
@@ -422,7 +474,7 @@ def is_rankable(node, nodes):
 def ranked(model, counts):
     nodes = model["nodes"]
     items = [nid for nid, n in nodes.items() if is_rankable(n, nodes)]
-    return sorted(items, key=lambda nid: (-counts[nid]["score"], -counts[nid]["down_settings"], nid))
+    return sorted(items, key=lambda nid: (-counts[nid]["score"], -counts[nid]["free_dep_settings"], nid))
 
 
 def unlocked_by_in_progress(model):
@@ -446,7 +498,9 @@ def mermaid_id(nid):
 
 
 def mermaid_label(text):
-    return text.replace('"', "'").replace("#", "no.")
+    for bad, good in (('"', "'"), ("#", "no."), ("[", "("), ("]", ")"), ("{", "("), ("}", ")")):
+        text = text.replace(bad, good)
+    return text
 
 
 def render_graph(model):
@@ -488,14 +542,16 @@ def effort_text(node):
     return node["effort"] + (" (guess)" if node["effort_source"] == "guess" else " (source)")
 
 
+def pair(a, b):
+    return "%d (+%d)" % (a, b)
+
+
 def render(model, att, counts, rank_order):
     nodes = model["nodes"]
     settings = model["settings"]
     status_counts = collections.Counter(s["status"] for s in settings)
     scen = collections.Counter(r["bucket"] for r in model["scenarios"])
     todo_attr = len(set(att["setting_owner"]) & {s["key"] for s in settings if s["status"] == "todo"})
-    blocked_total = status_counts["blocked"]
-    exthost_total = status_counts["exthost"]
     out = []
     out.append("# Dependency tree")
     out.append("")
@@ -505,43 +561,51 @@ def render(model, att, counts, rank_order):
     out.append("What depends on what in rscode, and how much each open feature would unblock. Built from "
                "`docs/dependencies.toml` (the nodes and edges, by hand) and these counted sources: "
                "`upstream/settings.toml` and the settings export through `scripts/settings-port` "
-               "(so the totals match `settings-port report`), `tests/e2e-scenarios/*.md`, and the phase "
-               "table in `docs/research/extensions-compat.md` section 4.")
+               "(the same policy, so the totals match `settings-port report`), `tests/e2e-scenarios/*.md`, "
+               "`DECISIONS.md` (ADR citations), `upstream/ports.toml`, and the phase table in "
+               "`docs/research/extensions-compat.md` section 4.")
     out.append("")
     out.append("## How to read the counts")
     out.append("")
-    out.append("- **Status.** `done`, `in-progress` (owned by a sibling worktree or the extension host), "
-               "`todo`, `blocked-external` (needs a user action, a product decision or an environment).")
-    out.append("- **Direct.** Settings and scenarios this node is named for: blocked settings whose reason is "
-               "mapped to it, exthost settings of the built-in extensions it owns, todo settings matched by its "
-               "`todo_globs` (inferred by key prefix), and smoke scenarios that name it as a blocker.")
-    out.append("- **Downstream.** The same counts summed over every node that transitively needs this one, "
-               "each item counted once. This is what the subtree would unblock if everything in it were built. "
-               "It is not what finishing this node alone would unblock: a dependent may still need other nodes.")
-    out.append("- **Scenarios.** A scenario with several blockers counts under each of them. Ready rows never count.")
-    out.append("- **Score.** Downstream settings + downstream scenarios + %d x downstream extensions. It sorts the "
-               "ranking only; the columns are the real counts." % SCORE_EXTENSION_WEIGHT)
+    out.append("- **Status.** `done`; `in-progress` (owned by a sibling worktree or the extension host); "
+               "`todo`; `blocked-external` (needs a user action, a product decision or an environment). "
+               "A node marked `deferred` is a user priority decision (ROADMAP) and is also a gate.")
+    out.append("- **Direct.** What the node is named for: blocked settings whose reason it owns, exthost settings "
+               "of the built-in extensions it owns, todo settings matched by its `todo_globs` (by key prefix, "
+               "inferred), and smoke scenarios that name it as a blocker.")
+    out.append("- **Free downstream.** Nodes that this node unblocks: every direct need is done, is this node, or is "
+               "itself free. A node that also waits on a gate or on other unbuilt work is not free.")
+    out.append("- **(+N) not yet unblocked.** Downstream items that stay blocked after this node. They wait on a "
+               "gate (`blocked-external` or `deferred`) or on other unbuilt work. Gate numbers show what a user "
+               "decision would unlock.")
+    out.append("- **Dep vs todo settings.** `dep` = blocked and exthost settings: a real dependency recorded in "
+               "settings.toml. `todo` = backlog settings matched by a prefix glob. They are shown but not scored.")
+    out.append("- **Scenarios.** A smoke scenario with several blockers counts under each. Ready rows never count.")
+    out.append("- **Score.** Free dep settings + free scenarios + %d x free extensions. It only sorts the ranking. "
+               "Todo settings do not count toward it." % SCORE_EXTENSION_WEIGHT)
     out.append("- **Ranking.** A node is rankable when its status is `todo`, it is not `deferred`, and every "
-               "node it needs is `done`. Nodes with an in-progress need are listed separately.")
-    out.append("- **Effort.** `(source)` is copied from docs/research/extensions-compat.md section 4 (checked by "
-               "the tests). `(guess)` is an estimate by the author of the TOML, not from a source.")
+               "node it needs is `done`. Nodes waiting on an in-progress node are listed separately.")
+    out.append("- **Effort.** `(source)` is copied from docs/research/extensions-compat.md section 4 (the tests "
+               "check it). `(guess)` is the author's estimate, not from a source.")
     out.append("")
     out.append("## Totals from the files")
     out.append("")
     out.append(md_table(["source", "count", "attributed to a node"], [
         ("settings: wired", status_counts["wired"], "n/a (done)"),
-        ("settings: blocked", blocked_total,
-         "%d of %d (by reason)" % (blocked_total - len(att["unattributed"]["blocked"]), blocked_total)),
-        ("settings: exthost", exthost_total,
-         "%d of %d (by built-in extension)" % (exthost_total - len(att["unattributed"]["exthost"]), exthost_total)),
+        ("settings: blocked", status_counts["blocked"],
+         "%d of %d (by reason)" % (status_counts["blocked"] - len(att["unattributed"]["blocked"]),
+                                   status_counts["blocked"])),
+        ("settings: exthost", status_counts["exthost"],
+         "%d of %d (by built-in extension)" % (status_counts["exthost"] - len(att["unattributed"]["exthost"]),
+                                               status_counts["exthost"])),
         ("settings: todo", status_counts["todo"],
          "%d of %d matched by a node's todo_globs" % (todo_attr, status_counts["todo"])),
         ("settings: n/a", status_counts["n/a"], "not dependency-blocked (policy: product, Windows, deprecated)"),
         ("smoke scenarios: ready", scen["ready"], "not blocked"),
         ("smoke scenarios: pending", scen["pending"], "not attributed (free-text notes)"),
         ("smoke scenarios: blocked", scen["blocked"],
-         "%d of %d name a feature that has a node; %d names no feature (a settings-rule check)"
-         % (att["attributed_rows"], scen["blocked"], len(att["unnamed_rows"]))),
+         "%d name a feature that has a node; %d names no feature (a settings-rule check)"
+         % (att["attributed_rows"], len(att["unnamed_rows"]))),
         ("unit-test rows in scenario files", scen["unit"], "not smoke scenarios; not counted"),
         ("ADR headings in DECISIONS.md", len(model["adrs"]),
          "every ADR cited by a node exists (latest ADR-%s)" % max(model["adrs"])),
@@ -550,7 +614,7 @@ def render(model, att, counts, rank_order):
              "%s %d" % (k, v) for k, v in sorted(model["ports"]["by_status"].items()))),
     ]))
     out.append("")
-    out.append("Settings total: %d. Scenario rows total: %d."
+    out.append("Settings in the export: %d. Scenario rows: %d."
                % (len(settings), len(model["scenarios"])))
     out.append("")
     out.append("## Graph")
@@ -570,25 +634,29 @@ def render(model, att, counts, rank_order):
             node = nodes[nid]
             c = counts[nid]
             rows.append((rank, nid, node["title"], effort_text(node),
-                         "%d / %d" % (c["direct_settings"], c["down_settings"]),
-                         "%d / %d" % (c["direct_scenarios"], c["down_scenarios"]),
-                         c["down_extensions"],
+                         pair(c["free_dep_settings"], c["gated_dep_settings"]),
+                         pair(c["free_todo_settings"], c["gated_todo_settings"]),
+                         pair(c["free_scenarios"], c["gated_scenarios"]),
+                         pair(c["free_extensions"], c["gated_extensions"]),
                          ", ".join(c["direct_dependents"]) or "-"))
-        out.append(md_table(["#", "node", "title", "effort", "settings direct / downstream",
-                             "scenarios direct / downstream", "extensions downstream", "directly needed by"],
-                            rows))
+        out.append(md_table(["#", "node", "title", "effort", "dep settings unblocked (+not yet)",
+                             "todo settings unblocked (+not yet)", "scenarios unblocked (+not yet)",
+                             "extensions unblocked (+not yet)", "directly needed by"], rows))
         out.append("")
-        out.append("Showing the top %d of %d rankable nodes. The full list is the table below." % (
-            min(RANK_LIMIT, len(rank_order)), len(rank_order)))
+        out.append("Top %d of %d rankable nodes (score = unblocked dep settings + scenarios + %d x extensions). "
+                   "Full list: the every-node table below." % (
+                       min(RANK_LIMIT, len(rank_order)), len(rank_order), SCORE_EXTENSION_WEIGHT))
     out.append("")
-    out.append("### Unlocked by in-progress work")
+    out.append("### Waiting on in-progress work")
     out.append("")
     waiting = unlocked_by_in_progress(model)
     if waiting:
-        out.append(md_table(["node", "title", "waiting on (in progress)", "downstream settings", "downstream scenarios"],
+        out.append(md_table(["node", "title", "waiting on (in progress)", "free dep settings",
+                             "free scenarios"],
                             [(nid, nodes[nid]["title"],
                               ", ".join(d for d in nodes[nid]["needs"] if nodes[d]["status"] == "in-progress"),
-                              counts[nid]["down_settings"], counts[nid]["down_scenarios"]) for nid in waiting]))
+                              counts[nid]["free_dep_settings"], counts[nid]["free_scenarios"])
+                             for nid in waiting]))
     else:
         out.append("None.")
     out.append("")
@@ -600,18 +668,24 @@ def render(model, att, counts, rank_order):
         c = counts[nid]
         rows.append((nid, node["title"], node["status"] + (" (deferred)" if node["deferred"] else ""),
                      node["kind"], effort_text(node), ", ".join(node["needs"]) or "-",
-                     c["direct_settings"], c["down_settings"], c["direct_scenarios"], c["down_scenarios"],
-                     c["down_extensions"]))
-    out.append(md_table(["id", "title", "status", "kind", "effort", "needs", "settings direct",
-                         "settings downstream", "scenarios direct", "scenarios downstream",
-                         "extensions downstream"], rows))
+                     pair(c["direct_dep_settings"], c["direct_todo_settings"]),
+                     pair(c["free_dep_settings"], c["free_todo_settings"]),
+                     pair(c["gated_dep_settings"], c["gated_todo_settings"]),
+                     c["direct_scenarios"], pair(c["free_scenarios"], c["gated_scenarios"]),
+                     pair(c["free_extensions"], c["gated_extensions"])))
+    out.append(md_table(["id", "title", "status", "kind", "effort", "needs",
+                         "direct settings dep (todo)", "unblocked settings dep (todo)",
+                         "not yet unblocked dep (todo)", "direct scenarios",
+                         "unblocked (+not yet) scenarios", "unblocked (+not yet) extensions"], rows))
     out.append("")
     out.append("## External blockers")
     out.append("")
     external = [nid for nid in sorted(nodes) if nodes[nid]["status"] == "blocked-external"]
     for nid in external:
-        out.append("- **%s**: %s Unblocks %d settings and %d scenarios downstream." % (
-            nid, nodes[nid]["external"], counts[nid]["down_settings"], counts[nid]["down_scenarios"]))
+        c = counts[nid]
+        out.append("- **%s**: %s Through its dependents it holds back: %d dep settings, %d todo settings, %d scenarios." % (
+            nid, nodes[nid]["external"], c["free_dep_settings"] + c["gated_dep_settings"],
+            c["free_todo_settings"] + c["gated_todo_settings"], c["free_scenarios"] + c["gated_scenarios"]))
     out.append("")
     out.append("## Checks and data notes")
     out.append("")
@@ -620,23 +694,27 @@ def render(model, att, counts, rank_order):
     orphans = [nid for nid in sorted(nodes)
                if nodes[nid]["status"] != "done" and not nodes[nid]["needs"]
                and not counts[nid]["direct_dependents"]
-               and not counts[nid]["direct_settings"] and not counts[nid]["direct_scenarios"]]
+               and not counts[nid]["direct_dep_settings"] and not counts[nid]["direct_todo_settings"]
+               and not counts[nid]["direct_scenarios"]]
     done_leaves = [nid for nid in sorted(nodes)
                    if nodes[nid]["status"] == "done" and not counts[nid]["direct_dependents"]]
     out.append("- Orphan nodes (not done, no edges, nothing attributed): %s." % (", ".join(orphans) or "none"))
     out.append("- Done nodes that nothing depends on yet (foundations, listed for completeness): %s."
                % (", ".join(done_leaves) or "none"))
-    out.append("- Blocked settings with no node: %d. Exthost settings with no node: %d. Smoke blocker rows with no node: %d."
+    out.append("- Blocked settings with no node: %d. Exthost settings with no node: %d. Blocked smoke rows that name "
+               "a feature with no node: %d."
                % (len(att["unattributed"]["blocked"]), len(att["unattributed"]["exthost"]),
                   len(att["unattributed_rows"])))
-    out.append("- Todo settings matched by no node's `todo_globs`: %d. These have no dependency in the sources; they "
-               "are plain backlog (for example the accessibility signal and verbosity settings, the editor "
-               "unicode highlight settings and the testing settings)." % (status_counts["todo"] - todo_attr))
+    out.append("- Todo settings matched by no node's `todo_globs`: %d. The sources give them no dependency; they are "
+               "plain backlog (for example the accessibility signal and verbosity settings, the editor unicode "
+               "highlight settings and the testing settings)." % (status_counts["todo"] - todo_attr))
     out.append("- DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is \"needs sash "
                "grippers (the drawn handle in the middle of a sash)\" has a second `comment` and `match` pair "
                "after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show "
                "settings (29) therefore land on the sash reason. They need document symbols. The graph maps "
                "that reason to `document-symbols` with a note.")
+    out.append("- Known gap in `scripts/progress-report`: it reads only the first status table of each scenario "
+               "file. `search.md` has a second table (rows 8-11), so its scenario total is 170, not 174.")
     out.append("")
     return "\n".join(out) + "\n"
 

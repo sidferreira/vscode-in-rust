@@ -30,6 +30,11 @@
 # Counting rules are in docs/dependency-tree.md (header). Node statuses reflect the repo at
 # 2026-11-10 (HEAD d9d4c66). Sibling agents own ext-host-p1, editor-scrollbar,
 # overview-ruler-glyph-margin and sash-grippers (in-progress).
+#
+# MERGE NOTE: when those sibling branches land they delete their `blocked` [[rule]]s from
+# settings.toml. scripts/dependency-tree then errors ("reason is not a blocked reason") until the
+# matching node is changed: set status = "done", drop its `reasons` (and, for the extension host,
+# keep its needs). Budget for that in the merge recipe.
 
 # ---------------------------------------------------------------------------------------------
 # Done: foundations other nodes build on (ADR numbers in the title)
@@ -620,9 +625,9 @@ id = "webview-service"
 title = "Webview service (embedded web view, wry or WKWebView)"
 status = "todo"
 effort = "XL"
-effort_source = "extensions-compat §4 (P6)"
+effort_source = "guess"
 needs = ["cargo-proxy-token"]
-note = "Inferred: the webview needs a new crate, which is blocked by the cargo token (HANDOFF item 1). Effort from extensions-compat §4 P6 ('blocked on webview service')."
+note = "INFERRED edge: the webview needs a new crate (wry or WKWebView), which is blocked by the cargo token (HANDOFF item 1). Confirm before trusting the ~199 settings behind it. extensions-compat §4 says P6 (Claude Code) is blocked on the webview service; its XL is Claude Code's effort, not this node's."
 
 [[node]]
 id = "browser-view"

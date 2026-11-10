@@ -140,6 +140,46 @@ class ParserTest(unittest.TestCase):
         self.assertEqual([(t["title"], t["looped"], t["dynamic"]) for t in tests], [
             (None, True, True), (None, True, True), ("plain", False, False)])
 
+    def test_title_table_rows_are_the_titles_of_a_loop(self):
+        # cursor.test.ts: a table of [name, ...] rows, then `for (const [name, ...] of table) test(name)`.
+        src = textwrap.dedent("""
+            suite('Cursor', () => {
+                const moveLeftCases: [name: string, line: number, expected: Position][] = [
+                    ['move left', 1, new Position(1, 2)],
+                    ['move left with surrogate pair', 3, new Position(3, 15)],
+                    ['issue #17011: a \\'quoted\\' title', 1, new Position(1, 8)],
+                ];
+                for (const [name, line, expected] of moveLeftCases) {
+                    test(name, () => {});
+                }
+                const other = [[1, 2]];
+                for (const [name] of other) {
+                    test(name, () => {});
+                }
+                test('plain', () => {});
+            });
+        """)
+        _, tests = tp.parse_ts(src)
+        self.assertEqual(titles(tests), [
+            (("Cursor",), "move left", False, False, True),
+            (("Cursor",), "move left with surrogate pair", False, False, True),
+            (("Cursor",), "issue #17011: a 'quoted' title", False, False, True),
+            (("Cursor",), None, True, False, True),  # a table that is not a list of titles stays dynamic
+            (("Cursor",), "plain", False, False, False),
+        ])
+
+    def test_title_table_is_read_from_the_loop_variable_only(self):
+        src = textwrap.dedent("""
+            suite('S', () => {
+                const cases = [['a', 1]];
+                for (const x of [1, 2]) {
+                    test(x, () => {});
+                }
+            });
+        """)
+        _, tests = tp.parse_ts(src)
+        self.assertEqual(titles(tests), [(("S",), None, True, False, True)])
+
     def test_function_declaration_named_test_is_not_a_call(self):
         _, tests = tp.parse_ts("function test(a) { return a; }\nfunction suite(b) {}\n")
         self.assertEqual(tests, [])

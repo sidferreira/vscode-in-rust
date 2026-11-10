@@ -98,6 +98,8 @@ impl Editor {
         }
         self.selection = step.before;
         self.leftover = 0;
+        self.auto_closed.clear();
+        self.trim_lines.clear();
         self.history.version = step.before_version;
         self.history.future.push(step);
         true
@@ -113,6 +115,8 @@ impl Editor {
         }
         self.selection = step.after;
         self.leftover = 0;
+        self.auto_closed.clear();
+        self.trim_lines.clear();
         self.history.version = step.after_version;
         self.history.past.push(step);
         true

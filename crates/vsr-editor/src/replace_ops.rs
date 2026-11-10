@@ -43,6 +43,7 @@ impl Editor {
         let active = self.buffer.validate_position(selection.active);
         self.selection = Selection { anchor, active };
         self.leftover = 0;
+        self.prune_auto_closed();
     }
 
     /// Replaces each `(range, text)` in one undo step. Ranges must not overlap; they may be given

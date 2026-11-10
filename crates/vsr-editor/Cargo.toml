@@ -8,4 +8,5 @@ publish.workspace = true
 
 [dependencies]
 vsr-text.workspace = true
+vsr-languages.workspace = true
 regex = "1"

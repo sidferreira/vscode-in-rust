@@ -57,6 +57,7 @@ impl Editor {
             self.selection = Selection::caret(p);
         }
         self.leftover = leftover;
+        self.prune_auto_closed();
     }
 
     /// Mouse click (`extend` = shift-click): place the caret or extend to `p`.

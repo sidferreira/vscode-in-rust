@@ -75,6 +75,29 @@ pub struct Run(pub Command);
 pub fn init(cx: &mut App) {
     cx.bind_keys(BINDINGS.iter().map(|&(keys, cmd)| KeyBinding::new(keys, Run(cmd), Some(KEY_CONTEXT))));
     find::bind(cx); // Find widget keys (ADR-0027)
+    // Keys that only apply while the suggest widget shows (ADR-0083). Bound after the plain ones:
+    // among bindings that match, the later one wins.
+    cx.bind_keys([KeyBinding::new("escape", Run(Command::HideSuggest), Some("Editor && suggestWidgetVisible"))]);
+}
+
+/// What happened in the active editor, for features that follow the cursor (completion suggestions,
+/// ADR-0083). Upstream tells them apart by the cursor change reason and source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EditorEvent {
+    /// Text was typed with the keyboard (Enter and Tab type `\n` and `\t`).
+    Typed(String),
+    /// Backspace.
+    DeleteLeft,
+    /// The caret moved with the keyboard and nothing is selected.
+    Moved,
+    /// The text changed without typing (the platform replaced a range, such as an accent picked from
+    /// the press-and-hold menu).
+    Edited,
+    /// An input method composition ended.
+    CompositionEnd,
+    /// Anything else that moves the caret or changes the text (a click, a selection, delete forward,
+    /// paste, undo, a tab switch).
+    Other,
 }
 
 /// What the view needs from its owner: the documents and the view state.
@@ -87,6 +110,16 @@ pub trait EditorHost: Sized + 'static {
 
     /// Save on an untitled text: the owner asks for its file name (Save As, ADR-0058).
     fn save_untitled_requested(&mut self, window: &mut Window, cx: &mut Context<Self>);
+
+    /// A command is about to run. Return true when the owner handled it (the suggest widget takes
+    /// the arrow keys and Enter while it shows, Ctrl+Space asks for completions). The default
+    /// leaves every command to the view.
+    fn editor_command(&mut self, _cmd: Command, _window: &mut Window, _cx: &mut Context<Self>) -> bool {
+        false
+    }
+
+    /// Something happened in the active editor (see [`EditorEvent`]). The default ignores it.
+    fn editor_event(&mut self, _event: EditorEvent, _window: &mut Window, _cx: &mut Context<Self>) {}
 }
 
 #[derive(Default)]
@@ -128,6 +161,9 @@ pub struct EditorView {
     pub save_conflict: Option<PathBuf>,
     /// The advance of one character as shaped at the last paint (0 until measured).
     measured_char_w: Rc<Cell<f32>>,
+    /// The suggest widget shows: the editor's key context gains `suggestWidgetVisible` (ADR-0083),
+    /// set by the workbench before each build.
+    pub suggest_visible: bool,
     /// What extensions decorate and flag in the active document (ADR-0067), set by the workbench.
     pub ext_paint: Option<Rc<crate::extensions::paint::PathPaint>>,
     /// Tests: the viewport width in columns, instead of measuring the painted size.
@@ -378,6 +414,7 @@ impl EditorView {
             &overview_ruler::Lane::default(),
         );
         let bounds_cell = self.bounds.clone();
+        let suggest_visible = self.suggest_visible;
         let input_focus = focus.clone();
         let entity = cx.entity();
         let input_surface = canvas(
@@ -409,7 +446,10 @@ impl EditorView {
 
         let surface = div()
             .id("editor-surface")
-            .key_context(KeyContext::parse(KEY_CONTEXT).unwrap_or_default())
+            .key_context(
+                KeyContext::parse(if suggest_visible { "Editor suggestWidgetVisible" } else { KEY_CONTEXT })
+                    .unwrap_or_default(),
+            )
             .track_focus(&focus)
             .relative()
             .flex_1()
@@ -470,6 +510,9 @@ impl EditorView {
 // ---- commands ------------------------------------------------------------------------------
 
 fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, cx: &mut Context<T>) {
+    if this.editor_command(cmd, window, cx) {
+        return;
+    }
     if matches!(cmd, Command::Save) && this.editor_host().0.active_editor().is_some_and(|e| e.is_untitled()) {
         this.save_untitled_requested(window, cx);
         return;
@@ -557,7 +600,32 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
             view.after_change(e, keymap::is_edit(cmd), false, window);
         }
     }
+    if let Some(event) = command_event(this, cmd) {
+        this.editor_event(event, window, cx);
+    }
     cx.notify();
+}
+
+/// The event a command that ran stands for. Commands that leave the caret and the text alone
+/// (Copy, Save, folding, ...) have none.
+fn command_event<T: EditorHost>(this: &mut T, cmd: Command) -> Option<EditorEvent> {
+    match cmd {
+        Command::Copy
+        | Command::Save
+        | Command::CloseTab
+        | Command::ToggleWordWrap
+        | Command::Fold(_)
+        | Command::TriggerSuggest
+        | Command::HideSuggest => None,
+        Command::Backspace => Some(EditorEvent::DeleteLeft),
+        Command::Enter => Some(EditorEvent::Typed("\n".into())),
+        Command::Tab => Some(EditorEvent::Typed("\t".into())),
+        Command::Move(..) => {
+            let selected = this.editor_host().0.active_editor().is_some_and(|e| !e.editor.selection().is_empty());
+            Some(if selected { EditorEvent::Other } else { EditorEvent::Moved })
+        }
+        _ => Some(EditorEvent::Other),
+    }
 }
 
 // ---- mouse ---------------------------------------------------------------------------------
@@ -660,6 +728,7 @@ fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Win
     view.dragging = true;
     view.marked = None;
     view.after_change(e, false, true, window);
+    this.editor_event(EditorEvent::Other, window, cx);
     cx.notify();
 }
 
@@ -747,11 +816,12 @@ impl<T: EditorHost> EditorInput<T> {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let changed = self.with(cx, |e, view| {
+        let event = self.with(cx, |e, view| {
             if e.is_read_only() {
-                return;
+                return None;
             }
             let plain_key = range.is_none() && view.marked.is_none() && !mark;
+            let was_marked = view.marked.is_some();
             let buf = e.buffer();
             let range = range
                 .or_else(|| view.marked.clone())
@@ -776,9 +846,24 @@ impl<T: EditorHost> EditorInput<T> {
                 e.editor.set_cursor(z, true);
             }
             view.after_change(e, true, false, window);
+            // While composing nothing follows the text; the end of the composition does.
+            Some(if plain_key {
+                Some(EditorEvent::Typed(text.to_string()))
+            } else if mark {
+                None
+            } else if was_marked {
+                Some(EditorEvent::CompositionEnd)
+            } else {
+                Some(EditorEvent::Edited)
+            })
         });
-        if changed.is_some() {
-            self.view.update(cx, |_, cx| cx.notify());
+        if let Some(event) = event {
+            self.view.update(cx, |this, cx| {
+                if let Some(event) = event.flatten() {
+                    this.editor_event(event, window, cx);
+                }
+                cx.notify();
+            });
         }
     }
 }
@@ -847,8 +932,11 @@ impl<T: EditorHost> InputHandler for EditorInput<T> {
         self.replace(range_utf16, new_text, true, new_selected_range, window, cx);
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, cx: &mut App) {
-        self.with(cx, |_, view| view.marked = None);
+    fn unmark_text(&mut self, window: &mut Window, cx: &mut App) {
+        let was_marked = self.with(cx, |_, view| view.marked.take().is_some());
+        if was_marked == Some(true) {
+            self.view.update(cx, |this, cx| this.editor_event(EditorEvent::CompositionEnd, window, cx));
+        }
     }
 
     fn bounds_for_range(

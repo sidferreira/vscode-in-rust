@@ -339,6 +339,8 @@ fn editor_command(cmd: Command) -> (&'static str, &'static str, bool) {
         LineComment(vsr_editor::comments::CommentType::ForceAdd) => ("editor.action.addCommentLine", "Add Line Comment", true),
         LineComment(vsr_editor::comments::CommentType::ForceRemove) => ("editor.action.removeCommentLine", "Remove Line Comment", true),
         BlockComment => ("editor.action.blockComment", "Toggle Block Comment", true),
+        TriggerSuggest => ("editor.action.triggerSuggest", "Trigger Suggest", true),
+        HideSuggest => ("hideSuggestWidget", "Close Suggest Widget", false),
     }
 }
 

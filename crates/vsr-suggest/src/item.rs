@@ -15,6 +15,7 @@ pub mod kind {
     pub const PROPERTY: u32 = 9;
     pub const OPERATOR: u32 = 11;
     pub const KEYWORD: u32 = 17;
+    pub const TEXT: u32 = 18;
     pub const SNIPPET: u32 = 27;
 }
 
@@ -85,6 +86,10 @@ pub struct SuggestItem {
     pub distance: i64,
     pub idx: usize,
     pub word: Option<String>,
+
+    /// The provider's item as the host sent it (insert text, edits, commit characters, ...), for
+    /// the widget (ADR-0084). `None` for items the app makes itself (word based suggestions).
+    pub source: Option<Box<vsr_exthost::language_features::dto::CompletionItem>>,
 }
 
 impl SuggestItem {
@@ -165,6 +170,7 @@ impl SuggestItem {
             distance: 0,
             idx: 0,
             word: None,
+            source: None,
         }
     }
 }

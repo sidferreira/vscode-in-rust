@@ -102,18 +102,49 @@ pub fn from_dto(
             replace: span(replace),
         },
     };
-    SuggestItem::new(
+    let mut suggest = SuggestItem::new(
         position,
         Completion {
             label: item.label.clone(),
             kind: item.kind.unwrap_or(kind::PROPERTY),
             filter_text: item.filter_text.clone(),
-            sort_text: item.sort_text.clone(),
+            // `provideSuggestionItems` fills in a missing sort text with the label.
+            sort_text: Some(
+                item.sort_text
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(&item.label)
+                    .to_string(),
+            ),
             range,
         },
         provider,
         incomplete,
-    )
+    );
+    suggest.source = Some(Box::new(item.clone()));
+    suggest
+}
+
+/// The inverse of [`list_to_chars`]: converts the columns of a list from `char`s to UTF-16, reading
+/// the lines from `text` (the text the request was made against). The editor counts UTF-16 units.
+pub fn list_to_utf16(list: &mut CompletionList, text: &str) {
+    let convert = |r: Range| Range {
+        start_column: char_to_utf16_column(line_text(text, r.start_line), r.start_column),
+        end_column: char_to_utf16_column(line_text(text, r.end_line), r.end_column),
+        ..r
+    };
+    for item in &mut list.items {
+        item.range = match &item.range {
+            CompletionRange::Single(r) => CompletionRange::Single(convert(*r)),
+            CompletionRange::InsertReplace { insert, replace } => CompletionRange::InsertReplace {
+                insert: convert(*insert),
+                replace: convert(*replace),
+            },
+        };
+        for edit in &mut item.additional_text_edits {
+            edit.range = convert(edit.range);
+        }
+    }
 }
 
 #[cfg(test)]

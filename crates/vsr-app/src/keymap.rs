@@ -55,6 +55,10 @@ pub enum Command {
     LineComment(CommentType),
     /// Shift+Alt+A (`editor.action.blockComment`).
     BlockComment,
+    /// Ctrl+Space (`editor.action.triggerSuggest`): ask for completions.
+    TriggerSuggest,
+    /// Escape while the suggest widget shows (`hideSuggestWidget`).
+    HideSuggest,
 }
 
 use Command::*;
@@ -110,6 +114,7 @@ pub const BINDINGS: &[(&str, Command)] = &[
     ("cmd-k cmd-c", LineComment(CommentType::ForceAdd)),
     ("cmd-k cmd-u", LineComment(CommentType::ForceRemove)),
     ("shift-alt-a", BlockComment),
+    ("ctrl-space", TriggerSuggest),
     // Folding (folding.ts): macOS keys.
     ("alt-cmd-[", Fold(FoldAction::Fold)),
     ("alt-cmd-]", Fold(FoldAction::Unfold)),
@@ -188,7 +193,9 @@ pub fn apply(editor: &mut Editor, cmd: Command, page: usize) -> bool {
         Fold(action) => {
             editor.fold_action(action);
         }
-        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment => return false,
+        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest => {
+            return false;
+        }
     }
     true
 }

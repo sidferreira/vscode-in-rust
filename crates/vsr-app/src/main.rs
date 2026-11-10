@@ -171,6 +171,14 @@ impl EditorHost for Workbench {
             self.ask_save_untitled(i, window, cx);
         }
     }
+
+    fn editor_command(&mut self, cmd: keymap::Command, _window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.suggest_command(cmd, cx)
+    }
+
+    fn editor_event(&mut self, event: editor_view::EditorEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.suggest_editor_event(event, cx);
+    }
 }
 
 struct Workbench {
@@ -1331,6 +1339,7 @@ impl Render for Workbench {
         self.session_render_hook(window, cx);
         self.ext_render_hook(window, cx);
         self.outline_sync();
+        self.suggest_sync(cx);
         // The OS window title and the dirty dot (macOS shows it in the close button).
         let title = self.window_title(cx);
         let dirty = self.editors.active_editor().is_some_and(|e| e.is_dirty()) && self.editor_surface_active();

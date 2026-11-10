@@ -7,7 +7,7 @@
 //!
 //! Differences from VS Code: the preview applies at once (upstream waits 200 ms), no marketplace
 //! entries or inline buttons, and the pinned themes at the top of each group are rscode's
-//! defaults (Dark Modern, Light Modern).
+//! defaults (Dark 2026, Light Modern).
 
 use gpui_kit::*;
 use serde_json::Value;

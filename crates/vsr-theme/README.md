@@ -38,7 +38,7 @@ fontStyle }`) and `theme.semantic_token_rules()` are for the highlighter.
 
 ## Differences from VS Code
 
-- Default theme is Dark Modern (upstream 1.147: Dark 2026); preferred defaults follow (ADR-0037).
+- Default dark theme is Dark 2026, as upstream 1.147 (ADR-0049); preferred defaults follow (ADR-0037).
 - tmTheme (plist) token colour files are not supported (all bundled themes are JSON).
 - `Color.fromHex` falls back to red for a malformed colour, as upstream; the app's `hex()` for
   user-typed colours is strict and returns `None`.

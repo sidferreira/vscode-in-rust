@@ -97,7 +97,7 @@ impl ThemeSettings {
     }
 
     /// The bundled theme to load: the named one, or (when it is unknown or not installed) the
-    /// default of the scheme the system asks for, Dark Modern when not following the system.
+    /// default of the scheme the system asks for, Dark 2026 when not following the system.
     pub fn resolve<'a>(&self, catalog: &'a ThemeCatalog, host: HostColorScheme) -> Option<&'a ThemeContribution> {
         let id = self.theme_settings_id(host);
         let fallback = match self.preferred_color_scheme(host) {

@@ -1634,3 +1634,22 @@ missing feature, so the policy has to say what each one waits for.
   `auto_reveal_exclude_skips_matching_paths_live`, `sash_size_sets_the_drag_area_live`) and the
   `LayoutSettings` clamp test. The sash test reads the drag area's laid-out width through a debug
   selector.
+
+## ADR-0049 — The default dark theme is Dark 2026, as upstream (2026-11-10)
+
+**Context.** ADR-0037 kept Dark Modern as rscode's default colour theme, because it was the colour set the
+app painted before the theme service existed. Upstream 1.147 defaults `workbench.colorTheme` to Dark 2026
+(`ThemeSettingDefaults.COLOR_THEME_DARK` in `workbenchThemeService.ts`). The theme file was already bundled
+(`2026-dark.json`, which `include`s Dark Modern and overrides its colours), so no porting was needed.
+
+**Decision.** `vsr_theme::DEFAULT_DARK` is `"Dark 2026"`. The colour mode fallbacks (`ThemeSettings::resolve`,
+`workbench.preferredDarkColorTheme`) follow it. `Theme::default_dark()` is the default without
+customisations; `Theme::dark_modern()` keeps meaning the bundled Dark Modern, for the legacy colour test.
+
+**Not changed.** The light default stays Light Modern (upstream: Light 2026), and so do the high contrast
+defaults (already upstream's). Switching the light default is a separate, user-visible decision; it is one
+constant (`DEFAULT_LIGHT`) when wanted.
+
+**Tests.** The default-theme golden test is `the_default_theme_is_dark_2026_with_the_colours_of_its_json`.
+Tests that check Dark Modern's token colours pin `workbench.colorTheme` to Dark Modern in their settings file
+instead of depending on the default.

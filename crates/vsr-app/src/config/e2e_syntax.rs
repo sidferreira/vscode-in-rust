@@ -18,6 +18,9 @@ use super::e2e::{open_file, set, workbench};
 use crate::Workbench;
 use crate::language_mode::ChangeLanguageMode;
 
+/// The colour theme these tests pin: the token colours below are Dark Modern's (the default is Dark 2026).
+const DARK_MODERN: &str = r#"{ "workbench.colorTheme": "Dark Modern" }"#;
+
 /// Light Modern (Light+) colours `fn` as a keyword.
 const LIGHT_MODERN_KEYWORD: Rgba = Rgba([0x00, 0x00, 0xff, 255]);
 
@@ -63,7 +66,7 @@ fn rows(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> Vec<String> {
 
 #[gpui_kit::test]
 fn a_rust_file_has_the_rust_language_and_keyword_colors(cx: &mut TestAppContext) {
-    let (wb, cx, f) = workbench(cx, "syntax-rust", None, &[("a.rs", "fn main() { let s = \"x\"; } // note\n")]);
+    let (wb, cx, f) = workbench(cx, "syntax-rust", Some(DARK_MODERN),  &[("a.rs", "fn main() { let s = \"x\"; } // note\n")]);
     open_file(&wb, cx, &f.dir.join("a.rs"));
     assert_eq!(language(&wb, cx), ("rust".to_string(), "Rust".to_string()));
     tokenized(&wb, cx);
@@ -76,7 +79,7 @@ fn a_rust_file_has_the_rust_language_and_keyword_colors(cx: &mut TestAppContext)
 
 #[gpui_kit::test]
 fn editing_retokenizes_and_the_colors_follow(cx: &mut TestAppContext) {
-    let (wb, cx, f) = workbench(cx, "syntax-edit", None, &[("a.rs", "x\n")]);
+    let (wb, cx, f) = workbench(cx, "syntax-edit", Some(DARK_MODERN),  &[("a.rs", "x\n")]);
     open_file(&wb, cx, &f.dir.join("a.rs"));
     tokenized(&wb, cx);
     assert_eq!(foreground_of(&wb, cx, 1, "let"), None);
@@ -90,7 +93,7 @@ fn editing_retokenizes_and_the_colors_follow(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn the_token_colors_follow_the_colour_theme_and_its_customizations(cx: &mut TestAppContext) {
     // `fn` is keyword.other.fn (not in the `keywords` group); `if` is keyword.control.
-    let (wb, cx, f) = workbench(cx, "syntax-theme", None, &[("a.rs", "fn main() { if true {} }\n")]);
+    let (wb, cx, f) = workbench(cx, "syntax-theme", Some(DARK_MODERN),  &[("a.rs", "fn main() { if true {} }\n")]);
     open_file(&wb, cx, &f.dir.join("a.rs"));
     tokenized(&wb, cx);
     assert_eq!(foreground_of(&wb, cx, 1, "fn"), Some(Rgba([0x56, 0x9c, 0xd6, 255])), "Dark Modern keyword");

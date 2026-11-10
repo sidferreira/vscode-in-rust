@@ -18,9 +18,10 @@
 use crate::registry::ColorScheme;
 use crate::theme::{ColorTheme, ThemeError, ThemeSource};
 
-/// `ThemeSettingDefaults`. rscode's defaults differ from upstream 1.147 (Dark 2026 / Light 2026):
-/// the default theme stays Dark Modern, as before there was a theme service (ADR-0037).
-pub const DEFAULT_DARK: &str = "Dark Modern";
+/// `ThemeSettingDefaults`. The dark default follows upstream 1.147 (Dark 2026, ADR-0049; it was
+/// Dark Modern under ADR-0037). The light default stays Light Modern: rscode's light default is
+/// not yet switched to upstream's Light 2026 (ADR-0049).
+pub const DEFAULT_DARK: &str = "Dark 2026";
 pub const DEFAULT_LIGHT: &str = "Light Modern";
 pub const DEFAULT_HC_DARK: &str = "Default High Contrast";
 pub const DEFAULT_HC_LIGHT: &str = "Default High Contrast Light";

@@ -133,7 +133,7 @@ impl ThemeService {
             preview: None,
             loaded: HashMap::new(),
             active: ColorTheme::empty("", "", "", ColorScheme::Dark),
-            theme: Theme::dark_modern(),
+            theme: Theme::default_dark(),
             error: None,
             generation: 0,
             _config_sub: sub,

@@ -66,14 +66,14 @@ fn active_id(cx: &mut VisualTestContext) -> String {
 }
 
 #[gpui_kit::test]
-fn the_default_theme_is_dark_modern_with_the_colours_of_its_json(cx: &mut TestAppContext) {
+fn the_default_theme_is_dark_2026_with_the_colours_of_its_json(cx: &mut TestAppContext) {
     let (wb, cx) = start(cx, "default");
     let t = theme(&wb, cx);
-    assert_eq!(active_id(cx), "Dark Modern");
+    assert_eq!(active_id(cx), "Dark 2026");
     for (field, key) in [(t.editor_bg, "editor.background"), (t.editor_fg, "editor.foreground"), (t.side_bar_bg, "sideBar.background"), (t.status_bar_bg, "statusBar.background"), (t.focus_border, "focusBorder")] {
-        assert_eq!(field, json_color("Dark Modern", key), "{key}");
+        assert_eq!(field, json_color("Dark 2026", key), "{key}");
     }
-    assert_eq!(t.editor_bg, hex("#1F1F1F").unwrap());
+    assert_eq!(t.editor_bg, hex("#121314").unwrap());
 }
 
 #[gpui_kit::test]
@@ -104,7 +104,7 @@ fn color_customizations_override_one_key_and_a_theme_block_wins(cx: &mut TestApp
     let t = theme(&wb, cx);
     assert_eq!(t.editor_bg, hex("#102030").unwrap());
     assert_eq!(t.editor_fg, base.editor_fg, "other colours are untouched");
-    set(cx, "workbench.colorCustomizations", json!({ "editor.background": "#102030", "[Dark Modern]": { "editor.background": "#405060" } }));
+    set(cx, "workbench.colorCustomizations", json!({ "editor.background": "#102030", "[Dark 2026]": { "editor.background": "#405060" } }));
     assert_eq!(theme(&wb, cx).editor_bg, hex("#405060").unwrap());
     set(cx, "workbench.colorCustomizations", json!({ "editor.background": "default" }));
     // "default" means the registry default of the theme type, not the theme's own colour
@@ -118,7 +118,7 @@ fn select_theme_previews_on_arrow_keys_and_escape_reverts(cx: &mut TestAppContex
     cx.simulate_keystrokes("cmd-k cmd-t");
     cx.run_until_parked();
     assert!(picker(&wb, cx).is_some(), "Cmd+K Cmd+T opens the theme picker");
-    assert_eq!(active_label(&wb, cx).as_deref(), Some("Dark Modern"), "the current theme is preselected");
+    assert_eq!(active_label(&wb, cx).as_deref(), Some("Dark 2026"), "the current theme is preselected");
     let rows: Vec<String> = picker(&wb, cx).unwrap().read_with(cx, |p, _| {
         p.list().rows().iter().map(|r| match r { PickRow::Separator(s) => format!("--{s}"), PickRow::Item(i) => i.label.clone() }).collect()
     });
@@ -128,7 +128,7 @@ fn select_theme_previews_on_arrow_keys_and_escape_reverts(cx: &mut TestAppContex
     cx.simulate_keystrokes("down");
     cx.run_until_parked();
     let label = active_label(&wb, cx).unwrap();
-    assert_ne!(label, "Dark Modern");
+    assert_ne!(label, "Dark 2026");
     let catalog = ThemeCatalog::builtin();
     let previewed = catalog.themes().iter().find(|t| t.label == label).unwrap();
     assert_eq!(active_id(cx), previewed.settings_id, "the theme under the cursor is showing");
@@ -145,7 +145,7 @@ fn select_theme_previews_on_arrow_keys_and_escape_reverts(cx: &mut TestAppContex
     cx.run_until_parked();
     assert!(picker(&wb, cx).is_none());
     assert_eq!(theme(&wb, cx), original, "Escape goes back to the configured theme");
-    assert_eq!(active_id(cx), "Dark Modern");
+    assert_eq!(active_id(cx), "Dark 2026");
 }
 
 #[gpui_kit::test]
@@ -153,7 +153,7 @@ fn select_theme_enter_saves_the_theme(cx: &mut TestAppContext) {
     let (wb, cx) = start(cx, "pick-enter");
     cx.simulate_keystrokes("cmd-k cmd-t");
     cx.run_until_parked();
-    // go to "Light Modern": a separator then the light group is on top, so walk up from Dark Modern
+    // go to "Light Modern": a separator then the light group is on top, so walk up from Dark 2026
     let mut guard = 0;
     while active_label(&wb, cx).as_deref() != Some("Light Modern") && guard < 20 {
         cx.simulate_keystrokes("up");

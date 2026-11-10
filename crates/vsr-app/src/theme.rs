@@ -172,12 +172,22 @@ theme_fields! {
 }
 
 impl Theme {
-    /// The default theme without customisations: what a fresh install shows. Code that has an
-    /// app context uses `ThemeService::theme(cx)` instead.
-    pub fn dark_modern() -> Self {
+    /// The bundled theme with the given settings id, without customisations.
+    fn bundled(id: &str) -> Self {
         let catalog = vsr_theme::ThemeCatalog::builtin();
-        let theme = catalog.find(vsr_theme::DEFAULT_DARK, None).and_then(|t| catalog.load(t).ok()).expect("the bundled default theme loads");
+        let theme = catalog.find(id, None).and_then(|t| catalog.load(t).ok()).expect("the bundled theme loads");
         Self::from_color_theme(&theme)
+    }
+
+    /// The default dark theme without customisations: what a fresh install shows (Dark 2026,
+    /// ADR-0049). Code that has an app context uses `ThemeService::theme(cx)` instead.
+    pub fn default_dark() -> Self {
+        Self::bundled(vsr_theme::DEFAULT_DARK)
+    }
+
+    /// The bundled "Dark Modern" theme, whatever the default is.
+    pub fn dark_modern() -> Self {
+        Self::bundled("Dark Modern")
     }
 }
 

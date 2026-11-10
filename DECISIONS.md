@@ -2711,7 +2711,9 @@ lives on the worker:
 - **Folders.** The workspace folder from `BootParams.workspace`. `includeFolder` (a RelativePattern's
   folder) searches that folder alone. Results are `file` URIs, sorted within each folder.
 - **Differences, stated.** Globs match the path relative to the folder, as the walker does; a bare
-  `*.ts` matches at the folder root only (upstream's query builder may prefix `**/`, not done). `ignoreGlobCase`
+  `*.ts` matches at the folder root only. This is upstream's behaviour too: the `**/` prefix comes from
+  `expandPatterns`, which the Search view sets and `$startFileSearch` and `$checkExists` do not. Do not
+  "fix" it here. `ignoreGlobCase`
   is honoured by the matcher. Hidden files are listed (upstream lists them too). Nothing from
   `files.exclude` in the `when` form, nothing from `search.exclude` on the legacy path (it is disregarded
   there, as upstream).
@@ -2724,3 +2726,36 @@ lives on the worker:
   shared limit, `$checkExists`); `tests/workspace_find_real_host.rs` (a fixture calls `workspace.findFiles`
   with an include, an exclude string, a result limit and a `RelativePattern`, with the user's
   `files.exclude` applied, through the real host).
+
+## ADR-0090 — File watchers: `$watch` answered on the main side, events from this side's own changes only (2026-11-10)
+
+- **What is served.** `MainThreadFileSystemEventService` (`vsr-exthost/src/file_watcher.rs`): `$watch`
+  records the watch (extension, session, base folder, `recursive`) and `$unwatch` removes it. Watches
+  are uncorrelated (extensions never ask for correlation), so the events go out as
+  `ExtHostFileSystemEventService.$onFileEvent({ created, changed, deleted })` with no session: every
+  watcher gets the batch and filters it with its own glob, as upstream does for uncorrelated
+  events. Delivery is gated on the workspace folders or a registered watch, not on `$watch` alone: a change
+  under a workspace folder is sent even with no watch, which is how string-pattern watchers
+  (`createFileSystemWatcher('**/*.rs')`, which upstream never sends to `$watch`) get their events. The `$onFileEvent` is a fire-and-forget request, sent at the end of each pump.
+- **Which changes are seen.** Only the ones this side makes or the app reports:
+  1. the forwarded operations of ADR-0088: `rename` (deleted source, created target), `copy` (created
+     target), trash deletes, and the main-side writes and deletes of `MainThreadFileSystem`;
+  2. the app's changes, through `ExtensionHost::file_changed(kind, path)`, for saves, renames and deletes
+     made in the app. The app does not call it yet: wiring its save and rename paths (or its existing
+     explorer watcher, `vsr-app/src/explorer/watcher.rs`, which already runs a recursive `notify`
+     watcher) is the next step.
+- **Which changes are not seen, stated plainly.** The Node host performs `workspace.fs` writes, creates,
+  reads and plain deletes itself (ADR-0088), and no OS watcher runs here. A file an extension writes
+  with `workspace.fs.writeFile` does not reach its own watcher. Closing that needs the disk events
+  (the `notify` crate is already in `Cargo.lock` and could feed `file_changed`; not wired in this step,
+  and it is an app-side decision about one more watcher).
+- **Scope of a watch.** A recursive watch covers its base and everything under it; a flat watch covers
+  its base and its direct children. Excludes and includes on the watch options are not applied here:
+  the extension's own glob decides what it sees. A watch for a file path matches only that path.
+- **Coalescing and ordering.** The payload is built per batch and lists created, changed, deleted in that
+  order; no 100 ms coalescing (the app does that for its own watcher). Events are not replayed to a
+  watcher that arrives later.
+- **Tests.** `file_watcher` unit tests (recursive and flat matching, the queue, the payload without a
+  session); `tests/workspace_watch_real_host.rs` (a fixture arms a watcher: the forwarded rename and trash
+  delete arrive, the native write does not, an app change arrives through `file_changed`, and after the
+  watcher is disposed nothing arrives).

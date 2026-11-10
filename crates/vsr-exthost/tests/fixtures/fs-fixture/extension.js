@@ -22,7 +22,69 @@ async function attempt(report, label, fn) {
 exports.activate = function (ctx) {
 	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.fsRun', (dir, outside) => run(dir, outside)));
 	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.findFiles', () => findFiles()));
+	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.watchArm', () => watchArm()));
+	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.watchMove', () => watchMove()));
+	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.watchCollect', () => watchCollect()));
+	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.watchDisarm', () => watchDisarm()));
+	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.watchArmString', () => watchArmString()));
+	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.watchCollectString', () => watchCollectString()));
+	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.watchDisarmString', () => watchDisarmString()));
 };
+
+// Watchers over the workspace. The events are recorded in watchState until watchCollect takes them.
+const watchState = { events: [], disposables: [], stringEvents: [], stringDisposables: [] };
+
+function watchArm() {
+	const root = vscode.workspace.workspaceFolders[0].uri;
+	const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '**/*'));
+	const record = kind => uri => watchState.events.push(kind + ' ' + path.relative(root.fsPath, uri.fsPath).split(path.sep).join('/'));
+	watchState.disposables = [watcher, watcher.onDidCreate(record('created')), watcher.onDidChange(record('changed')), watcher.onDidDelete(record('deleted'))];
+	return 'armed';
+}
+
+// A string-pattern watcher: upstream never sends it to $watch; the workspace folder delivers its events.
+function watchArmString() {
+	const root = vscode.workspace.workspaceFolders[0].uri;
+	const watcher = vscode.workspace.createFileSystemWatcher('**/*');
+	const record = kind => uri => watchState.stringEvents.push(kind + ' ' + path.relative(root.fsPath, uri.fsPath).split(path.sep).join('/'));
+	watchState.stringDisposables = [watcher, watcher.onDidCreate(record('created')), watcher.onDidChange(record('changed')), watcher.onDidDelete(record('deleted'))];
+	return 'armed';
+}
+
+function watchCollectString() {
+	const events = watchState.stringEvents.slice();
+	watchState.stringEvents.length = 0;
+	return events;
+}
+
+function watchDisarmString() {
+	for (const d of watchState.stringDisposables) { d.dispose(); }
+	watchState.stringDisposables = [];
+	return 'disarmed';
+}
+
+// Forwarded operations (rename, trash delete) and a native write: only the forwarded ones are seen.
+async function watchMove() {
+	const ws = vscode.workspace.workspaceFolders[0].uri.fsPath;
+	const u = p => vscode.Uri.file(path.join(ws, p));
+	await fsApi.writeFile(u('move-me.txt'), enc.encode('m'));
+	await fsApi.rename(u('move-me.txt'), u('moved.txt'));
+	await fsApi.delete(u('moved.txt'), { useTrash: true });
+	await new Promise(resolve => setTimeout(resolve, 300));
+	return 'moved';
+}
+
+function watchCollect() {
+	const events = watchState.events.slice();
+	watchState.events.length = 0;
+	return events;
+}
+
+function watchDisarm() {
+	for (const d of watchState.disposables) { d.dispose(); }
+	watchState.disposables = [];
+	return 'disarmed';
+}
 
 // workspace.findFiles: the include and exclude arguments, the result limit, a RelativePattern, and
 // the user's files.exclude. Results are paths relative to the workspace, sorted.

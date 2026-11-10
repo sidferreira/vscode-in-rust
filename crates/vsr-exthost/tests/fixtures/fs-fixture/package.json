@@ -9,7 +9,14 @@
   "main": "./extension.js",
   "activationEvents": [
     "onCommand:fixture.fsRun",
-    "onCommand:fixture.findFiles"
+    "onCommand:fixture.findFiles",
+    "onCommand:fixture.watchArm",
+    "onCommand:fixture.watchMove",
+    "onCommand:fixture.watchCollect",
+    "onCommand:fixture.watchDisarm",
+    "onCommand:fixture.watchArmString",
+    "onCommand:fixture.watchCollectString",
+    "onCommand:fixture.watchDisarmString"
   ],
   "contributes": {
     "commands": [
@@ -20,6 +27,34 @@
       {
         "command": "fixture.findFiles",
         "title": "Fixture: findFiles"
+      },
+      {
+        "command": "fixture.watchArm",
+        "title": "Fixture: watchArm"
+      },
+      {
+        "command": "fixture.watchMove",
+        "title": "Fixture: watchMove"
+      },
+      {
+        "command": "fixture.watchCollect",
+        "title": "Fixture: watchCollect"
+      },
+      {
+        "command": "fixture.watchDisarm",
+        "title": "Fixture: watchDisarm"
+      },
+      {
+        "command": "fixture.watchArmString",
+        "title": "Fixture: watchArmString"
+      },
+      {
+        "command": "fixture.watchCollectString",
+        "title": "Fixture: watchCollectString"
+      },
+      {
+        "command": "fixture.watchDisarmString",
+        "title": "Fixture: watchDisarmString"
       }
     ]
   }

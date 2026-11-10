@@ -170,10 +170,22 @@ impl Workbench {
 
     /// `commands.executeCommand(id)`.
     pub(crate) fn execute_command(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Execution::Dispatch { action, scope }) = cx.try_global::<Commands>().and_then(|c| c.execution(id)) else {
-            self.error = Some(format!("command '{id}' not found"));
-            cx.notify();
-            return;
+        self.execute_command_with(id, Vec::new(), window, cx);
+    }
+
+    /// `commands.executeCommand(id, ...args)`: a workbench command, or an extension's.
+    pub(crate) fn execute_command_with(&mut self, id: &str, args: Vec<serde_json::Value>, window: &mut Window, cx: &mut Context<Self>) {
+        let execution = cx.try_global::<Commands>().and_then(|c| c.execution(id));
+        let (action, scope) = match execution {
+            Some(Execution::Dispatch { action, scope }) => (action, scope),
+            Some(Execution::Extension) => return self.ext_run_command(id, args, cx),
+            // An extension registered it at run time, without contributing it.
+            None if self.ext_provides(id) => return self.ext_run_command(id, args, cx),
+            None => {
+                self.error = Some(format!("command '{id}' not found"));
+                cx.notify();
+                return;
+            }
         };
         if scope == Scope::Editor {
             if self.editors.active.is_none() || !self.editor_surface_active() {

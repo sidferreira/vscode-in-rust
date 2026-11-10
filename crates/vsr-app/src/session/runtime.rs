@@ -496,6 +496,7 @@ impl Workbench {
     /// synchronously. Safe to call more than once. Tests call it instead of quitting.
     pub(crate) fn persist_on_quit(&mut self, cx: &App) {
         self.session_sync(true, cx);
+        self.ext_shutdown(); // the extension host exits with the app (ADR-0066)
     }
 
     pub(crate) fn quit_prompt_cancel(&mut self, cx: &mut Context<Self>) {

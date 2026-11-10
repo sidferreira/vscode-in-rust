@@ -2125,7 +2125,10 @@ which other work edits at the same time. rscode also has no file dialog, and tes
   refuses an existing file and otherwise writes the text through the `files.*` save transforms
   (`Editors::save_untitled_as`). The editor then follows the file: the open list, MRU and preview are
   renamed, the history gets the file, and the backup under the key is removed (the text is saved).
-  Tests call the commit with the path they choose; no dialog is involved.
+  Tests call the commit with the path they choose; no dialog is involved. Save on a dirty untitled
+  text from the Close prompt closes its tab once the file is written (`session.close_after_save`); a
+  plain Save leaves the tab open. The prompt gives the name box to its first untitled text only; the
+  others stay open and dirty.
 - **Session.** An untitled text is never saved in the tab list (its key is not a file). Its text is
   kept by hot exit as a backup under its key (`Backup.path` is the key, `base` is `None`). On restart
   `restore_backup` brings it back as an untitled text with its name, and `restore_untitled` places it

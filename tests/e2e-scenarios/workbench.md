@@ -5,7 +5,7 @@ Suites (describe): Data Loss (insiders -> insiders); Data Loss (stable -> inside
 
 | # | scenario (it title) | suite | upstream file:line | steps (summary) | status | notes |
 |---|---|---|---|---|---|---|
-| 1 | verifies opened editors are restored | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:22` | Starts the app, opens www and app.js (kept) and an untitled file, restarts, and selects the three tabs to verify they were restored. | pending | Tab restore is covered headlessly (`session::e2e_tests::quitting_and_restarting_restores_tabs_active_scroll_and_selection`, ADR-0040); the scenario also restores an untitled file, which needs untitled files. |
+| 1 | verifies opened editors are restored | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:22` | Starts the app, opens www and app.js (kept) and an untitled file, restarts, and selects the three tabs to verify they were restored. | pending | Tab restore is covered headlessly (`session::e2e_tests::quitting_and_restarting_restores_tabs_active_scroll_and_selection`, ADR-0040); the scenario also restores an empty untitled tab. rscode restores a dirty untitled text (hot exit, ADR-0058) but not an empty one, so the scenario stays pending. |
 | 2 | verifies editors can save and restore | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:49` | Opens app.js, types text, waits for the dirty tab, saves, restarts and checks the contents include the text. | ready | `session::e2e_tests::saving_removes_the_backup_and_a_restart_shows_no_stale_text` (type, save, restart, content is on disk and nothing is dirty), with the typing and save coverage in `editor_view/e2e.rs`. |
 | 3 | verifies that "hot exit" works for dirty files (without delay) | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:78` | Shared testHotExit helper: edits files, restarts without saving, and checks dirty content and tabs are restored. | ready | `session::e2e_tests::a_dirty_buffer_survives_quit_and_restart_as_dirty_with_its_text` (quit with `request_quit`, restart on the same user data dir; tabs and dirty text come back). |
 | 4 | verifies that "hot exit" works for dirty files (with delay) | Data Loss (insiders -> insiders) | `workbench/data-loss.test.ts:82` | Same helper with a 2 second restart delay. | ready | `session::e2e_tests::a_backup_is_written_after_a_quiet_delay_so_a_crash_loses_nothing` (the backup is written after a quiet second, a restart without the quit hook still restores the text). |
@@ -25,7 +25,7 @@ Suites (describe): Data Loss (insiders -> insiders); Data Loss (stable -> inside
 ## Soon vs far
 
 Near-term (ready / pending):
-- #1 verifies opened editors are restored [pending: untitled file]
+- #1 verifies opened editors are restored [pending: restore of an empty untitled tab]
 - #5 verifies that auto save triggers on shutdown [pending]
 - #9 verifies that application launches when user data directory has non-ascii characters [ready]
 

@@ -280,6 +280,7 @@ fn hot_exit_brings_the_untitled_text_back_as_an_untitled_text(cx: &mut TestAppCo
     let (wb, cx) = start(cx, &env);
     let key = untitled_key("Untitled-1");
     assert!(with_untitled(&wb, cx, &key, |e| e.is_dirty() && e.buffer().value() == "draft\nnotes"));
+    assert_eq!(with_untitled(&wb, cx, &key, |e| e.language_id().to_string()), "plaintext");
 }
 
 #[gpui::test]
@@ -321,4 +322,42 @@ fn files_eol_is_the_line_break_of_a_new_untitled_text(cx: &mut TestAppContext) {
     let (k, t) = (key.clone(), target.clone());
     wb.update(cx, |wb, cx| wb.save_untitled_to(&k, &t, cx)).unwrap();
     assert_eq!(fs::read(&target).unwrap(), b"one\r\ntwo");
+}
+
+#[gpui::test]
+fn closing_a_dirty_untitled_text_saves_as_then_closes_its_tab(cx: &mut TestAppContext) {
+    let env = env("save-then-close", "{}");
+    let (wb, cx) = start(cx, &env);
+    new_untitled(&wb, cx);
+    let key = active_key(&wb, cx);
+    type_in_active(&wb, cx, "keep me");
+    wb.update(cx, |wb, cx| wb.request_close(vec![key.clone()], cx));
+    cx.run_until_parked();
+    wb.update_in(cx, |wb, window, cx| wb.close_prompt_save(window, cx));
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&key).is_some()), "the tab stays until the file is written");
+    let target = env.root.join("kept.txt");
+    let (k, t) = (key.clone(), target.clone());
+    wb.update(cx, |wb, cx| wb.save_untitled_to(&k, &t, cx)).unwrap();
+    cx.run_until_parked();
+    assert_eq!(fs::read_to_string(&target).unwrap(), "keep me");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&target).is_none()), "the saved tab closes");
+}
+
+#[gpui::test]
+fn a_plain_save_as_keeps_the_tab_open(cx: &mut TestAppContext) {
+    let env = env("plain-save-as", "{}");
+    let (wb, cx) = start(cx, &env);
+    new_untitled(&wb, cx);
+    let key = active_key(&wb, cx);
+    type_in_active(&wb, cx, "stay");
+    wb.update_in(cx, |wb, window, cx| {
+        let i = wb.editors.active.unwrap();
+        wb.ask_save_untitled(i, window, cx);
+    });
+    let target = env.root.join("stay.txt");
+    let (k, t) = (key.clone(), target.clone());
+    wb.update(cx, |wb, cx| wb.save_untitled_to(&k, &t, cx)).unwrap();
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&target).is_some()));
 }

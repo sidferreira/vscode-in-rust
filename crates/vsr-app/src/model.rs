@@ -508,7 +508,11 @@ impl Editors {
     /// with its saved name and text, without taking the focus. Its language is plain text, since the
     /// backup does not keep one.
     pub fn restore_untitled(&mut self, name: &str, text: &str) -> PathBuf {
-        let editor = OpenEditor::from_untitled(name, text, self.options, self.default_eol);
+        let mut editor = OpenEditor::from_untitled(name, text, self.options, self.default_eol);
+        editor.editor.set_typing_options(self.typing);
+        editor.apply_indentation(self.options, self.detect_indentation);
+        let max = self.max_tokenization_line_length;
+        editor.set_language(&self.syntax, vsr_languages::PLAINTEXT_LANGUAGE_ID, false, max);
         let key = editor.path.clone();
         self.place(editor, OpenOptions { pinned: true, active: false });
         self.mru.retain(|p| *p != key);

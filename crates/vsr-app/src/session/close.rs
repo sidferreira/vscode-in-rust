@@ -72,7 +72,8 @@ impl Workbench {
             }
             if e.is_untitled() {
                 // An untitled text has no file yet: its Save As asks for the name, and the tab
-                // closes once it is saved (ADR-0058).
+                // closes once the file is written (ADR-0058). Only the first one gets the name box;
+                // the others stay open and dirty.
                 save_as.get_or_insert_with(|| path.clone());
                 continue;
             }
@@ -98,6 +99,7 @@ impl Workbench {
         {
             self.editors.activate(i);
             self.ask_save_untitled(i, window, cx);
+            self.session.close_after_save = Some(path);
         }
     }
 

@@ -38,6 +38,8 @@ impl Workbench {
     /// box asks for the file, in the workspace folder. Nothing else happens until the name is
     /// committed (Enter, or the box loses focus with a valid name).
     pub(crate) fn ask_save_untitled(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        // A plain Save keeps the tab open after the file is written; the close prompt sets this after this call.
+        self.session.close_after_save = None;
         let Some(e) = self.editors.open.get(index).filter(|e| e.is_untitled()) else { return };
         let key = e.path.clone();
         let name = self.editors.title_of(e);
@@ -70,6 +72,12 @@ impl Workbench {
             self.session.backed_up.remove(key);
             self.session.seen.remove(key);
             backups.remove_saved(key);
+        }
+        if self.session.close_after_save.as_deref() == Some(key) {
+            self.session.close_after_save = None;
+            if let Some(i) = self.editors.index_of(target) {
+                self.close_tab(i);
+            }
         }
         cx.notify();
         Ok(())

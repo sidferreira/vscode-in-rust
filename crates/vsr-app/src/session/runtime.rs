@@ -130,6 +130,9 @@ pub struct Runtime {
     /// The tabs the user is closing while the "save the changes?" bar of a close is showing
     /// (ADR-0040), in tab order. Set by `request_close` (close.rs).
     pub close_prompt: Option<Vec<PathBuf>>,
+    /// The untitled text whose Save As the close prompt started: its tab closes once the file is
+    /// written (ADR-0058). Set after the name box opens; a plain Save clears it.
+    pub close_after_save: Option<PathBuf>,
     /// The user chose at the prompt: the next quit goes through.
     pub confirmed: bool,
     /// Don't Save: no backups are written from now on.

@@ -44,9 +44,12 @@ fn finish(host: ExtensionHost) {
 
 #[test]
 fn registering_commands_and_status_bar_item_reach_the_models() {
-    let Some(host) = activated("api-basic", json!({})) else {
+    let Some(mut host) = activated("api-basic", json!({})) else {
         return;
     };
+    // The status bar item's text and visibility arrive a tick after activation (`$setEntry` is
+    // batched by the host), so under load it may not be there yet.
+    wait_until(&mut host, |h| !h.main_thread.status_bar.sorted().is_empty());
     let mt = &host.main_thread;
     // MainThreadCommands.$registerCommand for each command the extension registered.
     for id in [

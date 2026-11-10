@@ -35,7 +35,7 @@ pub struct NotebookInfo {
     pub notebook_type: String,
 }
 
-pub type NotebookInfoResolver = Box<dyn Fn(&Uri) -> Option<NotebookInfo>>;
+pub type NotebookInfoResolver = Box<dyn Fn(&Uri) -> Option<NotebookInfo> + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RegistrationId(pub u64);

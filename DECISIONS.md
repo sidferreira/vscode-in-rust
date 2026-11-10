@@ -1816,6 +1816,118 @@ The E2E tests run the idle timer on the test clock (`config/e2e_sash.rs`).
 - rscode has no other sash, so the grip is drawn only on the sidebar's.
 
 
+---
+
+## ADR-0057 — Untitled text editors, step 1: the rules are pure functions in `vsr-editor` (2026-11-10)
+
+**Context.** The dependency tree ranks untitled editors first (11 settings, +6 transitively). Upstream
+keeps untitled text in a service with a model per `untitled:` resource; its name, dirty state and tab
+title are rules over the text. rscode's open editor owns the buffer, so a second copy of the text in a
+model would have to stay in step with every edit path.
+
+**Decision.** `vsr_editor::untitled` holds the rules and nothing else: `next_name` (the lowest free
+`Untitled-N`), `is_dirty` (an untitled text is dirty when it has text; empty is clean), `new_language`
+(explicit language, then `files.defaultLanguage` with `${activeEditorLanguage}`, then plain text),
+`first_line_name` and `label` (the tab title from the first line under `labelFormat: content`, else
+`Untitled-N`), and `LabelFormat`. The workbench asks them on each read. The untitled identity and the
+editor wiring are ADR-0058.
+
+**Ported.** Five upstream tests in `untitledTextEditor.test.ts` (dirty and language rules), in
+`crates/vsr-editor/tests/upstream_untitled_text_editor.rs`. The first-line title rules are not an
+upstream test; they are unit tests next to the code, with `Upstream source` in the module header.
+
+**Not modelled.** Working-copy registration and events, encodings, backups as working copies, the
+associated-file-path case (save-as makes a file, so the untitled rules stop applying), and
+`getCharContainingOffset` (the title is cut at 40 chars, not grapheme clusters).
+
+**Consequences.** `files.defaultLanguage` and `workbench.editor.untitled.labelFormat` can be wired
+once the workbench creates untitled editors (ADR-0058, ADR-0059).
+
+## ADR-0058 — Untitled text editors in the workbench: keys, Save As through the name box, hot exit (2026-11-10)
+
+**Context.** File: New Untitled Text File (Cmd+N) and a dirty untitled text need an editor. The open
+list, MRU, preview and history are keyed by `PathBuf` (ADR-0033, ADR-0039), and the session keys its
+backups by path (ADR-0040). Changing the key type would touch the status bar and the editor view,
+which other work edits at the same time. rscode also has no file dialog, and tests must not open one.
+
+**Decision.**
+
+- **Identity.** An untitled text is an `OpenEditor` whose path is the relative key `untitled:Untitled-N`
+  (`model::untitled_key`). A relative path never names a file, so no file operation can hit it by
+  accident, and every path-keyed list keeps working. `OpenEditor::is_untitled` reads the key.
+- **Dirty and title.** `OpenEditor::is_dirty` is `vsr_editor::untitled::is_dirty` for an untitled text
+  (ADR-0057). Its tab title is computed on each read by `Editors::title_of` (the first line under
+  `labelFormat: content`), so it follows typing without a cache.
+- **Creation.** `Editors::open_untitled` takes the lowest free `Untitled-N` and opens the text pinned.
+  `Workbench::new_untitled` (Cmd+N, the palette, and `workbench.startupEditor` in ADR-0059) chooses the
+  language with `new_language`. The language is not explicit, so the untitled text keeps it across
+  `files.associations` changes (`apply_associations` skips untitled editors), and Save As detects it
+  from the new name.
+- **Save As.** Save (Cmd+S, the palette or the Save bar of Close) on an untitled text opens the
+  Explorer's name box at the workspace folder (`InlineKind::SaveUntitled`), with the tab's title typed
+  in and its name part selected. Enter or a valid blur commits (`save_untitled_in`), which
+  refuses an existing file and otherwise writes the text through the `files.*` save transforms
+  (`Editors::save_untitled_as`). The editor then follows the file: the open list, MRU and preview are
+  renamed, the history gets the file, and the backup under the key is removed (the text is saved).
+  Tests call the commit with the path they choose; no dialog is involved. Save on a dirty untitled
+  text from the Close prompt closes its tab once the file is written (`session.close_after_save`); a
+  plain Save leaves the tab open. The prompt gives the name box to its first untitled text only; the
+  others stay open and dirty.
+- **Session.** An untitled text is never saved in the tab list (its key is not a file). Its text is
+  kept by hot exit as a backup under its key (`Backup.path` is the key, `base` is `None`). On restart
+  `restore_backup` brings it back as an untitled text with its name, and `restore_untitled` places it
+  after the restored tabs. The backup does not record a language, so a restored text is plain text.
+- **Missing files.** `close_missing` never closes an untitled text (it has no file), and autosave never
+  saves one (upstream does not either: it needs a name).
+
+**Consequences and what is not done.**
+
+- The name box is the Save As flow. It only offers the workspace folder, and it suggests no extension
+  (upstream's dialog suggests one from the language). It closes when the box loses focus with a valid
+  name, so a click elsewhere saves to the typed name.
+- Save All when quitting with a dirty untitled text reports a save error (there is no name box on the
+  quit path). Hot exit keeps the text in that case, so nothing is lost.
+- A clean empty untitled text is not restored after a restart (its backup is removed when it is
+  empty), and its position in the tab order is lost for restored untitled texts.
+- Working-copy events, encodings and `files.encoding` for untitled texts are not modelled (ADR-0057).
+- Search editor, binary and custom editors stay blocked (`upstream/settings.toml`).
+
+## ADR-0059 — Untitled settings: labelFormat, defaultLanguage and newUntitledFile wired; the rules split (2026-11-10)
+
+**Context.** With untitled texts (ADR-0058) three settings have an effect that a user can see:
+`workbench.editor.untitled.labelFormat` (the title of an untitled text), `files.defaultLanguage` (the
+language of a new one) and the `newUntitledFile` value of `workbench.startupEditor`. They were blocked
+by a shared rule ("needs untitled, binary, custom and large-file editors") and by a rule for
+`files.defaultLanguage` ("needs untitled editors (new files)"). The binary, custom and large-file
+editors are still missing, and the language detection service is still missing.
+
+**Decision.**
+
+- `workbench.editor.untitled.labelFormat` is read into `EditorGroupSettings::untitled_label_format` and
+  used by `Editors::title_of` (ADR-0057's rule). Wired in `wired.rs`, "Editor management".
+- `files.defaultLanguage` is read by `Workbench::open_untitled_text` through `new_language`, with
+  `${activeEditorLanguage}` meaning the active editor's language. Wired in "Languages". Its rule is
+  deleted, not kept as an alias.
+- `workbench.startupEditor: newUntitledFile` opens an untitled text when nothing is restored
+  (`Workbench::open_untitled_text`). The key was already wired; the value now does something.
+- The untitled rule in `upstream/settings.toml` is split. The five binary, custom and large-file
+  settings stay blocked with the reason "needs binary, custom and large-file editors". The language
+  detection rule stays blocked, with a comment that names what is still missing. The untitled
+  workspace rule (`window.confirmSaveUntitledWorkspace`) is unchanged: it needs multi-root workspaces.
+- `files.eol` also applies to a new untitled text. It was already wired, so the note in `wired.rs`
+  changes and a headless test proves the saved file has CRLF (scenario 16 in `files.md`).
+
+**Counts** (`scripts/settings-port status`, 2,062 settings): wired 183 → 185 (+labelFormat,
++defaultLanguage); blocked 344 → 342 (the two rules' settings left blocked). Todo, n/a and exthost are
+unchanged. `workbench.editor.untitled.hint` is not in this VS Code export, so there is nothing to wire.
+
+**Tests.** Headless, in `untitled_e2e.rs`: labelFormat `name` (and the default), `files.defaultLanguage`
+(a named language, and `${activeEditorLanguage}`), `workbench.startupEditor: newUntitledFile`, and
+`files.eol`. Scenarios 3 to 6 and 15 to 16 in `tests/e2e-scenarios/files.md`.
+
+**Not done.** `files.defaultLanguage` does not change a language after content detection (none exists).
+The default file extension of the Save As name box is not suggested from the language.
+
 ## ADR-0060 — Extension host spike (P0): Option A is feasible, the handshake works (2026-11-10)
 
 Context: ADR-0020 chose Option A (run upstream's own compiled `extensionHostProcess` under Node,

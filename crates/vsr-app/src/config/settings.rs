@@ -759,8 +759,9 @@ pub struct LayoutSettings {
 }
 
 /// `workbench.startupEditor`: what opens when the app starts with no editor restored. `WelcomePage`
-/// opens the Welcome page (ADR-0040) and `Readme` the folder's README when there is one. rscode has
-/// no untitled files and no terminal yet, so the other values open nothing (ADR-0035).
+/// opens the Welcome page (ADR-0040), `Readme` the folder's README when there is one and
+/// `NewUntitledFile` an empty untitled text (ADR-0058). rscode has no terminal yet, so the other
+/// values open nothing (ADR-0035).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum StartupEditor {
@@ -862,6 +863,8 @@ pub struct EditorGroupSettings {
     pub limit_exclude_dirty: bool,
     pub highlight_modified_tabs: bool,
     pub label_format: LabelFormat,
+    /// `workbench.editor.untitled.labelFormat`: the tab title of an untitled text (ADR-0059).
+    pub untitled_label_format: vsr_editor::untitled::LabelFormat,
     pub scroll_to_switch_tabs: bool,
     /// `workbench.editor.empty.hint` is `text` (the hint is shown) rather than `hidden`.
     pub empty_hint: bool,
@@ -881,6 +884,7 @@ impl Default for EditorGroupSettings {
             limit_exclude_dirty: false,
             highlight_modified_tabs: false,
             label_format: LabelFormat::Default,
+            untitled_label_format: vsr_editor::untitled::LabelFormat::Content,
             scroll_to_switch_tabs: false,
             empty_hint: true,
         }
@@ -910,6 +914,10 @@ impl EditorGroupSettings {
                 .get_bool("workbench.editor.highlightModifiedTabs")
                 .unwrap_or(d.highlight_modified_tabs),
             label_format: c.get_enum("workbench.editor.labelFormat").unwrap_or(d.label_format),
+            untitled_label_format: c
+                .get_str("workbench.editor.untitled.labelFormat")
+                .map(vsr_editor::untitled::LabelFormat::from_setting)
+                .unwrap_or(d.untitled_label_format),
             scroll_to_switch_tabs: c.get_bool("workbench.editor.scrollToSwitchTabs").unwrap_or(d.scroll_to_switch_tabs),
             empty_hint: c.get_str("workbench.editor.empty.hint") != Some("hidden"),
         }

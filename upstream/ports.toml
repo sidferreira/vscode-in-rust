@@ -977,3 +977,17 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "The main-thread language provider registry (ADR-0072, ADR-0073): LanguageSelector scoring and LanguageFeatureRegistry<T> (UI-free), the MainThreadLanguageFeatures register/unregister handler and the typed $provide* queries. Only the URI parts the registry needs are ported. Tests: languageSelector.test.ts ported; the registry has no upstream test file (tests/language_registry.rs is new)."
+
+[[port]]
+id = "untitled-editors"
+status = "partial"
+upstream = [
+  "src/vs/workbench/services/untitled/common/**",
+  "src/vs/workbench/services/untitled/test/**",
+]
+rust = [
+  "crates/vsr-editor/src/untitled.rs",
+  "crates/vsr-editor/tests/upstream_untitled_text_editor.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Untitled text editors (ADR-0057, ADR-0058): naming, dirty rules, first-line titles and the new file's language are the pure rules in vsr-editor. The service, input and working copy tests are covered headlessly in the workbench. Working copy events and encodings are not modelled."

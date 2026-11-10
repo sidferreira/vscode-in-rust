@@ -10,7 +10,7 @@
 //! the "Show welcome page on startup" checkbox at the bottom) with the colours of the active
 //! theme. What upstream has and this page leaves out, and why:
 //!
-//! - New File...: there are no untitled files yet.
+//! - New File...: this page does not create a file. File: New Untitled Text File (Cmd+N) does (ADR-0058).
 //! - Open Folder... / Clone Git Repository / Connect to...: no folder dialog, no git clone, no remotes.
 //! - Walkthroughs, Help links, videos: they come from extensions and the web. The `workbench.welcomePage.*`
 //!   settings only configure those, so none of them applies.

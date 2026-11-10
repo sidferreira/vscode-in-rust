@@ -84,6 +84,9 @@ pub trait EditorHost: Sized + 'static {
     /// Cmd+W (Close Editor) on the tab of `path`. The owner closes it, asking first when it has
     /// unsaved changes (ADR-0040).
     fn close_requested(&mut self, path: &std::path::Path, cx: &mut Context<Self>);
+
+    /// Save on an untitled text: the owner asks for its file name (Save As, ADR-0058).
+    fn save_untitled_requested(&mut self, window: &mut Window, cx: &mut Context<Self>);
 }
 
 #[derive(Default)]
@@ -467,6 +470,10 @@ impl EditorView {
 // ---- commands ------------------------------------------------------------------------------
 
 fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, cx: &mut Context<T>) {
+    if matches!(cmd, Command::Save) && this.editor_host().0.active_editor().is_some_and(|e| e.is_untitled()) {
+        this.save_untitled_requested(window, cx);
+        return;
+    }
     if matches!(cmd, Command::CloseTab) {
         let path = this.editor_host().0.active_editor().map(|e| e.path.clone());
         if let Some(path) = path {

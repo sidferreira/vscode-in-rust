@@ -27,6 +27,9 @@ mod text_layout;
 mod theme;
 mod theme_picker; // Preferences: Color Theme (ADR-0037)
 mod theme_service;
+mod untitled_editors; // File: New Untitled Text File, Save As of untitled texts (ADR-0058)
+#[cfg(test)]
+mod untitled_e2e; // headless tests of untitled texts (ADR-0058)
 #[cfg(test)]
 mod theme_e2e;
 mod ui;
@@ -159,6 +162,12 @@ impl EditorHost for Workbench {
 
     fn close_requested(&mut self, path: &Path, cx: &mut Context<Self>) {
         self.request_close(vec![path.to_path_buf()], cx);
+    }
+
+    fn save_untitled_requested(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(i) = self.editors.active {
+            self.ask_save_untitled(i, window, cx);
+        }
     }
 }
 
@@ -738,9 +747,14 @@ impl Workbench {
         } else if let Some(e) = self.editors.active_editor() {
             let relative = |p: &Path| p.strip_prefix(root).map_or_else(|_| p.display().to_string(), |r| r.display().to_string());
             let folder = e.path.parent().unwrap_or(root);
-            vars.active_editor_short = e.title.clone();
+            vars.active_editor_short = self.editors.title_of(e);
             vars.active_editor_medium = relative(&e.path);
             vars.active_editor_long = e.path.display().to_string();
+            if let Some(name) = e.untitled_name() {
+                // An untitled text has no path: its name stands for it (ADR-0058).
+                vars.active_editor_medium = name.to_string();
+                vars.active_editor_long = name.to_string();
+            }
             vars.active_editor_language_id = e.language_id().to_string();
             vars.active_folder_short = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             vars.active_folder_medium = relative(folder);
@@ -1417,6 +1431,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::ZoomOut, _, cx| this.zoom(Some(-1.0), cx)))
             .on_action(cx.listener(|this, _: &commands::ZoomReset, _, cx| this.zoom(None, cx)))
             .on_action(cx.listener(|this, _: &commands::ShowExplorer, _, cx| this.show_explorer(cx)))
+            .on_action(cx.listener(|this, _: &commands::NewUntitledFile, window, cx| this.new_untitled(window, cx)))
             .on_action(cx.listener(|this, _: &welcome::ShowWelcome, _, cx| this.open_welcome(cx)))
             .on_action(cx.listener(|this, _: &commands::ClearCommandHistory, _, cx| this.clear_command_history(cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleReadonlyInSession, _, cx| this.toggle_read_only_in_session(cx)))

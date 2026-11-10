@@ -61,12 +61,20 @@ impl Workbench {
         let transforms = self.editor_settings.save_transforms(false);
         let ask_on_conflict = self.editor_settings.save_conflict_ask;
         let mut kept: Option<PathBuf> = None;
+        let mut save_as: Option<PathBuf> = None;
         let mut closable = Vec::new();
         for path in &paths {
             let Some(i) = self.editors.index_of(path) else { continue };
             let e = &mut self.editors.open[i];
             if !e.is_dirty() {
                 closable.push(path.clone());
+                continue;
+            }
+            if e.is_untitled() {
+                // An untitled text has no file yet: its Save As asks for the name, and the tab
+                // closes once the file is written (ADR-0058). Only the first one gets the name box;
+                // the others stay open and dirty.
+                save_as.get_or_insert_with(|| path.clone());
                 continue;
             }
             if e.disk_changed() && ask_on_conflict {
@@ -86,6 +94,13 @@ impl Workbench {
             self.editors.activate(i);
         }
         self.answered_close_prompt(window, cx);
+        if let Some(path) = save_as
+            && let Some(i) = self.editors.index_of(&path)
+        {
+            self.editors.activate(i);
+            self.ask_save_untitled(i, window, cx);
+            self.session.close_after_save = Some(path);
+        }
     }
 
     /// The bar's Don't Save: the unsaved text is moved aside (`discarded/`, never deleted) and the

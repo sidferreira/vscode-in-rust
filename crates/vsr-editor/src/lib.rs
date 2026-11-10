@@ -24,6 +24,7 @@ mod undo;
 mod word_ops;
 pub mod folding;
 pub mod section_headers;
+pub mod untitled;
 pub mod wrap;
 mod wrapping;
 

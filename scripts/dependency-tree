@@ -1,0 +1,694 @@
+#!/usr/bin/env python3
+"""dependency-tree: what depends on what in rscode, and what each open feature would unblock.
+
+Nodes and edges are hand-maintained in docs/dependencies.toml. The counts come from the files:
+  - upstream/settings.toml and the settings export, classified by scripts/settings-port's own
+    policy functions (wired > first matching rule > deprecated > exthost > todo), so the
+    totals match `settings-port report`;
+  - tests/e2e-scenarios/*.md (status column, found by header);
+  - the phase table in docs/research/extensions-compat.md section 4 (efforts, checked).
+Writes docs/dependency-tree.md. Stdlib only; Python 3.9+.
+
+Usage (from the repo root):
+  python3 -I scripts/dependency-tree            write docs/dependency-tree.md
+  python3 -I scripts/dependency-tree --check    exit 1 if the file is stale or the model is invalid
+  python3 -I scripts/dependency-tree --out DIR/x.md   write somewhere else (for a diff)
+"""
+
+import argparse
+import collections
+import glob
+import importlib.machinery
+import importlib.util
+import os
+import re
+import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+DEPS_PATH = os.path.join(REPO_ROOT, "docs", "dependencies.toml")
+OUT_PATH = os.path.join(REPO_ROOT, "docs", "dependency-tree.md")
+SCENARIOS_DIR = os.path.join(REPO_ROOT, "tests", "e2e-scenarios")
+EXTENSIONS_DOC = os.path.join(REPO_ROOT, "docs", "research", "extensions-compat.md")
+DECISIONS_PATH = os.path.join(REPO_ROOT, "DECISIONS.md")
+PORTS_PATH = os.path.join(REPO_ROOT, "upstream", "ports.toml")
+# ADR numbers that a node may cite before they exist: 0045 is reserved for the terminal (HANDOFF).
+RESERVED_ADRS = {"0045"}
+
+STATUSES = ("done", "in-progress", "todo", "blocked-external")
+KINDS = ("feature", "extension")
+EFFORT_RE = re.compile(r"^(S|M|L|XL|XXL|-)(-(S|M|L|XL|XXL))?$")
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+SCORE_EXTENSION_WEIGHT = 10
+RANK_LIMIT = 12
+SETTING_STATUSES = ("blocked", "exthost", "todo")
+
+
+class DependencyTreeError(Exception):
+    pass
+
+
+# --------------------------------------------------------------------------
+# Loading
+# --------------------------------------------------------------------------
+
+def load_settings_port():
+    """scripts/settings-port has no .py suffix, so it is loaded the way the tests load it."""
+    path = os.path.join(SCRIPT_DIR, "settings-port")
+    loader = importlib.machinery.SourceFileLoader("settings_port", path)
+    spec = importlib.util.spec_from_loader("settings_port", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def split_row(line):
+    cells = re.split(r"(?<!\\)\|", line.strip())
+    if cells and cells[0] == "":
+        cells = cells[1:]
+    if cells and cells[-1] == "":
+        cells = cells[:-1]
+    return [c.strip() for c in cells]
+
+
+def classify_settings(sp):
+    """One record per setting in the export: key, status, reason, source. Same precedence as
+    settings-port (decide_status), and clone-free, so this runs without ../vscode-original."""
+    cfg = sp.load_config()
+    export = sp.load_export(sp.EXPORT_PATH)
+    wired = sp.load_wired(keys=None)
+    out = []
+    for raw in export["settings"]:
+        rec = sp.raw_record(raw)
+        status, reason = sp.decide_status(rec, cfg, wired)
+        out.append({"key": rec["key"], "status": status, "reason": reason,
+                    "source": rec.get("source", "core")})
+    return out
+
+
+def scenario_bucket(cell):
+    word = (cell.split() or [""])[0].lower()
+    if word == "unit":
+        return "unit"
+    for key in ("ready", "pending", "blocked"):
+        if word.startswith(key):
+            return key
+    return "other"
+
+
+def blocker_labels(cell):
+    """`blocked-on-feature a; b` -> ['a', 'b']. Free-text blocked cells are one label each."""
+    prefix = "blocked-on-feature "
+    if cell.startswith(prefix):
+        return [p.strip() for p in cell[len(prefix):].split(";") if p.strip()]
+    if scenario_bucket(cell) == "blocked" and cell.strip().lower() != "blocked":
+        return [cell.strip()]
+    return []  # a bare "blocked" names no feature (search row 11 is a settings-rule check)
+
+
+def load_scenarios(directory=SCENARIOS_DIR):
+    rows = []
+    for path in sorted(glob.glob(os.path.join(directory, "*.md"))):
+        name = os.path.basename(path)
+        header = None
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                if not line.startswith("|"):
+                    continue
+                cells = split_row(line)
+                if cells and cells[0] == "#":
+                    header = [c.lower() for c in cells]
+                    continue
+                if header is None or "status" not in header or not cells or not cells[0].isdigit():
+                    continue
+                index = header.index("status")
+                cell = cells[index] if index < len(cells) else ""
+                rows.append({"file": name, "number": int(cells[0]), "cell": cell,
+                             "bucket": scenario_bucket(cell), "labels": blocker_labels(cell)})
+    return rows
+
+
+def load_phase_efforts(path=EXTENSIONS_DOC):
+    """Phase id -> effort from the table in section 4 (the last column, text before ' (')."""
+    efforts = {}
+    in_section = False
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if line.startswith("## 4."):
+                in_section = True
+                continue
+            if in_section and line.startswith("## "):
+                break
+            if not in_section or not line.startswith("|"):
+                continue
+            cells = split_row(line)
+            match = re.match(r"^(P\d+b?)\b", cells[0]) if cells else None
+            if match and len(cells) >= 4:
+                efforts[match.group(1)] = cells[-1].split(" (")[0].strip()
+    return efforts
+
+
+def load_adrs(path=DECISIONS_PATH):
+    """ADR number (4 digits) -> title, from the `## ADR-NNNN — title (date)` headings."""
+    adrs = {}
+    pattern = re.compile(r"^## ADR-(\d{4}) — (.+?)(?: \(\d{4}-\d{2}-\d{2}\))?$")
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            match = pattern.match(line.rstrip("\n"))
+            if match:
+                adrs[match.group(1)] = match.group(2)
+    return adrs
+
+
+def load_ports(sp, path=PORTS_PATH):
+    with open(path, encoding="utf-8") as fh:
+        raw = sp.parse_toml(fh.read())
+    counts = collections.Counter(p.get("status", "") for p in raw.get("port", []))
+    return {"total": len(raw.get("port", [])), "by_status": dict(counts)}
+
+
+def normalise_node(entry):
+    def as_list(key):
+        value = entry.get(key, [])
+        if isinstance(value, str):
+            return [value]
+        return list(value)
+
+    return {
+        "id": entry.get("id", ""),
+        "title": entry.get("title", ""),
+        "status": entry.get("status", ""),
+        "kind": entry.get("kind", "feature"),
+        "effort": entry.get("effort", ""),
+        "effort_source": entry.get("effort_source", ""),
+        "needs": as_list("needs"),
+        "reasons": as_list("reasons"),
+        "sources": as_list("sources"),
+        "todo_globs": as_list("todo_globs"),
+        "scenarios": as_list("scenarios"),
+        "external": entry.get("external", ""),
+        "deferred": bool(entry.get("deferred", False)),
+        "note": entry.get("note", ""),
+    }
+
+
+def load_model(deps_path=DEPS_PATH, scenarios_dir=SCENARIOS_DIR, doc_path=EXTENSIONS_DOC):
+    sp = load_settings_port()
+    with open(deps_path, encoding="utf-8") as fh:
+        raw = sp.parse_toml(fh.read())
+    nodes = collections.OrderedDict()
+    for entry in raw.get("node", []):
+        node = normalise_node(entry)
+        nodes.setdefault(node["id"], node)
+    return {
+        "sp": sp,
+        "nodes": nodes,
+        "settings": classify_settings(sp),
+        "scenarios": load_scenarios(scenarios_dir),
+        "phase_efforts": load_phase_efforts(doc_path),
+        "adrs": load_adrs(),
+        "ports": load_ports(sp),
+    }
+
+
+# --------------------------------------------------------------------------
+# Validation
+# --------------------------------------------------------------------------
+
+def find_cycles(nodes):
+    """Cycles in the needs graph (a list of id lists). Depth-first, white/grey/black."""
+    cycles = []
+    state = {}
+    stack = []
+
+    def visit(nid):
+        state[nid] = "grey"
+        stack.append(nid)
+        for dep in nodes[nid]["needs"]:
+            if dep not in nodes:
+                continue
+            if state.get(dep) == "grey":
+                cycles.append(stack[stack.index(dep):] + [dep])
+            elif dep not in state:
+                visit(dep)
+        stack.pop()
+        state[nid] = "black"
+
+    for nid in nodes:
+        if nid not in state:
+            visit(nid)
+    return cycles
+
+
+def validate(model):
+    """Every problem found, as strings. An empty list means the model is usable."""
+    nodes = model["nodes"]
+    errors = []
+    reason_owner = {}
+    source_owner = {}
+    blocked_reasons = {s["reason"] for s in model["settings"] if s["status"] == "blocked"}
+    exthost_sources = {s["source"] for s in model["settings"] if s["status"] == "exthost"}
+    for nid, node in nodes.items():
+        if not ID_RE.match(nid):
+            errors.append("node id %r is not kebab-case" % nid)
+        if node["status"] not in STATUSES:
+            errors.append("%s: status %r is not one of %s" % (nid, node["status"], ", ".join(STATUSES)))
+        if node["kind"] not in KINDS:
+            errors.append("%s: kind %r is not one of %s" % (nid, node["kind"], ", ".join(KINDS)))
+        if node["effort"] and not EFFORT_RE.match(node["effort"]):
+            errors.append("%s: effort %r is not S, M, L, XL, XXL or a range" % (nid, node["effort"]))
+        for dep in node["needs"]:
+            if dep == nid:
+                errors.append("%s: needs itself" % nid)
+            elif dep not in nodes:
+                errors.append("%s: needs unknown node %r" % (nid, dep))
+            elif node["status"] == "done" and nodes[dep]["status"] != "done":
+                errors.append("%s is done but needs %s, which is %s" % (nid, dep, nodes[dep]["status"]))
+        if node["status"] == "blocked-external" and not node["external"]:
+            errors.append("%s: blocked-external needs an external = \"...\" text" % nid)
+        if node["deferred"] and node["status"] == "done":
+            errors.append("%s: deferred on a done node" % nid)
+        for reason in node["reasons"]:
+            if reason not in blocked_reasons:
+                errors.append("%s: reason is not a blocked reason in settings.toml: %r" % (nid, reason))
+            if reason in reason_owner and reason_owner[reason] != nid:
+                errors.append("reason %r is claimed by %s and %s" % (reason, reason_owner[reason], nid))
+            reason_owner[reason] = nid
+        for source in node["sources"]:
+            if source not in exthost_sources:
+                errors.append("%s: source %r has no exthost settings" % (nid, source))
+            if source in source_owner and source_owner[source] != nid:
+                errors.append("source %r is claimed by %s and %s" % (source, source_owner[source], nid))
+            source_owner[source] = nid
+        phase = re.search(r"\((P\d+b?)\)", node["effort_source"])
+        if phase:
+            table = model["phase_efforts"].get(phase.group(1))
+            if table is None:
+                errors.append("%s: %s is not a phase in extensions-compat section 4" % (nid, phase.group(1)))
+            elif node["effort"] != table:
+                errors.append("%s: effort %s does not match %s in extensions-compat section 4 (%s)"
+                              % (nid, node["effort"], phase.group(1), table))
+    for reason in sorted(blocked_reasons - set(reason_owner)):
+        errors.append("blocked reason has no node: %r" % reason)
+    for source in sorted(exthost_sources - set(source_owner)):
+        errors.append("exthost source has no node: %r" % source)
+    labels = {label for row in model["scenarios"] if row["bucket"] == "blocked" for label in row["labels"]}
+    scenario_owner = collections.defaultdict(list)
+    for nid, node in nodes.items():
+        for label in node["scenarios"]:
+            scenario_owner[label].append(nid)
+    for label in sorted(labels - set(scenario_owner)):
+        errors.append("scenario blocker has no node: %r" % label)
+    row_labels = {label for row in model["scenarios"] for label in row["labels"]}
+    for label in sorted(set(scenario_owner) - row_labels):
+        errors.append("scenario label matches no row (stale mapping): %r" % label)
+    for cycle in find_cycles(nodes):
+        errors.append("cycle in needs: " + " -> ".join(cycle))
+    adrs = model.get("adrs", {})
+    for nid, node in nodes.items():
+        text = " ".join([node["title"], node["note"], node["external"]])
+        for num in re.findall(r"ADR-(\d{4})", text):
+            if num not in adrs and num not in RESERVED_ADRS:
+                errors.append("%s cites ADR-%s, which is not a heading in DECISIONS.md" % (nid, num))
+    return errors
+
+
+# --------------------------------------------------------------------------
+# Attribution and counting
+# --------------------------------------------------------------------------
+
+def attribute(model):
+    """Per node: the setting keys, scenario rows and todo settings it would unblock directly."""
+    nodes = model["nodes"]
+    sp = model["sp"]
+    reason_owner = {r: nid for nid, n in nodes.items() for r in n["reasons"]}
+    source_owner = {s: nid for nid, n in nodes.items() for s in n["sources"]}
+    attrs = {nid: {"settings": set(), "scenarios": set()} for nid in nodes}
+    setting_owner = {}
+    unattributed = {"blocked": [], "exthost": [], "todo": []}
+    for setting in model["settings"]:
+        key, status = setting["key"], setting["status"]
+        owners = []
+        if status == "blocked":
+            owners = [reason_owner[setting["reason"]]] if setting["reason"] in reason_owner else []
+        elif status == "exthost":
+            owners = [source_owner[setting["source"]]] if setting["source"] in source_owner else []
+        elif status == "todo":
+            owners = [nid for nid, n in nodes.items() if n["todo_globs"] and sp.any_glob(n["todo_globs"], key)]
+        if status in unattributed and not owners:
+            unattributed[status].append(key)
+        for nid in owners:
+            attrs[nid]["settings"].add(key)
+            setting_owner.setdefault(key, []).append(nid)
+    scenario_owner = collections.defaultdict(list)
+    for nid, node in nodes.items():
+        for label in node["scenarios"]:
+            scenario_owner[label].append(nid)
+    unnamed_rows = []
+    unattributed_rows = []
+    attributed_rows = 0
+    for row in model["scenarios"]:
+        if row["bucket"] != "blocked":
+            continue
+        if not row["labels"]:
+            unnamed_rows.append(row)
+            continue
+        owners = sorted({nid for label in row["labels"] for nid in scenario_owner.get(label, [])})
+        if not owners:
+            unattributed_rows.append(row)
+            continue
+        attributed_rows += 1
+        for nid in owners:
+            attrs[nid]["scenarios"].add((row["file"], row["number"]))
+    return {"attrs": attrs, "setting_owner": setting_owner, "unattributed": unattributed,
+            "unattributed_rows": unattributed_rows, "unnamed_rows": unnamed_rows,
+            "attributed_rows": attributed_rows}
+
+
+def children_of(nodes):
+    children = collections.defaultdict(list)
+    for nid, node in nodes.items():
+        for dep in node["needs"]:
+            children[dep].append(nid)
+    return children
+
+
+def downstream_of(nid, children):
+    """Every node that transitively needs `nid` (not including nid)."""
+    seen = set()
+    queue = list(children.get(nid, []))
+    while queue:
+        cur = queue.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        queue.extend(children.get(cur, []))
+    return seen
+
+
+def unlock_counts(model, att):
+    nodes = model["nodes"]
+    children = children_of(nodes)
+    rows = {}
+    for nid, node in nodes.items():
+        down = downstream_of(nid, children)
+        union_settings = set(att["attrs"][nid]["settings"])
+        union_scen = set(att["attrs"][nid]["scenarios"])
+        for other in down:
+            union_settings |= att["attrs"][other]["settings"]
+            union_scen |= att["attrs"][other]["scenarios"]
+        ext_down = {o for o in down if nodes[o]["kind"] == "extension"}
+        rows[nid] = {
+            "direct_settings": len(att["attrs"][nid]["settings"]),
+            "direct_scenarios": len(att["attrs"][nid]["scenarios"]),
+            "down_settings": len(union_settings),
+            "down_scenarios": len(union_scen),
+            "down_extensions": len(ext_down),
+            "down_extension_ids": sorted(ext_down),
+            "down_ids": sorted(down),
+            "direct_dependents": sorted(children.get(nid, [])),
+        }
+        rows[nid]["score"] = (rows[nid]["down_settings"] + rows[nid]["down_scenarios"]
+                              + SCORE_EXTENSION_WEIGHT * rows[nid]["down_extensions"])
+    return rows
+
+
+def is_rankable(node, nodes):
+    if node["status"] != "todo" or node["deferred"]:
+        return False
+    return all(nodes[d]["status"] == "done" for d in node["needs"])
+
+
+def ranked(model, counts):
+    nodes = model["nodes"]
+    items = [nid for nid, n in nodes.items() if is_rankable(n, nodes)]
+    return sorted(items, key=lambda nid: (-counts[nid]["score"], -counts[nid]["down_settings"], nid))
+
+
+def unlocked_by_in_progress(model):
+    nodes = model["nodes"]
+    out = []
+    for nid, node in nodes.items():
+        if node["status"] != "todo" or node["deferred"]:
+            continue
+        needs = [nodes[d]["status"] for d in node["needs"]]
+        if needs and all(s in ("done", "in-progress") for s in needs) and "in-progress" in needs:
+            out.append(nid)
+    return sorted(out)
+
+
+# --------------------------------------------------------------------------
+# Rendering
+# --------------------------------------------------------------------------
+
+def mermaid_id(nid):
+    return "n_" + re.sub(r"[^A-Za-z0-9]", "_", nid)
+
+
+def mermaid_label(text):
+    return text.replace('"', "'").replace("#", "no.")
+
+
+def render_graph(model):
+    nodes = model["nodes"]
+    lines = ["```mermaid", "flowchart LR",
+             "  classDef done fill:#d4edda,stroke:#2e7d32,color:#1b3d20",
+             "  classDef inprogress fill:#fff3cd,stroke:#b8860b,color:#4a3b00",
+             "  classDef todo fill:#eceff1,stroke:#607d8b,color:#263238",
+             "  classDef external fill:#f8d7da,stroke:#b71c1c,color:#4a0f12"]
+    for nid, node in nodes.items():
+        label = mermaid_label("%s (%s)" % (node["title"], node["status"]))
+        cls = {"done": "done", "in-progress": "inprogress", "todo": "todo",
+               "blocked-external": "external"}[node["status"]]
+        if node["kind"] == "extension":
+            shape = '(["%s"])' % label
+        elif node["status"] == "blocked-external":
+            shape = '{{"%s"}}' % label
+        else:
+            shape = '["%s"]' % label
+        lines.append("  %s%s:::%s" % (mermaid_id(nid), shape, cls))
+    for nid in nodes:
+        for dep in nodes[nid]["needs"]:
+            if dep in nodes:
+                lines.append("  %s --> %s" % (mermaid_id(dep), mermaid_id(nid)))
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def md_table(headers, rows):
+    out = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
+    for row in rows:
+        out.append("| " + " | ".join(str(c) for c in row) + " |")
+    return "\n".join(out)
+
+
+def effort_text(node):
+    if not node["effort"] or node["effort"] == "-":
+        return "-"
+    return node["effort"] + (" (guess)" if node["effort_source"] == "guess" else " (source)")
+
+
+def render(model, att, counts, rank_order):
+    nodes = model["nodes"]
+    settings = model["settings"]
+    status_counts = collections.Counter(s["status"] for s in settings)
+    scen = collections.Counter(r["bucket"] for r in model["scenarios"])
+    todo_attr = len(set(att["setting_owner"]) & {s["key"] for s in settings if s["status"] == "todo"})
+    blocked_total = status_counts["blocked"]
+    exthost_total = status_counts["exthost"]
+    out = []
+    out.append("# Dependency tree")
+    out.append("")
+    out.append("<!-- Generated by scripts/dependency-tree from docs/dependencies.toml and the files it counts. "
+               "Do not edit by hand: change the TOML and run `python3 -I scripts/dependency-tree`. -->")
+    out.append("")
+    out.append("What depends on what in rscode, and how much each open feature would unblock. Built from "
+               "`docs/dependencies.toml` (the nodes and edges, by hand) and these counted sources: "
+               "`upstream/settings.toml` and the settings export through `scripts/settings-port` "
+               "(so the totals match `settings-port report`), `tests/e2e-scenarios/*.md`, and the phase "
+               "table in `docs/research/extensions-compat.md` section 4.")
+    out.append("")
+    out.append("## How to read the counts")
+    out.append("")
+    out.append("- **Status.** `done`, `in-progress` (owned by a sibling worktree or the extension host), "
+               "`todo`, `blocked-external` (needs a user action, a product decision or an environment).")
+    out.append("- **Direct.** Settings and scenarios this node is named for: blocked settings whose reason is "
+               "mapped to it, exthost settings of the built-in extensions it owns, todo settings matched by its "
+               "`todo_globs` (inferred by key prefix), and smoke scenarios that name it as a blocker.")
+    out.append("- **Downstream.** The same counts summed over every node that transitively needs this one, "
+               "each item counted once. This is what the subtree would unblock if everything in it were built. "
+               "It is not what finishing this node alone would unblock: a dependent may still need other nodes.")
+    out.append("- **Scenarios.** A scenario with several blockers counts under each of them. Ready rows never count.")
+    out.append("- **Score.** Downstream settings + downstream scenarios + %d x downstream extensions. It sorts the "
+               "ranking only; the columns are the real counts." % SCORE_EXTENSION_WEIGHT)
+    out.append("- **Ranking.** A node is rankable when its status is `todo`, it is not `deferred`, and every "
+               "node it needs is `done`. Nodes with an in-progress need are listed separately.")
+    out.append("- **Effort.** `(source)` is copied from docs/research/extensions-compat.md section 4 (checked by "
+               "the tests). `(guess)` is an estimate by the author of the TOML, not from a source.")
+    out.append("")
+    out.append("## Totals from the files")
+    out.append("")
+    out.append(md_table(["source", "count", "attributed to a node"], [
+        ("settings: wired", status_counts["wired"], "n/a (done)"),
+        ("settings: blocked", blocked_total,
+         "%d of %d (by reason)" % (blocked_total - len(att["unattributed"]["blocked"]), blocked_total)),
+        ("settings: exthost", exthost_total,
+         "%d of %d (by built-in extension)" % (exthost_total - len(att["unattributed"]["exthost"]), exthost_total)),
+        ("settings: todo", status_counts["todo"],
+         "%d of %d matched by a node's todo_globs" % (todo_attr, status_counts["todo"])),
+        ("settings: n/a", status_counts["n/a"], "not dependency-blocked (policy: product, Windows, deprecated)"),
+        ("smoke scenarios: ready", scen["ready"], "not blocked"),
+        ("smoke scenarios: pending", scen["pending"], "not attributed (free-text notes)"),
+        ("smoke scenarios: blocked", scen["blocked"],
+         "%d of %d name a feature that has a node; %d names no feature (a settings-rule check)"
+         % (att["attributed_rows"], scen["blocked"], len(att["unnamed_rows"]))),
+        ("unit-test rows in scenario files", scen["unit"], "not smoke scenarios; not counted"),
+        ("ADR headings in DECISIONS.md", len(model["adrs"]),
+         "every ADR cited by a node exists (latest ADR-%s)" % max(model["adrs"])),
+        ("upstream/ports.toml entries", model["ports"]["total"],
+         "not nodes (file ports, not features): " + ", ".join(
+             "%s %d" % (k, v) for k, v in sorted(model["ports"]["by_status"].items()))),
+    ]))
+    out.append("")
+    out.append("Settings total: %d. Scenario rows total: %d."
+               % (len(settings), len(model["scenarios"])))
+    out.append("")
+    out.append("## Graph")
+    out.append("")
+    out.append("An arrow means \"is needed by\": `A --> B` reads \"B needs A\". Stadium shape = an upstream "
+               "extension rscode should run. Hexagon = blocked outside the code.")
+    out.append("")
+    out.append(render_graph(model))
+    out.append("")
+    out.append("## What to build next")
+    out.append("")
+    if not rank_order:
+        out.append("No rankable node.")
+    else:
+        rows = []
+        for rank, nid in enumerate(rank_order[:RANK_LIMIT], 1):
+            node = nodes[nid]
+            c = counts[nid]
+            rows.append((rank, nid, node["title"], effort_text(node),
+                         "%d / %d" % (c["direct_settings"], c["down_settings"]),
+                         "%d / %d" % (c["direct_scenarios"], c["down_scenarios"]),
+                         c["down_extensions"],
+                         ", ".join(c["direct_dependents"]) or "-"))
+        out.append(md_table(["#", "node", "title", "effort", "settings direct / downstream",
+                             "scenarios direct / downstream", "extensions downstream", "directly needed by"],
+                            rows))
+        out.append("")
+        out.append("Showing the top %d of %d rankable nodes. The full list is the table below." % (
+            min(RANK_LIMIT, len(rank_order)), len(rank_order)))
+    out.append("")
+    out.append("### Unlocked by in-progress work")
+    out.append("")
+    waiting = unlocked_by_in_progress(model)
+    if waiting:
+        out.append(md_table(["node", "title", "waiting on (in progress)", "downstream settings", "downstream scenarios"],
+                            [(nid, nodes[nid]["title"],
+                              ", ".join(d for d in nodes[nid]["needs"] if nodes[d]["status"] == "in-progress"),
+                              counts[nid]["down_settings"], counts[nid]["down_scenarios"]) for nid in waiting]))
+    else:
+        out.append("None.")
+    out.append("")
+    out.append("## Every node")
+    out.append("")
+    rows = []
+    for nid in sorted(nodes):
+        node = nodes[nid]
+        c = counts[nid]
+        rows.append((nid, node["title"], node["status"] + (" (deferred)" if node["deferred"] else ""),
+                     node["kind"], effort_text(node), ", ".join(node["needs"]) or "-",
+                     c["direct_settings"], c["down_settings"], c["direct_scenarios"], c["down_scenarios"],
+                     c["down_extensions"]))
+    out.append(md_table(["id", "title", "status", "kind", "effort", "needs", "settings direct",
+                         "settings downstream", "scenarios direct", "scenarios downstream",
+                         "extensions downstream"], rows))
+    out.append("")
+    out.append("## External blockers")
+    out.append("")
+    external = [nid for nid in sorted(nodes) if nodes[nid]["status"] == "blocked-external"]
+    for nid in external:
+        out.append("- **%s**: %s Unblocks %d settings and %d scenarios downstream." % (
+            nid, nodes[nid]["external"], counts[nid]["down_settings"], counts[nid]["down_scenarios"]))
+    out.append("")
+    out.append("## Checks and data notes")
+    out.append("")
+    cycles = find_cycles(nodes)
+    out.append("- Cycles in the needs graph: %s." % ("none" if not cycles else "; ".join(" -> ".join(c) for c in cycles)))
+    orphans = [nid for nid in sorted(nodes)
+               if nodes[nid]["status"] != "done" and not nodes[nid]["needs"]
+               and not counts[nid]["direct_dependents"]
+               and not counts[nid]["direct_settings"] and not counts[nid]["direct_scenarios"]]
+    done_leaves = [nid for nid in sorted(nodes)
+                   if nodes[nid]["status"] == "done" and not counts[nid]["direct_dependents"]]
+    out.append("- Orphan nodes (not done, no edges, nothing attributed): %s." % (", ".join(orphans) or "none"))
+    out.append("- Done nodes that nothing depends on yet (foundations, listed for completeness): %s."
+               % (", ".join(done_leaves) or "none"))
+    out.append("- Blocked settings with no node: %d. Exthost settings with no node: %d. Smoke blocker rows with no node: %d."
+               % (len(att["unattributed"]["blocked"]), len(att["unattributed"]["exthost"]),
+                  len(att["unattributed_rows"])))
+    out.append("- Todo settings matched by no node's `todo_globs`: %d. These have no dependency in the sources; they "
+               "are plain backlog (for example the accessibility signal and verbosity settings, the editor "
+               "unicode highlight settings and the testing settings)." % (status_counts["todo"] - todo_attr))
+    out.append("- DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is \"needs sash "
+               "grippers (the drawn handle in the middle of a sash)\" has a second `comment` and `match` pair "
+               "after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show "
+               "settings (29) therefore land on the sash reason. They need document symbols. The graph maps "
+               "that reason to `document-symbols` with a note.")
+    out.append("")
+    return "\n".join(out) + "\n"
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+
+def build(model=None):
+    model = model or load_model()
+    errors = validate(model)
+    if errors:
+        return model, None, errors
+    att = attribute(model)
+    counts = unlock_counts(model, att)
+    order = ranked(model, counts)
+    return model, (att, counts, order), []
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="dependency-tree", description=__doc__.split("\n\n")[0])
+    parser.add_argument("--check", action="store_true",
+                        help="exit 1 if docs/dependency-tree.md is out of date")
+    parser.add_argument("--out", default=OUT_PATH, help="output path (default docs/dependency-tree.md)")
+    args = parser.parse_args(argv)
+    try:
+        model, computed, errors = build()
+    except (DependencyTreeError, OSError, ValueError) as exc:
+        print("dependency-tree: %s" % exc, file=sys.stderr)
+        return 1
+    if errors:
+        for err in errors:
+            print("dependency-tree: %s" % err, file=sys.stderr)
+        return 1
+    att, counts, order = computed
+    text = render(model, att, counts, order)
+    if args.check:
+        try:
+            with open(args.out, encoding="utf-8") as fh:
+                current = fh.read()
+        except OSError:
+            current = ""
+        if current != text:
+            print("dependency-tree: %s is out of date; run python3 -I scripts/dependency-tree" % args.out,
+                  file=sys.stderr)
+            return 1
+        return 0
+    with open(args.out, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    print("dependency-tree: wrote %s (%d nodes, %d rankable)" % (args.out, len(model["nodes"]), len(order)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

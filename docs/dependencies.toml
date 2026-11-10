@@ -1,0 +1,1482 @@
+# Feature dependency graph for rscode. Read by scripts/dependency-tree, which writes
+# docs/dependency-tree.md (do not edit that file by hand). Hand-maintained: edit this file when
+# a feature lands, a new blocker shows up, or an edge turns out wrong.
+#
+# Sources the counts come from (never copied here):
+#   upstream/settings.toml        blocked reasons ([[rule]] reason) and exthost sources
+#   crates/vsr-app/src/config/wired.rs + crates/vsr-settings/assets/default-configuration.json
+#                                 wired / todo / n/a status, via scripts/settings-port
+#   tests/e2e-scenarios/*.md      smoke scenario status and blocker labels
+#   docs/research/extensions-compat.md section 4   extension phases P0-P7 and their effort
+#
+# Node fields (all optional except id, title, status):
+#   id          kebab-case, unique, used in `needs`
+#   title       short label
+#   status      done | in-progress | todo | blocked-external
+#   kind        feature (default) | extension (an upstream extension that rscode should run)
+#   effort      S | M | L | XL (or a source string such as "M-L"), "-" when done
+#   effort_source  "guess" or "extensions-compat §4 (P2)" (checked by the tests against §4)
+#   needs       node ids that must be done first (a directed edge: need -> node)
+#   reasons     EXACT blocked-reason strings from settings.toml. Each reason belongs to one node.
+#   sources     exthost sources (built-in extension ids from settings.toml). One node each.
+#   todo_globs  setting-key globs for todo settings this node would unblock (inferred by prefix
+#               unless the note says otherwise). Counted as "todo settings", not as blocked.
+#   scenarios   exact blocker labels from the e2e status column (split on ';', the prefix
+#               "blocked-on-feature " removed). A label may name several nodes.
+#   external    for blocked-external: what the blocker is and who must act
+#   deferred    true = a user priority decision (ROADMAP) keeps it out of the ranking
+#   note        free text; "inferred" marks an edge or mapping that no source states
+#
+# Counting rules are in docs/dependency-tree.md (header). Node statuses reflect the repo at
+# 2026-11-10 (HEAD d9d4c66). Sibling agents own ext-host-p1, editor-scrollbar,
+# overview-ruler-glyph-margin and sash-grippers (in-progress).
+
+# ---------------------------------------------------------------------------------------------
+# Done: foundations other nodes build on (ADR numbers in the title)
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "ext-host-p0"
+title = "Extension host P0: Node handshake (ADR-0060, ADR-0061)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "config-service"
+title = "Configuration service and live reload (ADR-0022)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "command-registry"
+title = "Command registry and Command Palette (ADR-0030)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "quick-open"
+title = "Quick Open on a reusable quick pick (ADR-0028)"
+status = "done"
+effort = "-"
+needs = []
+scenarios = ["quick open"]
+
+[[node]]
+id = "search-view"
+title = "Search view and find in files (ADR-0023, ADR-0029)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "editor-find-widget"
+title = "Editor Find widget (ADR-0027)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "theme-service"
+title = "Theme service, colour themes from JSON (ADR-0037)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "syntax-highlighting"
+title = "TextMate syntax highlighting (ADR-0038)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "language-config"
+title = "Language configuration: typing rules, comments, indentation (ADR-0046)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "file-watcher-explorer"
+title = "File watcher and Explorer file operations (ADR-0039)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "session-restore"
+title = "Session restore, hot exit, Welcome page (ADR-0040)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "settings-editor"
+title = "Settings editor UI (ADR-0017)"
+status = "done"
+effort = "-"
+needs = []
+scenarios = ["settings"]
+
+[[node]]
+id = "word-wrap"
+title = "Word wrap as a view-line projection (ADR-0036)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "breadcrumbs"
+title = "Breadcrumbs: path bar and dropdown (ADR-0047)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "editor-tabs"
+title = "Editor tabs: preview, MRU, placement, limit (ADR-0033)"
+status = "done"
+effort = "-"
+needs = []
+
+[[node]]
+id = "code-folding"
+title = "Code folding and sticky scroll (ADR-0042)"
+status = "done"
+effort = "-"
+needs = []
+
+# ---------------------------------------------------------------------------------------------
+# In progress (sibling agents and the extension host)
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "ext-host-p1"
+title = "Extension host P1: main-thread shapes for ErrorLens"
+status = "in-progress"
+effort = "M"
+effort_source = "extensions-compat §4 (P1)"
+needs = ["ext-host-p0"]
+scenarios = ["extension host"]
+note = "P1 is the first milestone (ErrorLens). Owned by the extension host worktree; HANDOFF lists the next steps."
+
+[[node]]
+id = "editor-scrollbar"
+title = "Editor scrollbar (vertical and horizontal)"
+status = "in-progress"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs an editor scrollbar (rscode draws no editor scrollbar yet)",
+]
+note = "Owned by the editor scrollbar sibling worktree (ADR-0053)."
+
+[[node]]
+id = "overview-ruler-glyph-margin"
+title = "Decoration lanes: overview ruler and glyph margin"
+status = "in-progress"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs the glyph margin and the overview ruler (decoration lanes next to the editor)",
+]
+note = "Owned by the overview ruler sibling worktree."
+
+[[node]]
+id = "sash-grippers"
+title = "Sash grippers (the drawn handle on a sash)"
+status = "in-progress"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs sash grippers (the dots drawn on a sash, which rscode does not draw)",
+]
+note = "Owned by the sash grippers sibling worktree (ADR-0051). The 29 breadcrumbs settings that carry the 'drawn handle' reason belong to document-symbols; see the data notes."
+
+# ---------------------------------------------------------------------------------------------
+# Extension host: main-side plumbing (roadmap P1 to P4)
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "child-process-main"
+title = "Child processes on the main side (spawn, stdio)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+note = "Needed by the LSP client (roadmap P2), tsserver (P2b), the native claude binary (P6) and php validation."
+
+[[node]]
+id = "workspace-fs-api"
+title = "workspace.fs and file system provider API (ext host)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+reasons = [
+  "needs the extension host's findFiles API (extensions)",
+]
+note = "findFiles is the reason for search.experimental.useIgnoreFilesInFindFiles. workspace.fs is P2 in extensions-compat §4."
+
+[[node]]
+id = "text-decorations"
+title = "TextEditorDecorationType (after and before text, gutter)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+note = "Part of the P1 scope (TextEditorDecorations). ErrorLens depends on it; no settings reason names it."
+
+[[node]]
+id = "diagnostics-model"
+title = "Diagnostics store (problems reported by language features)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+reasons = [
+  "needs diagnostics (problems reported by language features)",
+]
+note = "Part of the P1 scope (Diagnostics). ErrorLens reads it."
+
+[[node]]
+id = "file-participants"
+title = "File participants (create, rename, delete hooks from the ext host)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["workspace-fs-api"]
+reasons = [
+  "needs file participants (create, rename, delete) from the extension host",
+]
+
+[[node]]
+id = "lang-providers-main"
+title = "Language provider registry on the main side (LanguageFeatures shapes)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+scenarios = ["language services (outline, diagnostics)"]
+note = "Roadmap P2 'LanguageFeatures shapes' (completion, hover, code action, code lens, semantic tokens, folding, inlay, signature, formatting, definition). Every provider node below needs it."
+
+[[node]]
+id = "lsp-client"
+title = "LSP client over stdio (vscode-languageclient)"
+status = "todo"
+effort = "L"
+effort_source = "extensions-compat §4 (P2)"
+needs = ["child-process-main", "workspace-fs-api", "lang-providers-main"]
+note = "Roadmap P2 (oxc). Also needed by the built-in CSS, HTML and JSON features and by XML and Kotlin."
+
+[[node]]
+id = "completion-suggest"
+title = "Completion provider and suggest widget"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+reasons = [
+  "needs language features (completion provider + suggest widget, via the extension host)",
+]
+
+[[node]]
+id = "navigation-providers"
+title = "Definition, hover, code lens and inlay hint providers"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+reasons = [
+  "needs language features (definition / hover / code lens / inlay hint providers, via the extension host)",
+]
+
+[[node]]
+id = "refactor-code-actions"
+title = "Peek, rename, code actions and linked editing"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+reasons = [
+  "needs language features (peek, rename, code actions and linked editing through the extension host)",
+  "needs refactoring edits from language features (rename, code actions)",
+]
+
+[[node]]
+id = "formatting-providers"
+title = "Formatting providers (format on save, paste, type; default formatter)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+reasons = [
+  "needs formatting providers from the extension host",
+]
+
+[[node]]
+id = "folding-providers"
+title = "Folding range providers (ext host and LSP import ranges)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["lang-providers-main", "lsp-client"]
+reasons = [
+  "needs folding range providers from the extension host",
+  "needs language server folding range providers (import ranges)",
+]
+
+[[node]]
+id = "semantic-highlighting"
+title = "Semantic highlighting (semantic token providers)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["lang-providers-main", "syntax-highlighting"]
+note = "Inferred: semantic tokens are layered over the TextMate colours (ADR-0038)."
+reasons = [
+  "needs semantic highlighting (semantic token providers via the extension host)",
+]
+
+[[node]]
+id = "workspace-symbols"
+title = "Workspace symbols (symbol provider)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+reasons = [
+  "needs workspace symbols (symbol provider, via the extension host)",
+]
+
+[[node]]
+id = "color-decorators"
+title = "Colour decorators (document colour provider)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+reasons = [
+  "needs color decorators in the editor (document color provider)",
+]
+
+[[node]]
+id = "smart-select"
+title = "Expand Selection (smart select with selection range providers)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+reasons = [
+  "needs Expand Selection (smart select) with selection range providers",
+]
+
+[[node]]
+id = "document-symbols"
+title = "Document symbols: Outline view and breadcrumb symbols"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+reasons = [
+  "needs document symbols (outline provider from the extension host)",
+  "needs sash grippers (the drawn handle in the middle of a sash)",
+]
+note = "DATA BUG: the 29 settings under the 'drawn handle' reason are breadcrumbs.symbol* and breadcrumbs.show* (upstream/settings.toml lines 882-889). That [[rule]] has a second comment/match pair with no new table header, so its match is overwritten. They need document symbols, not sash grippers. Mapped here on purpose; fix the rule in settings.toml."
+
+[[node]]
+id = "diagnostics-view"
+title = "Problems view (diagnostics list)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["diagnostics-model"]
+todo_globs = ["problems*"]
+scenarios = ["editing, problems view", "problems view (language diagnostics)", "SCM (branch/sync status) and problems view"]
+
+# ---------------------------------------------------------------------------------------------
+# Upstream extensions rscode should run (kind = extension). Phase names from extensions-compat §4.
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "ext-errorlens"
+title = "ErrorLens"
+status = "todo"
+kind = "extension"
+effort = "M"
+effort_source = "extensions-compat §4 (P1)"
+needs = ["ext-host-p1", "text-decorations", "diagnostics-model"]
+note = "First milestone. Smallest surface: commands, configuration, status bar, decorations, diagnostics. No webviews, no LSP."
+
+[[node]]
+id = "ext-oxc"
+title = "oxc (LSP over stdio)"
+status = "todo"
+kind = "extension"
+effort = "L"
+effort_source = "extensions-compat §4 (P2)"
+needs = ["lsp-client", "lang-providers-main", "workspace-fs-api"]
+
+[[node]]
+id = "ext-ts-features"
+title = "TypeScript and JavaScript features (tsserver)"
+status = "todo"
+kind = "extension"
+effort = "M"
+effort_source = "extensions-compat §4 (P2b)"
+needs = ["lang-providers-main", "child-process-main"]
+sources = ["vscode.typescript-language-features"]
+
+[[node]]
+id = "ext-xml"
+title = "XML (lemminx, LSP and native binary)"
+status = "todo"
+kind = "extension"
+effort = "M"
+effort_source = "extensions-compat §4 (P3)"
+needs = ["lsp-client", "lang-providers-main", "child-process-main"]
+
+[[node]]
+id = "ext-kotlin"
+title = "Kotlin (LSP, runtime server download, DAP)"
+status = "todo"
+kind = "extension"
+effort = "L"
+effort_source = "extensions-compat §4 (P4)"
+needs = ["lsp-client", "lang-providers-main", "child-process-main", "debugger-dap"]
+
+[[node]]
+id = "builtin-lsp-css-html-json"
+title = "Built-in CSS, HTML and JSON language features"
+status = "todo"
+kind = "extension"
+effort = "M"
+effort_source = "guess"
+needs = ["lsp-client"]
+sources = ["vscode.css-language-features", "vscode.html-language-features", "vscode.json-language-features"]
+note = "Built-in extensions compiled from upstream. Their language servers run over LSP (inferred from upstream layout, not checked in this repo)."
+
+[[node]]
+id = "ext-emmet"
+title = "Emmet (built-in)"
+status = "todo"
+kind = "extension"
+effort = "M"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+sources = ["vscode.emmet"]
+
+[[node]]
+id = "ext-php"
+title = "PHP language features (built-in)"
+status = "todo"
+kind = "extension"
+effort = "M"
+effort_source = "guess"
+needs = ["lang-providers-main", "child-process-main"]
+sources = ["vscode.php-language-features"]
+
+[[node]]
+id = "ext-merge-conflict"
+title = "Merge conflict (CodeLens and decorations, built-in)"
+status = "todo"
+kind = "extension"
+effort = "S"
+effort_source = "guess"
+needs = ["lang-providers-main", "text-decorations"]
+sources = ["vscode.merge-conflict"]
+
+[[node]]
+id = "ext-task-runners"
+title = "npm, Grunt, Gulp and Jake task providers (built-in)"
+status = "todo"
+kind = "extension"
+effort = "S"
+effort_source = "guess"
+needs = ["tasks-runner"]
+sources = ["vscode.npm", "vscode.grunt", "vscode.gulp", "vscode.jake"]
+
+[[node]]
+id = "markdown-features"
+title = "Markdown language features, preview and Mermaid (built-in)"
+status = "todo"
+kind = "extension"
+effort = "L"
+effort_source = "guess"
+needs = ["webview-service", "lang-providers-main"]
+sources = ["vscode.markdown-language-features", "vscode.mermaid-markdown-features", "vscode.markdown-math"]
+note = "The preview is a webview. Math and Mermaid render in it (inferred)."
+
+[[node]]
+id = "ext-gitlens"
+title = "GitLens"
+status = "todo"
+kind = "extension"
+effort = "XL"
+effort_source = "extensions-compat §4 (P5)"
+needs = ["ext-host-p1", "webview-service", "tree-views", "integrated-terminal", "tasks-runner", "git-scm"]
+
+[[node]]
+id = "ext-claude-code"
+title = "Claude Code"
+status = "todo"
+kind = "extension"
+effort = "XL"
+effort_source = "extensions-compat §4 (P6)"
+needs = ["ext-host-p1", "webview-service", "integrated-terminal", "child-process-main", "uri-handler"]
+note = "Needs webviews, a terminal with shell integration, and the native claude binary spawned from the ext host."
+
+[[node]]
+id = "ext-pr-github"
+title = "GitHub Pull Requests"
+status = "todo"
+kind = "extension"
+effort = "XXL"
+effort_source = "extensions-compat §4 (P7)"
+needs = ["ext-host-p1", "webview-service", "tree-views", "git-scm", "uri-handler", "auth-providers", "comments-api", "proposed-api-gating", "workspace-fs-api", "lm-tools"]
+note = "Roadmap P7 lists LM tools as a need. Registering language-model tools presupposes the chat surface, which is a product decision."
+
+# ---------------------------------------------------------------------------------------------
+# Extension host APIs used by the extensions above
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "auth-providers"
+title = "Authentication providers (GitHub sign-in, secret storage)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+note = "PR GitHub needs vscode.github-authentication compiled and wired to a credential store (extensions-compat §4 P7)."
+
+[[node]]
+id = "comments-api"
+title = "Comments API (comment controller, proposed comment APIs)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["ext-host-p1", "text-decorations"]
+
+[[node]]
+id = "proposed-api-gating"
+title = "Proposed API allowlist (product config)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+note = "PR GitHub enables 32 proposals. product.json not located in vscode-original (extensions-compat §6)."
+
+[[node]]
+id = "uri-handler"
+title = "URI handler and env.openExternal (auth callbacks)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["ext-host-p1", "link-opener"]
+
+[[node]]
+id = "tree-views"
+title = "Tree views from extensions (createTreeView) and References view"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["ext-host-p1", "view-containers"]
+reasons = [
+  "needs extension views (view containers)",
+]
+sources = ["vscode.references-view"]
+
+[[node]]
+id = "lm-tools"
+title = "Language model tools (lm.registerTool)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["chat-agents"]
+note = "Inferred dependency: tool registration needs the chat surface."
+
+[[node]]
+id = "extension-marketplace"
+title = "Extension marketplace and install"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+todo_globs = ["extensions*"]
+scenarios = ["marketplace"]
+
+# ---------------------------------------------------------------------------------------------
+# Webviews, browser, links
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "webview-service"
+title = "Webview service (embedded web view, wry or WKWebView)"
+status = "todo"
+effort = "XL"
+effort_source = "extensions-compat §4 (P6)"
+needs = ["cargo-proxy-token"]
+note = "Inferred: the webview needs a new crate, which is blocked by the cargo token (HANDOFF item 1). Effort from extensions-compat §4 P6 ('blocked on webview service')."
+
+[[node]]
+id = "browser-view"
+title = "Browser view (built-in browser)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["webview-service"]
+sources = ["vscode.simple-browser"]
+scenarios = ["browser view", "browser view and chat", "browser view and chat/agents", "keybindings", "permissions"]
+
+[[node]]
+id = "link-opener"
+title = "External browser and URI openers"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs link opening (external browser and URI openers)",
+]
+
+[[node]]
+id = "link-detection"
+title = "Link detection and Cmd+click"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["link-opener"]
+reasons = [
+  "needs link detection and Cmd+click (the link provider and opener)",
+  "needs ctrl+click (go to definition, multi-cursor) and link detection",
+]
+
+# ---------------------------------------------------------------------------------------------
+# Terminal, tasks, debug, notebooks, panels
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "cargo-proxy-token"
+title = "Cargo proxy token in the agent shell"
+status = "blocked-external"
+external = "User action: export CARGO_REGISTRIES_REPOSERVER_TOKEN into the agent's shell, or allow sourcing ~/.local/share/ws-cli/rc/reposerver/env.sh (HANDOFF item 1). Without it no new crate can be fetched."
+effort = "-"
+needs = []
+
+[[node]]
+id = "bottom-panel"
+title = "Bottom panel (Panel container for Output, Problems, Terminal)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = []
+todo_globs = ["workbench.panel*"]
+note = "No external blocker. HANDOFF defers the terminal and the bottom panel together."
+
+[[node]]
+id = "integrated-terminal"
+title = "Integrated terminal (pty, shell integration, terminal editors)"
+status = "blocked-external"
+external = "Cargo proxy token (HANDOFF item 1). ADR-0045 reserves alacritty_terminal and portable-pty, both new crates. The user chose to defer the terminal (ROADMAP 2)."
+effort = "L"
+effort_source = "guess"
+needs = ["cargo-proxy-token", "bottom-panel"]
+todo_globs = ["terminal*"]
+scenarios = ["terminal", "terminal sandbox"]
+note = "~48 terminal.integrated.* settings are parked on this (HANDOFF). todo_globs counts all terminal* todo settings."
+
+[[node]]
+id = "tasks-runner"
+title = "Tasks (tasks.json, task runner, output in the terminal)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["integrated-terminal"]
+todo_globs = ["task*"]
+scenarios = ["tasks"]
+note = "Inferred: task output runs in the terminal. The scenarios name only 'tasks'."
+
+[[node]]
+id = "debugger-dap"
+title = "Debugger: debug adapter protocol and debug views"
+status = "todo"
+effort = "XL"
+effort_source = "guess"
+needs = ["ext-host-p1", "child-process-main"]
+sources = ["ms-vscode.js-debug"]
+todo_globs = ["debug*"]
+
+[[node]]
+id = "notebook-editor"
+title = "Notebook editor (cells, outputs, ipynb)"
+status = "todo"
+effort = "XL"
+effort_source = "guess"
+needs = ["custom-editors"]
+sources = ["vscode.ipynb"]
+todo_globs = ["notebook*"]
+reasons = [
+  "needs notebook editors and notebook search",
+]
+scenarios = ["notebooks"]
+note = "Inferred: a notebook is a custom editor type."
+
+[[node]]
+id = "secondary-sidebar"
+title = "Secondary side bar"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+todo_globs = ["workbench.secondarySideBar*"]
+
+# ---------------------------------------------------------------------------------------------
+# Source control (roadmap 4: not a priority)
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "git-scm"
+title = "Git and SCM (built-in vscode.git, Source Control view)"
+status = "todo"
+deferred = true
+effort = "XL"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+sources = ["vscode.git"]
+todo_globs = ["scm*"]
+scenarios = ["SCM (branch status) and quick input pickers", "SCM (branch/sync status) and problems view"]
+note = "ROADMAP 4: Git integration is not a priority. Excluded from the ranking. vscode.git (103 exthost settings) is the largest exthost source after the language features."
+
+# ---------------------------------------------------------------------------------------------
+# Editor core and layout
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "editor-groups"
+title = "Editor splits and editor groups"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs editor splits and editor groups (one group in rscode)",
+]
+todo_globs = ["workbench.editor.split*"]
+
+[[node]]
+id = "tab-strip-presentation"
+title = "Tab strip presentation (scrollbars, wrapping, pinned tabs, actions)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs tab strip presentation (scrollbars, wrapping, pinned tabs, actions)",
+]
+
+[[node]]
+id = "navigation-history"
+title = "Navigation history (Go Back, Go Forward)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs navigation history (Go Back / Go Forward)",
+]
+
+[[node]]
+id = "open-editors-pane"
+title = "Open Editors pane in the Explorer"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs an Open Editors pane in the Explorer",
+]
+
+[[node]]
+id = "custom-editors"
+title = "Custom editors (editor types per file)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs custom editors (the editor type dropdown switches between editors for one file)",
+]
+
+[[node]]
+id = "diff-editor"
+title = "Diff editor (side by side and inline)"
+status = "todo"
+effort = "XL"
+effort_source = "guess"
+needs = ["custom-editors"]
+reasons = [
+  "needs custom editors for diff views",
+]
+todo_globs = ["diffEditor*", "multiDiffEditor*"]
+
+[[node]]
+id = "untitled-editors"
+title = "Untitled editors (new files)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs untitled editors (new files)",
+]
+
+[[node]]
+id = "non-text-editors"
+title = "Untitled, binary, custom and large-file editors"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["untitled-editors", "custom-editors"]
+reasons = [
+  "needs untitled, binary, custom and large-file editors",
+]
+
+[[node]]
+id = "large-file-mode"
+title = "Large file mode (features off for very big files)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs large file mode (features switched off for very big files)",
+]
+
+[[node]]
+id = "language-detection"
+title = "Language detection for untitled and unknown files"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["untitled-editors"]
+reasons = [
+  "needs language detection for untitled and unknown files",
+]
+
+[[node]]
+id = "text-encodings"
+title = "Text encodings other than UTF-8"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs text encodings other than UTF-8 (detection, decoding on open, encoding on save)",
+]
+
+[[node]]
+id = "symlink-watching"
+title = "Watching symlinked folders"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["file-watcher-explorer"]
+reasons = [
+  "needs watching of symlinked folders (watcherInclude adds paths the watcher does not follow)",
+]
+
+[[node]]
+id = "hot-exit-undo"
+title = "Undo history saved with the hot exit backup"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["session-restore"]
+reasons = [
+  "needs the undo history saved with the backup",
+]
+
+[[node]]
+id = "unusual-line-terminators"
+title = "Unusual line terminator prompts"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs the unusual line terminators prompt on open and save",
+]
+
+[[node]]
+id = "unicode-word-segmentation"
+title = "Unicode word segmentation (UAX #29 / ICU)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs Unicode word segmentation (UAX #29 / ICU) in the editing core",
+]
+
+[[node]]
+id = "paste-indentation"
+title = "Paste re-indentation (AutoIndentOnPaste)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["language-config"]
+reasons = [
+  "needs paste re-indentation (the AutoIndentOnPaste contribution)",
+]
+
+[[node]]
+id = "per-language-settings"
+title = "Per-language setting scopes ([language] overrides)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["config-service"]
+reasons = [
+  "needs per-language setting scopes ([language] overrides) in the configuration service",
+]
+
+[[node]]
+id = "bracket-pair-model"
+title = "Bracket pair model (guides and colourisation over the whole buffer)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["language-config"]
+reasons = [
+  "needs bracket pair guides (a pair model over the whole buffer)",
+  "needs bracket pair colorization (a pair model over the whole buffer)",
+]
+
+[[node]]
+id = "editor-multi-cursor"
+title = "Multi-cursor editing and column selection"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs multi-cursor editing (column selection creates a cursor per line)",
+  "needs multi-cursor selection commands (Add Selection To Next Find Match) and selection match modes",
+  "needs multi-line selection matches",
+]
+
+[[node]]
+id = "editor-drag-drop"
+title = "Text drag and drop in the editor"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs text drag and drop in the editor (dragging a selection with the mouse)",
+]
+
+[[node]]
+id = "editor-double-click-block"
+title = "Double click block selection"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs double click block selection in the mouse handler",
+]
+
+[[node]]
+id = "scroll-capture"
+title = "Scroll capture on the editor surface (wheel zoom, sensitivity, middle click)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs a scroll capture on the editor surface",
+]
+
+[[node]]
+id = "animations"
+title = "Animations (caret, scroll tween, workbench transitions)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs caret animation (a tween of the caret across frames)",
+  "needs scroll animation (a tween of the scroll position across frames)",
+  "needs workbench animations and translucent surfaces (there are none yet)",
+]
+
+[[node]]
+id = "editor-view-zones"
+title = "Editor view zones and top and bottom padding"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs editor top padding for the Find widget (view zone)",
+  "needs top and bottom padding in the editor list (scroll height and hit testing)",
+]
+
+[[node]]
+id = "overtype-input"
+title = "Overtype input mode (Insert key)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs overtype input mode (the Insert key toggle) in vsr-editor",
+]
+
+[[node]]
+id = "soft-tab-cursor"
+title = "Atomic soft tab cursor moves"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs atomic soft tab cursor moves in vsr-editor",
+]
+
+[[node]]
+id = "wrap-escaped-line-feeds"
+title = "Wrapping at literal escaped line feeds"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["word-wrap"]
+reasons = [
+  "needs wrapping at literal escaped line feeds in the wrap projection",
+]
+
+[[node]]
+id = "accessibility-tree"
+title = "Accessibility tree from gpui (screen readers)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs screen reader support (an accessibility tree from gpui)",
+]
+scenarios = ["accessibility APIs (axe-core DOM audit)"]
+
+[[node]]
+id = "gpui-text-rendering"
+title = "gpui text system gaps (letter spacing, font variation axes, smoothing)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs letter spacing in gpui text (and full-width cell widths in the text layout)",
+  "needs letter spacing in the text system (gpui has none)",
+  "needs font variation axes in gpui text shaping",
+  "needs font smoothing control in gpui (text rendering)",
+]
+
+[[node]]
+id = "hover-delay"
+title = "Hover widgets with a configurable delay"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs hover widgets with a configurable delay (gpui tooltips use a fixed delay)",
+]
+
+[[node]]
+id = "editor-watermark-tips"
+title = "Watermark tips for the empty editor"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs watermark tips for the empty editor",
+]
+
+# ---------------------------------------------------------------------------------------------
+# Explorer, search, workbench, window
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "explorer-copy-paste"
+title = "Explorer copy, paste and duplicate"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs copy and paste in the Explorer",
+  "needs Explorer copy, paste and duplicate (incremental names apply to duplicated items)",
+]
+scenarios = ["blocked (needs Explorer copy, paste and duplicate)"]
+
+[[node]]
+id = "explorer-drag-drop"
+title = "Explorer drag and drop"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs drag and drop in the Explorer",
+]
+scenarios = ["blocked (needs drag and drop, undo, multi-root workspaces, file decorations)"]
+
+[[node]]
+id = "explorer-undo"
+title = "Undo for Explorer file operations"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs undo for Explorer file operations",
+]
+scenarios = ["blocked (needs drag and drop, undo, multi-root workspaces, file decorations)"]
+
+[[node]]
+id = "multi-root-workspaces"
+title = "Multi-root workspaces"
+status = "todo"
+effort = "XL"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs multi-root workspaces",
+  "needs untitled workspace files (multi-root workspaces)",
+]
+scenarios = ["multi-root workspaces", "blocked (needs drag and drop, undo, multi-root workspaces, file decorations)"]
+
+[[node]]
+id = "file-decorations"
+title = "File decorations and custom tab labels"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs file decorations and custom tab labels",
+]
+scenarios = ["blocked (needs drag and drop, undo, multi-root workspaces, file decorations)"]
+
+[[node]]
+id = "file-dialogs"
+title = "File dialogs (open folder, save as)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["modal-dialogs"]
+reasons = [
+  "needs file dialogs (open folder, save as)",
+]
+
+[[node]]
+id = "modal-dialogs"
+title = "Modal confirm dialogs"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs a confirm dialog (modal) before closing the window",
+]
+
+[[node]]
+id = "search-editor"
+title = "Search editor (results in an editor tab)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["untitled-editors"]
+reasons = [
+  "needs the Search Editor",
+  "needs the search editor (search results in an editor tab)",
+]
+note = "Inferred: the search editor is an untitled text editor."
+
+[[node]]
+id = "search-tree-view"
+title = "Search tree view and action bar placement"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs the Search tree view (folders as a hierarchy)",
+  "needs actionbar placement by row width (search.actionsPosition auto)",
+]
+
+[[node]]
+id = "quick-search-picker"
+title = "Quick Search picker (results in Quick Access)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["quick-open", "search-view"]
+reasons = [
+  "needs the Quick Search picker (search results in Quick Access)",
+]
+
+[[node]]
+id = "macos-pasteboards"
+title = "macOS find pasteboard and rich clipboard (HTML flavour)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs the macOS find pasteboard (the shared find clipboard)",
+  "needs a rich clipboard (the HTML flavour with token colours)",
+]
+
+[[node]]
+id = "replace-preview"
+title = "Replace preview"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs the Replace Preview (a preview of each replace before it is applied)",
+]
+
+[[node]]
+id = "command-palette-suggestions"
+title = "Suggested commands in the Command Palette"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["command-registry"]
+reasons = [
+  "needs the suggested commands list (commands ranked by use for the palette)",
+]
+
+[[node]]
+id = "notifications"
+title = "Notification toasts and the notifications centre"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs notification toasts and the notifications centre",
+]
+
+[[node]]
+id = "file-icon-themes"
+title = "File icon themes"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["theme-service"]
+reasons = [
+  "needs file icon themes",
+]
+note = "The file icon theme assets are not bundled (theme-defaults note in ports.toml)."
+
+[[node]]
+id = "context-menus"
+title = "Context menus"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs context menus (rscode has none yet)",
+]
+
+[[node]]
+id = "shadows-frosted-glass"
+title = "Shadows on floating surfaces and frosted glass"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs shadows on floating surfaces (menus and pop-ups) and the modern UI frosted glass",
+]
+note = "Inferred: menus are not built yet, so the shadow lands with context menus. The edge is not in the sources."
+
+[[node]]
+id = "view-containers"
+title = "View containers that can be hidden"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs view containers that can be hidden (rscode always shows four)",
+]
+
+[[node]]
+id = "view-header-actions"
+title = "View header actions shown on hover and focus"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs view header actions that show on hover and focus (they are always visible)",
+]
+
+[[node]]
+id = "os-appearance"
+title = "OS high contrast signal and native window appearance"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs the OS high contrast signal and a native window appearance override",
+]
+
+[[node]]
+id = "native-window-chrome"
+title = "Native title bar, full screen and first-mouse click"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["session-restore"]
+reasons = [
+  "needs a native title bar and a full screen mode",
+  "needs a native title bar mode (window options are fixed when the window opens)",
+  "needs first-mouse click handling for inactive windows (gpui accepts the first click)",
+  "needs window state (full screen) in the session store",
+]
+
+[[node]]
+id = "title-bar-controls"
+title = "Title bar navigation and layout controls"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs the title bar navigation and layout controls",
+]
+
+[[node]]
+id = "multi-window"
+title = "Multiple windows (native window tabs, zoom and size per window)"
+status = "todo"
+effort = "XL"
+effort_source = "guess"
+needs = ["native-window-chrome"]
+reasons = [
+  "needs multi-window support (native window tabs, several windows, zoom and size per window)",
+  "needs multi-window support (dragging out opens a window)",
+]
+
+[[node]]
+id = "window-without-folder"
+title = "Windows without a folder"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["multi-window"]
+reasons = [
+  "needs windows without a folder (rscode always opens a folder)",
+]
+
+[[node]]
+id = "user-profiles"
+title = "User profiles"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["multi-window"]
+reasons = [
+  "needs user profiles",
+]
+
+[[node]]
+id = "workspace-trust"
+title = "Workspace trust"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+todo_globs = ["security*"]
+
+[[node]]
+id = "zen-mode"
+title = "Zen mode"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = []
+todo_globs = ["zenMode*"]
+
+[[node]]
+id = "native-policy-proxy"
+title = "Native policy and HTTP proxy"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+todo_globs = ["http*"]
+scenarios = ["native policy (plus settings editor)", "remote (WSL) and native policy/proxy"]
+
+[[node]]
+id = "localization"
+title = "Localization (NLS)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = []
+scenarios = ["localization"]
+
+# ---------------------------------------------------------------------------------------------
+# Blocked outside the code: product decisions and environment
+# ---------------------------------------------------------------------------------------------
+
+[[node]]
+id = "chat-agents"
+title = "AI chat, agents, copilot and AI search"
+status = "blocked-external"
+external = "Product decision: AI chat and agents are not in scope (318 settings are n/a in upstream/settings.toml). Needs a user decision before any of it is built."
+effort = "-"
+needs = []
+reasons = [
+  "needs AI search (semantic index and keyword suggestions)",
+  "needs the modern UI layout (workbench.experimental.modernUI) and the Agents window",
+]
+scenarios = ["chat/agents", "chat/agents (command palette, settings)", "agent host", "Codex SDK", "sandbox", "browser view and chat", "browser view and chat/agents"]
+
+[[node]]
+id = "remote-development"
+title = "Remote development (dev containers, WSL)"
+status = "blocked-external"
+external = "Product decision: ADR-0019 scopes rscode to macOS desktop. Remote development is out of scope unless the user changes it."
+effort = "-"
+needs = []
+reasons = [
+  "needs a remote indicator in the status bar (remote development)",
+]
+scenarios = ["remote (dev containers)", "remote (WSL) and native policy/proxy"]
+
+[[node]]
+id = "cross-version-migration"
+title = "Cross-version state migration (needs a stable VS Code install)"
+status = "blocked-external"
+external = "Environment: the scenarios need a stable VS Code install on the machine, which the repo does not provide."
+effort = "-"
+needs = []
+scenarios = ["cross-version state migration", "cross-version state migration (needs stable VS Code install)"]

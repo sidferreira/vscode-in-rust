@@ -7331,6 +7331,7 @@ dependencies = [
  "globset",
  "serde_json",
  "vsr-rpc",
+ "vsr-search",
  "vsr-settings",
 ]
 

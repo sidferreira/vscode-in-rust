@@ -118,6 +118,11 @@ impl ExtensionHost {
         }
         let extension_defaults = nest(defaults);
         let defaults = merge(p.default_settings.clone(), extension_defaults.clone());
+        main_thread.workspace = crate::workspace_search::WorkspaceService::new(
+            p.workspace.iter().map(|(_, path)| path.clone()).collect(),
+            &defaults,
+            &p.user_settings,
+        );
 
         let codec = |e: vsr_rpc::codec::CodecError| HostError::Codec(e.to_string());
         let ws = session
@@ -337,6 +342,10 @@ impl ExtensionHost {
         changed_keys: &[&str],
         timeout: Duration,
     ) -> Result<(), HostError> {
+        self.main_thread.workspace.set_layers(
+            &merge(defaults.clone(), self.extension_defaults.clone()),
+            &user,
+        );
         let data = configuration_data(merge(defaults, self.extension_defaults.clone()), user);
         self.call(
             ext_host::EXT_HOST_CONFIGURATION,

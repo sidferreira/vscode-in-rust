@@ -148,6 +148,7 @@ pub struct MainThread {
     pub documents: crate::documents::Documents,
     pub language_features: crate::language_features::main_thread::LanguageFeatures,
     pub file_system: crate::file_system::FileSystem,
+    pub workspace: crate::workspace_search::WorkspaceService,
     /// `MainThreadConsole.$logExtensionHostMessage` payloads (the host's own warnings land here,
     /// for example `Could not identify extension for 'vscode' require`).
     pub console: Vec<Value>,
@@ -171,6 +172,7 @@ impl MainThread {
             main::MAIN_THREAD_DOCUMENTS => self.documents.handle(call),
             main::MAIN_THREAD_LANGUAGE_FEATURES => self.language_features.handle(call),
             main::MAIN_THREAD_FILE_SYSTEM => self.file_system.handle(call),
+            main::MAIN_THREAD_WORKSPACE => self.workspace.handle(call),
             main::MAIN_THREAD_CONSOLE if call.method == "$logExtensionHostMessage" => {
                 self.console.push(arg(call, 0).clone());
                 Some(Ok(Reply::Empty))

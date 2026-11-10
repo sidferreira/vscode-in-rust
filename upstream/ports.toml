@@ -914,6 +914,10 @@ upstream = [
   "src/vs/workbench/api/common/extHostFileSystemConsumer.ts",
   "src/vs/workbench/api/common/extHostFileSystemEventService.ts",
   "src/vs/platform/files/common/files.ts",
+  "src/vs/workbench/api/browser/mainThreadWorkspace.ts",
+  "src/vs/workbench/api/test/browser/mainThreadWorkspace.test.ts",
+  "src/vs/workbench/api/common/extHostWorkspace.ts",
+  "src/vs/workbench/services/search/common/queryBuilder.ts",
   "src/vs/workbench/api/browser/mainThreadStatusBar.ts",
   "src/vs/workbench/api/browser/mainThreadDiagnostics.ts",
   "src/vs/workbench/api/browser/mainThreadEditors.ts",
@@ -942,6 +946,11 @@ rust = [
   "crates/vsr-exthost/src/file_watcher.rs",
   "crates/vsr-exthost/tests/workspace_fs_real_host.rs",
   "crates/vsr-exthost/tests/fixtures/fs-fixture/extension.js",
+  "crates/vsr-exthost/src/workspace_search.rs",
+  "crates/vsr-exthost/tests/upstream_mainthreadworkspace.rs",
+  "crates/vsr-exthost/tests/workspace_find_real_host.rs",
+  "crates/vsr-exthost/tests/workspace_search_main_thread.rs",
+  "crates/vsr-search/src/files.rs",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "The UI-free main-thread side of the extension host (ADR-0064): IExtensionDescription from a folder, the MainThread* shapes as models (extension service first), and ExtensionHost, which boots the real host, pumps its events and makes the typed calls. Tested against upstream's real extension host with a fixture extension written in this repo (it stands in for ErrorLens); needs RSCODE_CODE_OSS."

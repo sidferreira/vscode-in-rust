@@ -3,10 +3,24 @@
   "displayName": "workspace.fs fixture",
   "publisher": "rscode-test",
   "version": "0.0.1",
-  "engines": { "vscode": "^1.80.0" },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
   "main": "./extension.js",
-  "activationEvents": ["onCommand:fixture.fsRun"],
+  "activationEvents": [
+    "onCommand:fixture.fsRun",
+    "onCommand:fixture.findFiles"
+  ],
   "contributes": {
-    "commands": [{ "command": "fixture.fsRun", "title": "Fixture: workspace.fs" }]
+    "commands": [
+      {
+        "command": "fixture.fsRun",
+        "title": "Fixture: workspace.fs"
+      },
+      {
+        "command": "fixture.findFiles",
+        "title": "Fixture: findFiles"
+      }
+    ]
   }
 }

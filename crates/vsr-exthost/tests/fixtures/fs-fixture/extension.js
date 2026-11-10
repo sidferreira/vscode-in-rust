@@ -21,7 +21,21 @@ async function attempt(report, label, fn) {
 
 exports.activate = function (ctx) {
 	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.fsRun', (dir, outside) => run(dir, outside)));
+	ctx.subscriptions.push(vscode.commands.registerCommand('fixture.findFiles', () => findFiles()));
 };
+
+// workspace.findFiles: the include and exclude arguments, the result limit, a RelativePattern, and
+// the user's files.exclude. Results are paths relative to the workspace, sorted.
+async function findFiles() {
+	const dir = vscode.workspace.workspaceFolders[0].uri.fsPath;
+	const rel = uris => uris.map(u => path.relative(dir, u.fsPath).split(path.sep).join('/')).sort();
+	const out = {};
+	out.all = rel(await vscode.workspace.findFiles('**/*.txt'));
+	out.excluded = rel(await vscode.workspace.findFiles('**/*.txt', '**/skip/**'));
+	out.limited = (await vscode.workspace.findFiles('**/*.txt', undefined, 2)).length;
+	out.relative = rel(await vscode.workspace.findFiles(new vscode.RelativePattern(vscode.Uri.file(path.join(dir, 'sub')), '*.txt')));
+	return out;
+}
 
 async function run(dir, outside) {
 	const u = (...parts) => vscode.Uri.file(path.join(dir, ...parts));

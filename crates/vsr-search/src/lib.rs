@@ -5,9 +5,11 @@
 //! * [`glob`] / [`patterns`]: VS Code glob syntax, "files to include/exclude" parsing and the filter;
 //! * [`preview`]: result previews with elision around long lines;
 //! * [`settings`]: the settings that drive a search, with upstream defaults;
-//! * [`engine`]: the streaming search (`ignore` walker + `grep-searcher`).
+//! * [`engine`]: the streaming search (`ignore` walker + `grep-searcher`);
+//! * [`files`]: the file-name listing behind `workspace.findFiles` (same walker and filter).
 
 pub mod engine;
+pub mod files;
 pub mod glob;
 pub mod patterns;
 pub mod preview;

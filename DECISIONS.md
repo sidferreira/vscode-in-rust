@@ -2690,3 +2690,37 @@ lives on the worker:
   the code a user would catch (`FileNotFound`, `FileExists`, `FileIsADirectory`, `FileNotADirectory`,
   `NoPermissions`, `Unavailable`), and the forwarded guards refuse outside the workspace with nothing
   touched.
+
+## ADR-0089 — `workspace.findFiles` on the main side: the query, the settings it honours, and what is not served (2026-11-10)
+
+- **Where it runs.** `$startFileSearch` and `$checkExists` are answered by `MainThreadWorkspace`
+  (`vsr-exthost/src/workspace_search.rs`), listing the files with `vsr-search::files::find_files`: the
+  walker and glob filter that find-in-files uses (`ignore` walker, `FileFilter`). No new crate. The
+  listing runs synchronously in the pump, so a huge workspace blocks it until `maxResults` is reached;
+  there is no cancellation mid-walk (a known gap).
+- **The query** (`plan_file_query`, pure, tested against upstream's `mainThreadWorkspace.test.ts`):
+  the include is `includePattern` (or `filePattern`, the findFiles2 form). `excludePattern` entries
+  (`{ pattern }` or strings) apply on top of the settings. `files.exclude` and `search.exclude` apply
+  unless the call disregards them: `disregardExcludeSettings` drops both, `disregardSearchExcludeSettings`
+  drops `search.exclude`. `disregardIgnoreFiles` (the legacy `findFiles` always sends it) turns ignore
+  files off; otherwise `search.useIgnoreFiles` decides. `ignoreSymlinks` overrides
+  `search.followSymlinks`. `maxResults` is shared across the folders.
+- **Settings.** The defaults and user layers are read at boot and again on `$acceptConfigurationChanged`
+  (`settings_from`): `files.exclude`, `search.exclude` (boolean entries; the `when` object form is not
+  used), `search.useIgnoreFiles`, `search.followSymlinks`. Upstream's defaults are the starting point.
+- **Folders.** The workspace folder from `BootParams.workspace`. `includeFolder` (a RelativePattern's
+  folder) searches that folder alone. Results are `file` URIs, sorted within each folder.
+- **Differences, stated.** Globs match the path relative to the folder, as the walker does; a bare
+  `*.ts` matches at the folder root only (upstream's query builder may prefix `**/`, not done). `ignoreGlobCase`
+  is honoured by the matcher. Hidden files are listed (upstream lists them too). Nothing from
+  `files.exclude` in the `when` form, nothing from `search.exclude` on the legacy path (it is disregarded
+  there, as upstream).
+- **Not served:** `$startTextSearch` (text search runs through find-in-files in the app, not through the
+  host), `$handleFileMatch` / `$handleTextMatch`, and the `findFiles2` fuzzy `filePattern` ranking (the
+  pattern is taken as a glob).
+- **Tests.** `vsr-search` `files` unit tests (include, excludes and exceptions, query excludes,
+  `.gitignore` only when asked, the limit); `tests/upstream_mainthreadworkspace.rs` (the five upstream cases,
+  titles exact); `tests/workspace_search_main_thread.rs` (both calls through `MainThread::handle`, the
+  shared limit, `$checkExists`); `tests/workspace_find_real_host.rs` (a fixture calls `workspace.findFiles`
+  with an include, an exclude string, a result limit and a `RelativePattern`, with the user's
+  `files.exclude` applied, through the real host).

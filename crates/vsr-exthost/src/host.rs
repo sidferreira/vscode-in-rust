@@ -118,6 +118,12 @@ impl ExtensionHost {
         }
         let extension_defaults = nest(defaults);
         let defaults = merge(p.default_settings.clone(), extension_defaults.clone());
+        main_thread.workspace = crate::workspace_search::WorkspaceService::new(
+            p.workspace.iter().map(|(_, path)| path.clone()).collect(),
+            &defaults,
+            &p.user_settings,
+        );
+        main_thread.file_watchers.folders = p.workspace.iter().map(|(_, path)| path.clone()).collect();
 
         let codec = |e: vsr_rpc::codec::CodecError| HostError::Codec(e.to_string());
         let ws = session
@@ -195,7 +201,33 @@ impl ExtensionHost {
             }
             next = self.events.try_recv().ok();
         }
+        self.flush_file_events();
         n
+    }
+
+    /// `ExtHostFileSystemEventService.$onFileEvent`: the changes the watchers were promised, sent
+    /// without waiting for the reply (ADR-0090).
+    fn flush_file_events(&mut self) {
+        let Some(payload) = self.main_thread.file_watchers.take_payload() else {
+            return;
+        };
+        if let Some(session) = self.session.as_ref() {
+            let _ = session.request(
+                ext_host::EXT_HOST_FILE_SYSTEM_EVENT_SERVICE,
+                "$onFileEvent",
+                &[Arg::Json(payload)],
+            );
+        }
+    }
+
+    /// A change made through the app (a save, a rename, a delete): the watchers hear of it
+    /// (ADR-0090). Changes the host makes itself are not reported here.
+    pub fn file_changed(&mut self, kind: crate::file_watcher::ChangeKind, path: &Path) {
+        self.main_thread.file_watchers.accept(vec![crate::file_watcher::FileChange {
+            kind,
+            path: path.to_path_buf(),
+        }]);
+        self.flush_file_events();
     }
 
     /// Wait for the reply to one of our requests while serving the host's.
@@ -337,6 +369,10 @@ impl ExtensionHost {
         changed_keys: &[&str],
         timeout: Duration,
     ) -> Result<(), HostError> {
+        self.main_thread.workspace.set_layers(
+            &merge(defaults.clone(), self.extension_defaults.clone()),
+            &user,
+        );
         let data = configuration_data(merge(defaults, self.extension_defaults.clone()), user);
         self.call(
             ext_host::EXT_HOST_CONFIGURATION,

@@ -147,6 +147,9 @@ pub struct MainThread {
     pub diagnostics: crate::diagnostics::Diagnostics,
     pub documents: crate::documents::Documents,
     pub language_features: crate::language_features::main_thread::LanguageFeatures,
+    pub file_system: crate::file_system::FileSystem,
+    pub workspace: crate::workspace_search::WorkspaceService,
+    pub file_watchers: crate::file_watcher::FileWatchers,
     /// `MainThreadConsole.$logExtensionHostMessage` payloads (the host's own warnings land here,
     /// for example `Could not identify extension for 'vscode' require`).
     pub console: Vec<Value>,
@@ -169,12 +172,18 @@ impl MainThread {
             main::MAIN_THREAD_DIAGNOSTICS => self.diagnostics.handle(call),
             main::MAIN_THREAD_DOCUMENTS => self.documents.handle(call),
             main::MAIN_THREAD_LANGUAGE_FEATURES => self.language_features.handle(call),
+            main::MAIN_THREAD_FILE_SYSTEM => self.file_system.handle(call),
+            main::MAIN_THREAD_WORKSPACE => self.workspace.handle(call),
+            main::MAIN_THREAD_FILE_SYSTEM_EVENT_SERVICE => self.file_watchers.handle(call),
             main::MAIN_THREAD_CONSOLE if call.method == "$logExtensionHostMessage" => {
                 self.console.push(arg(call, 0).clone());
                 Some(Ok(Reply::Empty))
             }
             _ => None,
         };
+        // The changes this call made reach the watchers (ADR-0090); the host sends them on.
+        let changes = std::mem::take(&mut self.file_system.changes);
+        self.file_watchers.accept(changes);
         if let Some(r) = handled {
             return r;
         }

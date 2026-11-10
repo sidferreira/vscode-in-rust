@@ -9,5 +9,6 @@ publish.workspace = true
 [dependencies]
 vsr-rpc.workspace = true
 vsr-settings.workspace = true
+vsr-search.workspace = true
 serde_json = "1"
 globset = "0.4"

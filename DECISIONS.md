@@ -2684,3 +2684,118 @@ lives on the worker:
   `breadcrumbs.showEditorType` stays blocked as before (custom editors).
 - **Not done**: the Outline view in the Explorer (follow cursor, sort and filter actions, refresh with
   the debounce, the empty state), symbol icons in the bar, and the `Go to Symbol` 'outline view' sync.
+
+## ADR-0088 — `workspace.fs` on the main side: the file scheme, what the Node host keeps, and the delete guards (2026-11-10)
+
+- **What runs where.** The Node ext host registers its own disk provider for the `file` scheme
+  (`src/vs/workbench/api/node/extHostDiskFileSystemProvider.ts`, always, in `ExtHostExtensionService`).
+  `vscode.workspace.fs` then shortcuts to that provider for `stat`, `readDirectory`, `readFile`,
+  `writeFile`, `createDirectory` and plain `delete`, sending only `$ensureActivation` to the main side.
+  The main side is asked for `rename`, `copy` (no shortcut), and `delete` with `useTrash` (the consumer
+  forwards it, because the host's adapter forces `useTrash: false`). Measured: a fixture run of every
+  operation reaches `MainThreadFileSystem` for exactly those. `MainThreadFileSystem` in
+  `vsr-exthost/src/file_system.rs` implements the rest too (`$stat`, `$readdir`, `$readFile`,
+  `$writeFile`, `$mkdir`, plain `$delete`), as upstream's contract, for hosts that do not register the
+  local provider; they are tested through `MainThread::handle` (`tests/file_system_main_thread.rs`).
+- **Scheme support: `file` only.** Any other scheme is `Unavailable` (`ENOPRO: no file system provider
+  found for scheme …`), which the host turns into `FileSystemError.Unavailable`. `$ensureActivation`
+  is a no-op.
+- **Error encoding.** Errors cross the wire with the bare `FileSystemProviderErrorCode` value as the name
+  (`EntryNotFound`, `EntryExists`, `EntryIsADirectory`, `EntryNotADirectory`, `NoPermissions`,
+  `Unavailable`, `Unknown`), never the `… (FileSystemError)` form. The host maps the name to
+  `FileSystemError.FileNotFound` and so on (`extHostFileSystemConsumer.ts`, `_handleError`). io errors map
+  `NotFound`, `AlreadyExists`, `PermissionDenied`, EISDIR, ENOTDIR, else `Unknown`. A plain `Error` (name
+  `Error`) is kept where upstream throws one (`mkdirp` over a file). `rename` and `copy` refuse an existing
+  target unless `overwrite`; `writeFile` creates the parents and `mkdir` is recursive (upstream's
+  `mkdirp`). `stat` times are milliseconds; `type` is 1 file, 2 folder, plus 64 for a symbolic link.
+- **Delete guards (the safety rules).** Destructive operations happen only under a root the app allows
+  (`FileSystem::allow_destructive_under`, canonicalised; the list is empty in the app, and the tests allow
+  their own scratch folder):
+  1. a non-recursive delete of a file or an empty folder is allowed anywhere;
+  2. `recursive: true` on a folder, and any overwrite of a folder by `rename` or `copy`, is allowed only
+     under an allowed root, else `NoPermissions`;
+  3. `useTrash: true` is never sent to the Trash: outside an allowed root it is `Unavailable` with the
+     message `trash not supported`; inside one it is a permanent delete (there is no trash in the tests).
+  `..` and symbolic-link parents cannot step out of a root (the parent is canonicalised).
+- **Gap, stated plainly: the guards cover what the host forwards.** Operations the Node host runs itself
+  (plain and recursive `delete`, writes, creates) are not seen by the main side, so a recursive delete an
+  extension makes outside the workspace is not refused. That is the same as any VS Code extension on
+  disk. Closing it means changing the Code-OSS build (no local `file` provider, so every operation is
+  forwarded), a decision for the owner of `codeoss-exthost`, not made here.
+- **Changes.** The main side records what it changes (created, changed, deleted) for the file watchers
+  (ADR-0090). The changes of the host's own operations are not seen, for the same reason.
+- **Tests.** `file_system` unit tests (error codes, the scheme rule, the allowed-root guard), the
+  main-side operations through `MainThread::handle` (`tests/file_system_main_thread.rs`), and a real host
+  (`tests/workspace_fs_real_host.rs`, fixture `fs-fixture`): every step of `vscode.workspace.fs` reports
+  the code a user would catch (`FileNotFound`, `FileExists`, `FileIsADirectory`, `FileNotADirectory`,
+  `NoPermissions`, `Unavailable`), and the forwarded guards refuse outside the workspace with nothing
+  touched.
+
+## ADR-0089 — `workspace.findFiles` on the main side: the query, the settings it honours, and what is not served (2026-11-10)
+
+- **Where it runs.** `$startFileSearch` and `$checkExists` are answered by `MainThreadWorkspace`
+  (`vsr-exthost/src/workspace_search.rs`), listing the files with `vsr-search::files::find_files`: the
+  walker and glob filter that find-in-files uses (`ignore` walker, `FileFilter`). No new crate. The
+  listing runs synchronously in the pump, so a huge workspace blocks it until `maxResults` is reached;
+  there is no cancellation mid-walk (a known gap).
+- **The query** (`plan_file_query`, pure, tested against upstream's `mainThreadWorkspace.test.ts`):
+  the include is `includePattern` (or `filePattern`, the findFiles2 form). `excludePattern` entries
+  (`{ pattern }` or strings) apply on top of the settings. `files.exclude` and `search.exclude` apply
+  unless the call disregards them: `disregardExcludeSettings` drops both, `disregardSearchExcludeSettings`
+  drops `search.exclude`. `disregardIgnoreFiles` (the legacy `findFiles` always sends it) turns ignore
+  files off; otherwise `search.useIgnoreFiles` decides. `ignoreSymlinks` overrides
+  `search.followSymlinks`. `maxResults` is shared across the folders.
+- **Settings.** The defaults and user layers are read at boot and again on `$acceptConfigurationChanged`
+  (`settings_from`): `files.exclude`, `search.exclude` (boolean entries; the `when` object form is not
+  used), `search.useIgnoreFiles`, `search.followSymlinks`. Upstream's defaults are the starting point.
+- **Folders.** The workspace folder from `BootParams.workspace`. `includeFolder` (a RelativePattern's
+  folder) searches that folder alone. Results are `file` URIs, sorted within each folder.
+- **Differences, stated.** Globs match the path relative to the folder, as the walker does; a bare
+  `*.ts` matches at the folder root only. This is upstream's behaviour too: the `**/` prefix comes from
+  `expandPatterns`, which the Search view sets and `$startFileSearch` and `$checkExists` do not. Do not
+  "fix" it here. `ignoreGlobCase`
+  is honoured by the matcher. Hidden files are listed (upstream lists them too). Nothing from
+  `files.exclude` in the `when` form, nothing from `search.exclude` on the legacy path (it is disregarded
+  there, as upstream).
+- **Not served:** `$startTextSearch` (text search runs through find-in-files in the app, not through the
+  host), `$handleFileMatch` / `$handleTextMatch`, and the `findFiles2` fuzzy `filePattern` ranking (the
+  pattern is taken as a glob).
+- **Tests.** `vsr-search` `files` unit tests (include, excludes and exceptions, query excludes,
+  `.gitignore` only when asked, the limit); `tests/upstream_mainthreadworkspace.rs` (the five upstream cases,
+  titles exact); `tests/workspace_search_main_thread.rs` (both calls through `MainThread::handle`, the
+  shared limit, `$checkExists`); `tests/workspace_find_real_host.rs` (a fixture calls `workspace.findFiles`
+  with an include, an exclude string, a result limit and a `RelativePattern`, with the user's
+  `files.exclude` applied, through the real host).
+
+## ADR-0090 — File watchers: `$watch` answered on the main side, events from this side's own changes only (2026-11-10)
+
+- **What is served.** `MainThreadFileSystemEventService` (`vsr-exthost/src/file_watcher.rs`): `$watch`
+  records the watch (extension, session, base folder, `recursive`) and `$unwatch` removes it. Watches
+  are uncorrelated (extensions never ask for correlation), so the events go out as
+  `ExtHostFileSystemEventService.$onFileEvent({ created, changed, deleted })` with no session: every
+  watcher gets the batch and filters it with its own glob, as upstream does for uncorrelated
+  events. Delivery is gated on the workspace folders or a registered watch, not on `$watch` alone: a change
+  under a workspace folder is sent even with no watch, which is how string-pattern watchers
+  (`createFileSystemWatcher('**/*.rs')`, which upstream never sends to `$watch`) get their events. The `$onFileEvent` is a fire-and-forget request, sent at the end of each pump.
+- **Which changes are seen.** Only the ones this side makes or the app reports:
+  1. the forwarded operations of ADR-0088: `rename` (deleted source, created target), `copy` (created
+     target), trash deletes, and the main-side writes and deletes of `MainThreadFileSystem`;
+  2. the app's changes, through `ExtensionHost::file_changed(kind, path)`, for saves, renames and deletes
+     made in the app. The app does not call it yet: wiring its save and rename paths (or its existing
+     explorer watcher, `vsr-app/src/explorer/watcher.rs`, which already runs a recursive `notify`
+     watcher) is the next step.
+- **Which changes are not seen, stated plainly.** The Node host performs `workspace.fs` writes, creates,
+  reads and plain deletes itself (ADR-0088), and no OS watcher runs here. A file an extension writes
+  with `workspace.fs.writeFile` does not reach its own watcher. Closing that needs the disk events
+  (the `notify` crate is already in `Cargo.lock` and could feed `file_changed`; not wired in this step,
+  and it is an app-side decision about one more watcher).
+- **Scope of a watch.** A recursive watch covers its base and everything under it; a flat watch covers
+  its base and its direct children. Excludes and includes on the watch options are not applied here:
+  the extension's own glob decides what it sees. A watch for a file path matches only that path.
+- **Coalescing and ordering.** The payload is built per batch and lists created, changed, deleted in that
+  order; no 100 ms coalescing (the app does that for its own watcher). Events are not replayed to a
+  watcher that arrives later.
+- **Tests.** `file_watcher` unit tests (recursive and flat matching, the queue, the payload without a
+  session); `tests/workspace_watch_real_host.rs` (a fixture arms a watcher: the forwarded rename and trash
+  delete arrive, the native write does not, an app change arrives through `file_changed`, and after the
+  watcher is disposed nothing arrives).

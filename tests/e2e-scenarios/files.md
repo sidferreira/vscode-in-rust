@@ -47,6 +47,14 @@ call the same commit path with the path they choose, and no file dialog opens.
 | 14 | the missing-file check never closes an untitled text | - | ready | `an_untitled_text_is_not_closed_as_a_missing_file` |
 | 15 | `workbench.startupEditor: newUntitledFile` opens an untitled text when nothing is restored | workbench.startupEditor | ready | `startup_editor_new_untitled_file_opens_an_untitled_text` |
 | 16 | files.eol is the line break of a new untitled text, so its saved file has CRLF | files.eol | ready | `files_eol_is_the_line_break_of_a_new_untitled_text` |
+| 17 | a backup records the language; a restarted untitled text keeps it | files.hotExit | ready | `hot_exit_brings_the_untitled_text_back_as_an_untitled_text` |
+| 18 | a restored untitled text keeps its tab position | files.hotExit | ready | `a_restored_untitled_text_keeps_its_tab_position` |
+| 19 | the restore applies workbench.editor.limit once, to the whole restored list | workbench.editor.limit.* | ready | `restore_applies_the_editor_limit_to_the_saved_tabs` |
+| 20 | Save As opens in the folder of the active file, with the language's extension suggested | - | ready | `save_as_starts_in_the_folder_of_the_active_file`, `save_as_suggests_the_extension_of_the_language` |
+| 21 | leaving the Save As name box does not save (Escape or blur cancels; Enter commits) | - | ready | `blurring_the_save_as_box_does_not_save` |
+| 22 | closing several dirty untitled texts: each gets its name box in turn; Cancel leaves the rest open | files.hotExit | ready | `closing_several_dirty_untitled_texts_asks_for_each_name_in_turn`, `cancelling_the_name_box_leaves_the_rest_of_the_close_open_and_dirty` |
+| 23 | quit with Save All asks for each untitled name, then quits; Cancel aborts the quit | files.hotExit | ready | `quit_save_all_asks_for_the_name_of_each_untitled_text_then_quits`, `cancelling_the_name_box_during_quit_aborts_the_quit` |
+| 24 | the Welcome page's New File... opens an untitled text | - | ready | `welcome_new_file_opens_an_untitled_text_as_cmd_n_does` (session/e2e_tests.rs) |
 
 Blocked settings (no scenario until the feature lands) are listed with their reasons in
 `upstream/settings.toml`.

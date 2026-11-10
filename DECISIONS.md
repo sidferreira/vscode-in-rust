@@ -1876,19 +1876,19 @@ which other work edits at the same time. rscode also has no file dialog, and tes
 - **Session.** An untitled text is never saved in the tab list (its key is not a file). Its text is
   kept by hot exit as a backup under its key (`Backup.path` is the key, `base` is `None`). On restart
   `restore_backup` brings it back as an untitled text with its name, and `restore_untitled` places it
-  after the restored tabs. The backup does not record a language, so a restored text is plain text.
+  after the restored tabs. The backup did not record a language, so a restored text was plain text (ADR-0074
+  records it, and the place).
 - **Missing files.** `close_missing` never closes an untitled text (it has no file), and autosave never
   saves one (upstream does not either: it needs a name).
 
 **Consequences and what is not done.**
 
-- The name box is the Save As flow. It only offers the workspace folder, and it suggests no extension
-  (upstream's dialog suggests one from the language). It closes when the box loses focus with a valid
-  name, so a click elsewhere saves to the typed name.
-- Save All when quitting with a dirty untitled text reports a save error (there is no name box on the
-  quit path). Hot exit keeps the text in that case, so nothing is lost.
+- The name box is the Save As flow. Superseded by ADR-0074: it opens in the folder of the active file,
+  suggests the language's extension, and a blur cancels it (it no longer saves to the typed name).
+- Save All when quitting with a dirty untitled text reported a save error. Superseded by ADR-0074: each
+  untitled text gets its name box in turn.
 - A clean empty untitled text is not restored after a restart (its backup is removed when it is
-  empty), and its position in the tab order is lost for restored untitled texts.
+  empty). The position of a restored untitled text is kept (ADR-0074).
 - Working-copy events, encodings and `files.encoding` for untitled texts are not modelled (ADR-0057).
 - Search editor, binary and custom editors stay blocked (`upstream/settings.toml`).
 
@@ -2381,3 +2381,52 @@ a host (`tests/language_features_dto.rs`).
 8. *Needed from the host side later:* `$tryApplyWorkspaceEdit` (MainThreadBulkEdits), `$executeCommand`
    results back into editors, and the remaining provider kinds listed in ADR-0072 (semantic tokens first:
    it unblocks `editor.semanticHighlighting`).
+
+## ADR-0074 — Untitled texts: Save As for each on close and quit, backups keep the language, restore keeps the place, the name box and Welcome's New File (2026-11-10)
+
+**Context.** ADR-0058 and ADR-0059 left six gaps in untitled text editors: quit with Save All reported a
+save error for a dirty untitled text (the quit stayed blocked); closing several tabs gave the name box to
+the first dirty untitled text only; a restored untitled text lost its language and went to the end of the
+tab order; `workbench.editor.limit` was not applied to a restore; the name box offered only the workspace
+root, no extension, and committed on blur; and the Welcome page had no New File entry. Upstream asks for
+a name for each untitled text through the save dialog during Save All and on quit
+(`textFileService` `saveAll` with `includeUntitled`), so a cancelled dialog cancels the quit.
+
+**Decision.**
+
+- **Save As for each dirty untitled text, in turn.** A close (the close prompt's Save All) and a quit (Save
+  All) queue their untitled texts in tab order (`Runtime.save_as_queue`, `start_save_as_queue`,
+  `next_save_as`). Each name box takes the first; a committed name pops it and, for a close, closes its
+  tab. When the queue is empty, a quit goes on (`finish_quit`). **Cancel** (Escape, or leaving the box)
+  ends the queue (`abandon_save_as`): the rest stay open and dirty, and a quit is aborted: the bar is gone,
+  the app stays open, and a later Cmd+Q asks again. A plain Save starts no queue and drops one in flight.
+  Dirty files are saved first, as before. When a file save is refused (a conflict or an error), the app
+  stays open on that file and the untitled texts are not asked for; the next Save All asks for them.
+- **Backups record the language.** `Backup.language` (optional, so older backups load) is written with the
+  text, and a restored untitled text gets it. A text without a recorded language is plain text, as before.
+- **Restore keeps the place and applies the limit once.** Untitled texts are listed in the workspace state
+  by their key (`untitled:Untitled-N`) with their place in the tab order and the MRU list. The backups are
+  read before the tabs, so an untitled tab comes back from its backup at its saved place. A saved untitled
+  tab with no backup (clean, or dropped) is not brought back, as ADR-0058 says. A backup with no saved place
+  (a crash) is appended. `workbench.editor.limit` is applied once after the restore, when the order and the
+  active tab are known; it no longer runs in the middle of the restore.
+- **The name box.** It opens in the folder of the most recent file editor when that folder is inside the
+  workspace (upstream `defaultFilePath`, the folder of the last active file), else the workspace root. Its
+  name is the untitled title when that is a valid file name (else `Untitled-N`), with the extension rewritten
+  to the language's first one (upstream `suggestFilename`: `vsr_editor::untitled::suggest_file_name`, ported
+  in `crates/vsr-editor/tests/upstream_text_file_service.rs`). **Blur cancels Save As.** Upstream's Save As
+  is a dialog that a click elsewhere cannot answer, so leaving the box does not write the file. New File and
+  Rename keep upstream's inline behaviour (a valid name commits on blur, ADR-0041).
+- **Welcome page.** Start has New File... before Open File..., and it runs the Cmd+N command.
+
+**Tests.** Headless, `untitled_e2e.rs` and `session/e2e_tests.rs`, rows 17 to 24 of
+`tests/e2e-scenarios/files.md`. The blur test calls the focus-out handler (`blur_inline`) directly: headless
+focus changes do not reach the name box's focus-out listener. The suggested-name rules are upstream ports.
+
+**Not done.**
+
+- A folder outside the workspace is not offered for Save As (the root is used), and the name box does not
+  show folders outside the tree.
+- A clean untitled text is still not restored after a restart (ADR-0058).
+- A refused file save during quit leaves the untitled texts unasked; the user answers Save All again.
+- `files.encoding` and the working-copy events for untitled texts stay unmodelled (ADR-0057).

@@ -127,6 +127,10 @@ impl Workbench {
             self.quick.provider = prefix.clone();
             pick.update(cx, |p, cx| p.set_placeholder(&placeholder, window, cx));
         }
+        if prefix == "@" || prefix == "@:" {
+            let rows = self.go_to_symbol_rows(query, prefix == "@:");
+            pick.update(cx, |p, cx| p.set_rows(rows, cx));
+        }
         if prefix == ":" {
             let rows = vec![PickRow::Item(PickItem::new(0, self.parse_go_to_line(query).label))];
             pick.update(cx, |p, cx| p.set_rows(rows, cx));

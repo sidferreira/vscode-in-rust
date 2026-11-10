@@ -833,8 +833,8 @@ match = ["breadcrumbs.showEditorType"]
 
 [[rule]]
 status = "blocked"
-reason = "needs document symbols (outline provider from the extension host)"
-comment = "outline.* configures the Outline view, which lists the symbols of the active file. The symbols come from the language providers of the extension host (ADR-0020); rscode has no Outline view yet."
+reason = "needs the Outline view (the symbols of the active file in a view of the Explorer)"
+comment = "outline.* configures the Outline view, which lists the symbols of the active file. The symbols and their provider ask (ADR-0086) exist; the view itself does not yet (ADR-0087 follow-up). The outline.problems.* settings also need the diagnostics of the outline (markers per symbol)."
 match = ["outline*"]
 
 [[rule]]
@@ -875,9 +875,9 @@ match = ["workbench.sash.hoverDelay"]
 
 [[rule]]
 status = "blocked"
-reason = "needs document symbols (outline provider from the extension host)"
-comment = "breadcrumbs.symbolPath, symbolSortOrder and symbolPathSeparator order and show the symbols of the file. breadcrumbs.show<Kind> (showFiles, showModules, ... showTypeParameters) filter the same symbol kinds in the outline, so they change nothing without symbols (documentSymbolsTree.ts)."
-match = ["breadcrumbs.symbol*", "breadcrumbs.show*"]
+reason = "needs the Copy Breadcrumbs Path command (the symbol path joined by this separator)"
+comment = "breadcrumbs.symbolPathSeparator joins the symbol path when the path is copied (breadcrumbsControl.ts CopyPath). rscode has no copy-path command yet. symbolPath, symbolSortOrder and show<Kind> are wired (ADR-0087)."
+match = ["breadcrumbs.symbolPathSeparator"]
 
 [[rule]]
 status = "blocked"

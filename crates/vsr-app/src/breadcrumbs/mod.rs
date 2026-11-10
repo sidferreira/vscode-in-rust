@@ -7,8 +7,8 @@
 //! upstream: src/vs/workbench/browser/parts/editor/breadcrumbsControl.ts @ 50e1350fc78d
 //! upstream: src/vs/workbench/browser/parts/editor/media/breadcrumbscontrol.css @ 50e1350fc78d
 //!
-//! The file path is the model's (`model.rs`). The symbol path needs document symbols and is
-//! blocked (`upstream/settings.toml`). Differences from VS Code: the dropdown is the Quick Pick
+//! The file path is the model's (`model.rs`). The symbol path (the symbols at the caret, after the
+//! file crumbs) is `symbols.rs` (ADR-0087), fed by the document outline (ADR-0086). Differences from VS Code: the dropdown is the Quick Pick
 //! (centred at the top, not anchored under the crumb), it has no filter-by-typing on the folder
 //! structure beyond the Quick Pick's own, and there is no editor type switcher.
 
@@ -16,6 +16,7 @@
 #[path = "e2e_tests.rs"]
 mod e2e_tests;
 pub mod model;
+pub mod symbols;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -34,6 +35,8 @@ use crate::ui::to_gpui;
 use crate::config::settings::OpenSource;
 use crate::Workbench;
 use model::{BreadcrumbsSettings, Child, Segment};
+use symbols::{SymbolCrumb, SymbolSettings};
+use vsr_exthost::language_features::outline::NodeId;
 
 actions!(
     rscode,
@@ -71,6 +74,10 @@ pub(crate) struct Crumbs {
     active: Option<usize>,
     picker_for: Option<usize>,
     dir: Rc<RefCell<PathBuf>>,
+    /// The dropdown lists the siblings of a symbol crumb (not a folder); `symbol_nodes` maps
+    /// its rows to the model's nodes.
+    symbol_picker: bool,
+    symbol_nodes: Vec<NodeId>,
 }
 
 impl Crumbs {
@@ -82,6 +89,8 @@ impl Crumbs {
     /// Called when the Quick Pick closes: a dropdown does not outlive its picker.
     pub(crate) fn end_picker(&mut self) {
         self.picker_for = None;
+        self.symbol_picker = false;
+        self.symbol_nodes.clear();
     }
 }
 
@@ -112,6 +121,24 @@ impl Workbench {
         }
     }
 
+    /// The file of the active text editor, when it is a real file.
+    pub(crate) fn active_path(&self) -> Option<PathBuf> {
+        self.editor_surface_active()
+            .then(|| self.editors.active_editor())
+            .flatten()
+            .filter(|e| !e.is_untitled() && e.path.is_absolute())
+            .map(|e| e.path.clone())
+    }
+
+    /// The symbol crumbs at the cursor of the active text editor (ADR-0087). Empty until the
+    /// symbols of the file have arrived.
+    fn symbol_crumbs(&self, settings: &SymbolSettings) -> Vec<SymbolCrumb> {
+        let (Some(path), Some(e)) = (self.active_path(), self.editors.active_editor()) else { return Vec::new() };
+        let Some(model) = self.outline.model(&path) else { return Vec::new() };
+        let sel = e.editor.selection();
+        symbols::crumbs(model, (sel.active.line, sel.active.column), settings.path)
+    }
+
     /// The bar, or nothing when `breadcrumbs.enabled` is off or there is nothing to show.
     pub(crate) fn breadcrumb_bar(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let settings = BreadcrumbsSettings::from_configuration(AppConfig::get(cx).configuration());
@@ -119,7 +146,8 @@ impl Workbench {
             return None;
         }
         let segments = self.crumb_segments(&settings);
-        if segments.is_empty() {
+        let symbols = self.symbol_crumbs(&SymbolSettings::from_configuration(AppConfig::get(cx).configuration()));
+        if segments.is_empty() && symbols.is_empty() {
             return None;
         }
         let focus = self.crumbs.focus.get_or_insert_with(|| cx.focus_handle()).clone();
@@ -143,7 +171,12 @@ impl Workbench {
             .overflow_hidden()
             .bg(to_gpui(t.breadcrumb_bg))
             .text_size(px(12.));
-        for (i, seg) in segments.iter().enumerate() {
+        // File crumbs first (with their icons), then the symbols at the cursor (no icon).
+        let crumbs = segments
+            .iter()
+            .map(|seg| (seg.name.clone(), Some(if seg.is_dir { icons::FOLDER } else { icons::FILE })))
+            .chain(symbols.iter().map(|s| (s.name.clone(), None)));
+        for (i, (name, glyph)) in crumbs.enumerate() {
             if i > 0 {
                 bar = bar.child(
                     div()
@@ -173,13 +206,84 @@ impl Workbench {
                 .cursor_pointer()
                 .text_color(to_gpui(color))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.show_crumb_picker(i, window, cx)));
-            if settings.icons {
-                let glyph = if seg.is_dir { icons::FOLDER } else { icons::FILE };
+            if let (true, Some(glyph)) = (settings.icons, glyph) {
                 item = item.child(div().font_family(icons::FAMILY).text_size(px(14.)).child(icons::glyph(glyph)));
             }
-            bar = bar.child(item.child(seg.name.clone()));
+            bar = bar.child(item.child(name));
         }
         Some(bar.into_any_element())
+    }
+
+    /// The number of crumbs in the bar: the file crumbs, then the symbol crumbs.
+    fn crumb_count(&self, settings: &BreadcrumbsSettings, cx: &App) -> usize {
+        let symbols = self.symbol_crumbs(&SymbolSettings::from_configuration(AppConfig::get(cx).configuration()));
+        self.crumb_segments(settings).len() + symbols.len()
+    }
+
+    /// Crumb `index` of the symbol part: its siblings in the dropdown (ADR-0087).
+    fn show_symbol_picker(&mut self, index: usize, files: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let settings = SymbolSettings::from_configuration(AppConfig::get(cx).configuration());
+        let Some(path) = self.active_path() else { return };
+        let Some(crumb) = self.symbol_crumbs(&settings).get(index).cloned() else { return };
+        let Some(model) = self.outline.model(&path) else { return };
+        let nodes = symbols::siblings(model, crumb.node, &settings);
+        let items: Vec<PickItem> = nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(id, &n)| {
+                let sym = model.symbol(n)?;
+                let mut item = PickItem::new(id, sym.name.clone());
+                item.description = Some(vsr_exthost::language_features::dto::symbol_kind_name(sym.kind).to_string());
+                Some(item)
+            })
+            .collect();
+        let selected = nodes.iter().position(|&n| n == crumb.node);
+        if self.quick.pick.is_some() {
+            self.hide_quick_open(false, window, cx);
+        }
+        let crumb_index = files + index;
+        self.crumbs.active = Some(crumb_index);
+        self.crumbs.picker_for = Some(crumb_index);
+        self.crumbs.symbol_picker = true;
+        self.crumbs.symbol_nodes = nodes;
+        self.quick.return_focus = window.focused(cx);
+        self.quick.provider = String::from("breadcrumbs");
+        let close_on_focus_lost = quick_open::QuickOpenSettings::from_configuration(AppConfig::get(cx).configuration()).close_on_focus_lost;
+        let source = move |query: &str, _cx: &mut App| -> PickResult {
+            if query.trim().is_empty() {
+                PickResult::Ready(items.iter().cloned().map(PickRow::Item).collect())
+            } else {
+                PickResult::Ready(filter_items(&items, query))
+            }
+        };
+        let pick = cx.new(|cx| QuickPick::new("", "", None, close_on_focus_lost, source, window, cx));
+        if let Some(i) = selected {
+            pick.update(cx, |p, _| p.set_active_item(i));
+        }
+        self.quick._sub = Some(cx.subscribe_in(&pick, window, |this, _, ev: &QuickPickEvent, window, cx| match ev {
+            QuickPickEvent::Accept { item, .. } => this.accept_crumb_item(item, window, cx),
+            QuickPickEvent::Dismiss => this.hide_quick_open(true, window, cx),
+            QuickPickEvent::Change { .. } | QuickPickEvent::ActiveChange { .. } => {}
+        }));
+        self.quick.pick = Some(pick);
+        cx.notify();
+    }
+
+    /// An entry of a symbol dropdown was accepted: the symbol's selection is selected in its editor.
+    fn accept_symbol_crumb(&mut self, item: &PickItem, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(&node) = self.crumbs.symbol_nodes.get(item.id) else { return };
+        let Some(path) = self.active_path() else { return };
+        let Some(range) = self.outline.model(&path).and_then(|m| m.symbol(node)).map(|s| s.selection_range) else { return };
+        self.hide_quick_open(false, window, cx);
+        // Editor positions are 0-based; the symbol ranges are 1-based.
+        let range = vsr_search::SearchRange {
+            start_line: range.start_line.saturating_sub(1) as usize,
+            start_column: range.start_column.saturating_sub(1) as usize,
+            end_line: range.end_line.saturating_sub(1) as usize,
+            end_column: range.end_column.saturating_sub(1) as usize,
+        };
+        self.open_at(&path, range, OpenSource::QuickOpen, window, cx);
+        cx.notify();
     }
 
     /// Crumb `index` was clicked, or Enter on the focused crumb: list the entries of its parent
@@ -187,12 +291,16 @@ impl Workbench {
     pub(crate) fn show_crumb_picker(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let settings = BreadcrumbsSettings::from_configuration(AppConfig::get(cx).configuration());
         let segments = self.crumb_segments(&settings);
+        if index >= segments.len() {
+            return self.show_symbol_picker(index - segments.len(), segments.len(), window, cx);
+        }
         let Some(seg) = segments.get(index) else { return };
         let parent = seg.path.parent().map(Path::to_path_buf).unwrap_or_else(|| self.root.clone());
         if self.quick.pick.is_some() {
             self.hide_quick_open(false, window, cx);
         }
         self.crumbs.active = Some(index);
+        self.crumbs.symbol_picker = false;
         let listing = model::list_children(&self.root, &parent, &quick_open::exclude_globs(AppConfig::get(cx).configuration()));
         let selected = listing.iter().position(|c| c.path == seg.path);
         *self.crumbs.dir.borrow_mut() = parent;
@@ -228,6 +336,9 @@ impl Workbench {
 
     /// An entry of the dropdown was accepted: a folder lists its own entries, a file opens.
     fn accept_crumb_item(&mut self, item: &PickItem, window: &mut Window, cx: &mut Context<Self>) {
+        if self.crumbs.symbol_picker {
+            return self.accept_symbol_crumb(item, window, cx);
+        }
         let Some(path) = item.value.as_deref().map(PathBuf::from) else { return };
         if path.is_dir() {
             *self.crumbs.dir.borrow_mut() = path;
@@ -257,7 +368,7 @@ impl Workbench {
         if !settings.enabled {
             return;
         }
-        let count = self.crumb_segments(&settings).len();
+        let count = self.crumb_count(&settings, cx);
         if count == 0 {
             return;
         }
@@ -273,7 +384,7 @@ impl Workbench {
     /// Left and Right move the keyboard focus between crumbs (it stops at the ends).
     fn move_crumb(&mut self, forward: bool, cx: &mut Context<Self>) {
         let settings = BreadcrumbsSettings::from_configuration(AppConfig::get(cx).configuration());
-        let count = self.crumb_segments(&settings).len();
+        let count = self.crumb_count(&settings, cx);
         if count == 0 {
             return;
         }

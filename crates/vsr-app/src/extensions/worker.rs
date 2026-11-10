@@ -20,6 +20,10 @@ use vsr_exthost::configuration::ConfigUpdate;
 use vsr_exthost::description::ExtensionDescription;
 use vsr_exthost::discovery::{self, ContributedCommand};
 use vsr_exthost::host::{BootParams, ExtensionHost};
+use vsr_exthost::language_features::dto::DocumentSymbol;
+use vsr_exthost::language_features::main_thread::Kind;
+use vsr_exthost::language_features::outline::ProviderSymbols;
+use vsr_exthost::language_features::query::Query;
 use vsr_rpc::handshake::Launch;
 
 /// How long one call into the host may take before the worker gives up on it.
@@ -49,6 +53,9 @@ pub enum ToHost {
     Selection { path: PathBuf, anchor: (usize, usize), active: (usize, usize) },
     Config { defaults: Value, user: Value, keys: Vec<String> },
     Run { id: String, args: Vec<Value> },
+    /// The document symbols of an open document at this version (ADR-0086). A newer request
+    /// replaces the one in flight.
+    Symbols { path: PathBuf, version: u64 },
     Shutdown,
 }
 
@@ -63,6 +70,8 @@ pub enum FromHost {
     Save(Vec<String>),
     /// An extension runs an app command; the answer goes back through `reply`.
     AppCommand { id: String, args: Vec<Value>, reply: Sender<Result<Option<Value>, String>> },
+    /// The providers' document symbols for `path` at `version`, one group per provider.
+    Symbols { path: PathBuf, version: u64, groups: Vec<ProviderSymbols> },
     /// Something went wrong that is worth showing (a command that failed, a call that timed out).
     Problem(String),
     /// The host process is gone.
@@ -157,11 +166,18 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
     }
 
     let mut last: Option<Snapshot> = None;
+    let mut symbols: Option<SymbolJob> = None;
     'main: loop {
         let mut dirty = false;
         loop {
             match rx.try_recv() {
                 Ok(ToHost::Shutdown) | Err(TryRecvError::Disconnected) => break 'main,
+                Ok(ToHost::Symbols { path, version }) => {
+                    if let Some(mut old) = symbols.take() {
+                        host.cancel_query(&mut old.query);
+                    }
+                    symbols = start_symbols(&mut host, path, version);
+                }
                 Ok(msg) => {
                     handle(&mut host, &index, &mut fired, msg, &out);
                     dirty = true;
@@ -170,6 +186,12 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
             }
         }
         let handled = host.pump(Duration::from_millis(10));
+        if let Some(job) = symbols.as_mut()
+            && host.poll_query(&mut job.query)
+        {
+            let job = symbols.take().expect("the job is in flight");
+            finish_symbols(&mut host, job, &out);
+        }
         let updates = std::mem::take(&mut host.main_thread.configuration.updates);
         if !updates.is_empty() {
             let _ = out.unbounded_send(FromHost::ConfigUpdates(updates));
@@ -191,6 +213,40 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
         }
     }
     host.shutdown(Duration::from_secs(2));
+}
+
+/// A document-symbol request on its way: the providers' answers, polled from the loop.
+struct SymbolJob {
+    path: PathBuf,
+    version: u64,
+    query: Query<Vec<DocumentSymbol>>,
+}
+
+/// Ask the providers for the symbols of `path`. `None` when the document is not open in the
+/// host (the UI asks again when it is).
+fn start_symbols(host: &mut ExtensionHost, path: PathBuf, version: u64) -> Option<SymbolJob> {
+    let convert = Box::new(|v: &Value| Some(v.as_array()?.iter().filter_map(DocumentSymbol::from_json).collect()));
+    let query = host.begin_provide(Kind::DocumentSymbol, &path, "$provideDocumentSymbols", &[], convert).ok()?;
+    Some(SymbolJob { path, version, query })
+}
+
+/// Send what the providers answered, labelled by their display names (upstream's
+/// `provider.displayName ?? 'Unknown Outline Provider'`), and report the ones that failed.
+fn finish_symbols(host: &mut ExtensionHost, mut job: SymbolJob, out: &UnboundedSender<FromHost>) {
+    let provided = job.query.take();
+    for (handle, message) in &provided.errors {
+        let name = host.main_thread.language_features.registration(*handle).and_then(|r| r.meta_str("displayName").map(String::from));
+        let _ = out.unbounded_send(FromHost::Problem(format!("document symbols ({}): {message}", name.unwrap_or_default())));
+    }
+    let groups = provided
+        .results
+        .into_iter()
+        .map(|(handle, symbols)| {
+            let label = host.main_thread.language_features.registration(handle).and_then(|r| r.meta_str("displayName").map(String::from));
+            ProviderSymbols::new(label.as_deref(), symbols)
+        })
+        .collect();
+    let _ = out.unbounded_send(FromHost::Symbols { path: job.path, version: job.version, groups });
 }
 
 fn fire(host: &mut ExtensionHost, index: &EventIndex, fired: &mut HashSet<String>, event: String, out: &UnboundedSender<FromHost>) {
@@ -236,7 +292,7 @@ fn handle(host: &mut ExtensionHost, index: &EventIndex, fired: &mut HashSet<Stri
             }
             problem(&id, host.execute_contributed_command(&id, args, CALL).map(|_| ()));
         }
-        ToHost::Shutdown => {}
+        ToHost::Symbols { .. } | ToHost::Shutdown => {}
     }
 }
 

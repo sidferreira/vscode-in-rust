@@ -18,12 +18,12 @@ use crate::Workbench;
 use crate::commands::{Commands, Execution};
 use crate::config::AppConfig;
 
-struct Scratch {
-    ws: PathBuf,
-    ext: PathBuf,
+pub(crate) struct Scratch {
+    pub(crate) ws: PathBuf,
+    pub(crate) ext: PathBuf,
 }
 
-fn scratch(name: &str, activation: &[&str], files: &[(&str, &str)], patch: impl Fn(String) -> String) -> Scratch {
+fn scratch(name: &str, fixture: &str, activation: &[&str], files: &[(&str, &str)], patch: impl Fn(String) -> String) -> Scratch {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let base = std::env::temp_dir().join(format!("rscode-e2e-ext-{name}-{}-{nanos}", std::process::id()));
     let (ws, ext) = (base.join("ws"), base.join("exts/errorlens-fixture"));
@@ -32,7 +32,7 @@ fn scratch(name: &str, activation: &[&str], files: &[(&str, &str)], patch: impl 
     for (n, text) in files {
         fs::write(ws.join(n), text).unwrap();
     }
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vsr-exthost/tests/fixtures/errorlens-fixture");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vsr-exthost/tests/fixtures").join(fixture);
     let mut manifest: Value = serde_json::from_str(&fs::read_to_string(fixture.join("package.json")).unwrap()).unwrap();
     manifest["activationEvents"] = json!(activation);
     manifest["contributes"]["commands"] = json!([
@@ -69,6 +69,20 @@ fn start_with_env<'a>(
     files: &[(&str, &str)],
     env: &[(&str, &str)],
 ) -> Option<(Entity<Workbench>, &'a mut VisualTestContext, Scratch)> {
+    start_fixture(cx, name, "errorlens-fixture", activation, files, env, |js| js)
+}
+
+/// Like [`start_with_env`], with the fixture extension `fixture` (a folder under
+/// `vsr-exthost/tests/fixtures`) and `patch` applied to its `extension.js`.
+pub(crate) fn start_fixture<'a>(
+    cx: &'a mut TestAppContext,
+    name: &str,
+    fixture: &str,
+    activation: &[&str],
+    files: &[(&str, &str)],
+    env: &[(&str, &str)],
+    patch: impl Fn(String) -> String,
+) -> Option<(Entity<Workbench>, &'a mut VisualTestContext, Scratch)> {
     let launch = match Launch::from_env() {
         Ok(l) => l,
         Err(why) => {
@@ -76,7 +90,7 @@ fn start_with_env<'a>(
             return None;
         }
     };
-    let s = scratch(name, activation, files, |js| js);
+    let s = scratch(name, fixture, activation, files, patch);
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::icons::install(cx);
@@ -276,7 +290,7 @@ fn without_a_build_extensions_are_off_and_nothing_is_reported(cx: &mut TestAppCo
         crate::commands::init(cx);
         AppConfig::install(cx, None);
     });
-    let dir = scratch("off", &[], &[], |js| js).ws;
+    let dir = scratch("off", "errorlens-fixture", &[], &[], |js| js).ws;
     let (wb, cx) = cx.add_window_view(move |_, cx| Workbench::new(dir, cx));
     wb.update_in(cx, |wb, window, cx| wb.ext_autostart(Err("RSCODE_CODE_OSS is not set".into()), window, cx));
     cx.run_until_parked();

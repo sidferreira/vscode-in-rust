@@ -213,3 +213,109 @@ fn cmd_shift_period_focuses_and_opens_the_dropdown_of_the_last_crumb(cx: &mut Te
     // The last crumb is the file: its dropdown lists the folder it is in.
     assert_eq!(dropdown_labels(&wb, cx), ["lib.rs", "main.rs"]);
 }
+
+// ---- symbols after the file path (ADR-0087) ----
+
+use vsr_editor::Position as EditorPosition;
+use vsr_exthost::language_features::dto::DocumentSymbol;
+use vsr_exthost::language_features::outline::ProviderSymbols;
+
+use super::symbols::SymbolSettings;
+
+/// `src/main.rs` for the symbol tests: `struct Point` (lines 1-5) with `fn len` inside.
+const POINT_RS: &str = "struct Point {\n    fn len(&self) -> i32 {\n        self.x\n    }\n}\n";
+
+/// A symbol with 1-based `(start line, start column, end line, end column)` ranges.
+fn sym(name: &str, kind: u32, range: (u32, u32, u32, u32), selection: (u32, u32, u32, u32), children: Vec<DocumentSymbol>) -> DocumentSymbol {
+    let r = |(a, b, c, d): (u32, u32, u32, u32)| vsr_exthost::language_features::dto::Range::new(a, b, c, d);
+    DocumentSymbol {
+        name: name.into(),
+        detail: String::new(),
+        kind,
+        tags: vec![],
+        container_name: None,
+        range: r(range),
+        selection_range: r(selection),
+        children,
+    }
+}
+
+/// What an extension answers for `POINT_RS`: class `Point` (kind 4) with method `len` (kind 5).
+fn point_symbols() -> Vec<ProviderSymbols> {
+    let len = sym("len", 5, (2, 5, 4, 6), (2, 8, 2, 11), vec![]);
+    let point = sym("Point", 4, (1, 1, 5, 2), (1, 8, 1, 13), vec![len]);
+    vec![ProviderSymbols::new(Some("fake"), vec![point])]
+}
+
+/// The workbench with `POINT_RS` open, its symbols answered in-process, and the caret on line 3
+/// (`self.x`), inside `len`.
+fn open_point<'a>(cx: &'a mut TestAppContext, name: &str) -> (Entity<Workbench>, &'a mut VisualTestContext) {
+    let (wb, vcx, proj) = workbench(cx, name);
+    fs::write(proj.join("src/main.rs"), POINT_RS).unwrap();
+    open(&wb, vcx, &proj.join("src/main.rs"));
+    wb.update(vcx, |wb, _| {
+        wb.outline.fake = Some(Box::new(|_| point_symbols()));
+        wb.outline_sync_at(std::time::Instant::now() + std::time::Duration::from_secs(1));
+        wb.editors.active.and_then(|i| wb.editors.open.get_mut(i)).expect("the file is open").editor.set_cursor(EditorPosition::new(2, 8), false);
+    });
+    vcx.run_until_parked();
+    (wb, vcx)
+}
+
+/// The crumbs the bar shows: the file crumbs, then the symbols at the caret.
+fn bar_names(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> Vec<String> {
+    wb.read_with(cx, |wb, cx| {
+        let settings = BreadcrumbsSettings::from_configuration(AppConfig::get(cx).configuration());
+        let symbols = SymbolSettings::from_configuration(AppConfig::get(cx).configuration());
+        let mut names: Vec<String> = wb.crumb_segments(&settings).into_iter().map(|s| s.name).collect();
+        names.extend(wb.symbol_crumbs(&symbols).into_iter().map(|c| c.name));
+        names
+    })
+}
+
+#[gpui::test]
+fn the_symbols_at_the_caret_follow_the_file_crumbs(cx: &mut TestAppContext) {
+    let (wb, cx) = open_point(cx, "symbols-path");
+    assert_eq!(bar_names(&wb, cx), ["src", "main.rs", "Point", "len"]);
+}
+
+#[gpui::test]
+fn breadcrumbs_symbol_path_last_keeps_only_the_innermost_symbol(cx: &mut TestAppContext) {
+    let (wb, cx) = open_point(cx, "symbols-last");
+    set(cx, "breadcrumbs.symbolPath", json!("last"));
+    assert_eq!(bar_names(&wb, cx), ["src", "main.rs", "len"]);
+}
+
+#[gpui::test]
+fn breadcrumbs_symbol_path_off_hides_the_symbols(cx: &mut TestAppContext) {
+    let (wb, cx) = open_point(cx, "symbols-off");
+    set(cx, "breadcrumbs.symbolPath", json!("off"));
+    assert_eq!(bar_names(&wb, cx), ["src", "main.rs"]);
+}
+
+#[gpui::test]
+fn clicking_a_symbol_crumb_lists_its_siblings_and_accepting_selects_the_symbol(cx: &mut TestAppContext) {
+    let (wb, cx) = open_point(cx, "symbols-dropdown");
+    // Crumbs: src (0), main.rs (1), Point (2), len (3).
+    wb.update_in(cx, |wb, window, cx| wb.show_crumb_picker(2, window, cx));
+    cx.run_until_parked();
+    assert_eq!(dropdown_labels(&wb, cx), ["Point"], "the siblings of Point at the top");
+    wb.update_in(cx, |wb, window, cx| wb.show_crumb_picker(3, window, cx));
+    cx.run_until_parked();
+    assert_eq!(dropdown_labels(&wb, cx), ["len"], "the siblings of len inside Point");
+    accept_row(&wb, cx, "len");
+    cx.run_until_parked();
+    let sel = wb.read_with(cx, |wb, _| wb.editors.active_editor().map(|e| e.editor.selection()));
+    let sel = sel.expect("an editor is active");
+    assert_eq!((sel.anchor.line, sel.anchor.column), (1, 7), "the selection range of len, 0-based");
+    assert_eq!((sel.active.line, sel.active.column), (1, 10));
+}
+
+#[gpui::test]
+fn breadcrumbs_show_method_false_hides_the_method_from_its_dropdown(cx: &mut TestAppContext) {
+    let (wb, cx) = open_point(cx, "symbols-show");
+    set(cx, "breadcrumbs.showMethods", json!(false));
+    wb.update_in(cx, |wb, window, cx| wb.show_crumb_picker(3, window, cx));
+    cx.run_until_parked();
+    assert_eq!(dropdown_labels(&wb, cx), Vec::<String>::new());
+}

@@ -254,7 +254,7 @@ impl Workbench {
             match crate::quick_access::provider_of(query, &d.ctx, cx).as_str() {
                 ">" => PickResult::Ready(crate::quick_access::commands_rows(&d.ctx, query, cx)),
                 "?" => PickResult::Ready(crate::quick_access::help_rows(&d.ctx, cx)),
-                ":" => PickResult::Ready(Vec::new()), // filled by the workbench (it owns the editors)
+                ":" | "@" | "@:" => PickResult::Ready(Vec::new()), // filled by the workbench (it owns the editors)
                 _ => {
                     if d.files.len() <= BACKGROUND_THRESHOLD {
                         return PickResult::Ready(quick_open_picks(query, &d.history, &d.files, d.options).rows);
@@ -321,6 +321,7 @@ impl Workbench {
         match self.provider_prefix(query, cx).as_str() {
             ">" => self.accept_command(item.value.clone(), window, cx),
             ":" => self.accept_go_to_line(query, window, cx),
+            "@" | "@:" => self.accept_go_to_symbol(item.value.clone(), window, cx),
             "?" => self.accept_help(item.value.clone(), window, cx),
             _ => self.accept_quick_open(item.path.clone(), query, window, cx),
         }

@@ -1296,3 +1296,40 @@ the `explorer.*` view settings were absent. Blocked: `files.enableTrash` and the
 - Renaming a file inside a folder that is collapsed reveals the folder first (`expand_to`).
 - `natord` is a new dependency; adding it changed other lock entries (`windows` 0.62, `getrandom`
   0.4) that cargo re-resolved.
+
+## ADR-0043 — Editor cursor, rendering, tabs and the blocked editor settings (2026-11-10)
+
+Finishes the small editor groups `editor.cursor`, `editor.render`, `editor.tab`, `editor.font`,
+`editor.guides`, `editor.mouse` and `editor.format` (`docs/settings-migration.md`). The ADR-0022 path
+is unchanged: values come from `Configuration` into `EditorSettings`, the keys are in `config/wired.rs`.
+
+**Wired:** `editor.cursorHeight`, `editor.cursorSurroundingLines` and `...Style`, `editor.renderControlCharacters`,
+`editor.renderFinalNewline`, `editor.tabFocusMode`.
+
+- `cursorHeight` centres the line caret. The caret element has a `caret:<line>` selector.
+- `cursorSurroundingLines` replaces the `Nearest` scroll for a caret move with a strict scroll that keeps the
+  margin (`decorations::scroll_top_with_margin`, pure). The top row is read from the scroll offset (or the
+  pending scroll), because `logical_scroll_top` does not follow the uniform list. Keys always enforce the
+  margin; a click enforces it only with style `all`. `after_change` takes `by_pointer` for that.
+- `renderControlCharacters` replaces each ASCII control with a space (one byte each, so byte offsets and
+  columns stay) and draws its Control Pictures glyph over the cell. The bidi formatting characters are
+  multi-byte and are not drawn.
+- `renderFinalNewline`: the empty line after a final line break; `off` hides its number, `dimmed` uses half opacity.
+- `tabFocusMode`: Tab calls `window.focus_next`. rscode has no focus tab stops outside the editor, so the
+  focus stays; the tab is not typed.
+
+**Blocked, with reasons in `upstream/settings.toml`:**
+- `mouseWheelZoom`, `mouseWheelScrollSensitivity`: gpui's list scrolls on the wheel before any editor
+  listener (bubble phase only), so Cmd+wheel would also scroll. Needs a scroll capture on the surface.
+- `guides.bracketPairs`, `bracketPairsHorizontal`, `highlightActiveBracketPair`: need a pair model over the
+  whole document that skips string and comment brackets. ADR-0032's `matchBrackets` only finds the caret's pair.
+- `cursorSmoothCaretAnimation`: needs a per-frame caret tween.
+- `fontVariations`: gpui-pre applies OpenType features and weight, not variation axes.
+- `mouseMiddleClickAction`: needs ctrl+click and links.
+- `editor.format*`: need formatting providers from the extension host (ADR-0020).
+
+**Not a setting we follow:** `renderRichScreenReaderContent` is n/a (only with `editor.editContext`).
+
+**Testing.** Pure logic is unit-tested in `decorations.rs` and `settings.rs`. Effects are headless: `config/e2e.rs`
+(control characters) and `editor_view/cursor_e2e.rs` (margins, click policy, caret height, Tab). The
+checks are on boxes, scroll state and buffer text. Scenarios: `tests/e2e-scenarios/preferences.md`.

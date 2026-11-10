@@ -74,3 +74,18 @@ width is injected in columns for `on` and `bounded`; `wordWrapColumn` needs no m
 | typing re-wraps; clicking a continuation row puts the caret in it | ready | `typing_rewraps_and_clicking_a_continuation_row_places_the_caret_in_it` |
 | the minimap counts view lines | ready | `the_minimap_counts_view_lines` |
 | a 10k-line file with word wrap on stays responsive | ready | `editing_a_10k_line_file_with_word_wrap_stays_responsive` |
+
+### Editor cursor, rendering and tabs (ADR-0043)
+
+Headless (`crates/vsr-app/src/config/e2e.rs`, `crates/vsr-app/src/editor_view/cursor_e2e.rs`). The checks are on boxes,
+scroll state and buffer text, not pixels.
+
+| scenario | status | test |
+|---|---|---|
+| `editor.renderControlCharacters` draws a picture over a control character, and `false` draws none; the text is unchanged | ready | `control_characters_follow_the_setting_live` |
+| `editor.renderFinalNewline` off hides the last line number (pure, `gutter_number`) | ready | `final_newline_number_follows_the_setting` |
+| `editor.cursorHeight` shortens the line caret, at most one line; 0 is the full line | ready | `cursor_height_sizes_the_line_caret` |
+| `editor.cursorSurroundingLines` keeps the margin above and below the caret while moving by keys | ready | `surrounding_lines_keep_a_margin_when_the_caret_moves_by_keys` |
+| the default style does not enforce the margin for a click; `all` does | ready | `default_style_does_not_enforce_the_margin_for_a_click` |
+| `editor.tabFocusMode` keeps Tab out of the text | ready | `tab_focus_mode_keeps_the_tab_out_of_the_text` |
+| `editor.cursorSmoothCaretAnimation`, `mouseWheelZoom`, `mouseWheelScrollSensitivity`, `guides.bracketPairs*`, `highlightActiveBracketPair`, `fontVariations`, `mouseMiddleClickAction`, `editor.format*` | blocked | see `upstream/settings.toml` |

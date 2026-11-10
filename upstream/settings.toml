@@ -905,3 +905,9 @@ status = "blocked"
 reason = "needs sash grippers (the dots drawn on a sash, which rscode does not draw)"
 comment = "workbench.sash.autoHideGrippers and autoHideGrippersDelay fade the grippers of the sashes when the mouse is idle. rscode's sashes are a 1px border that takes the hover colour (main.rs, sidebar-resize); there are no grippers to hide. They wait for the gripper dots of the sash (ADR-0051)."
 match = ["workbench.sash.autoHideGrippers", "workbench.sash.autoHideGrippersDelay"]
+
+[[rule]]
+status = "blocked"
+reason = "needs an editor scrollbar (rscode draws no editor scrollbar yet)"
+comment = "editor.scrollbar.vertical and horizontal (visible, auto, hidden), the vertical and horizontal sizes, scrollByPage (a click on the track) and ignoreHorizontalScrollbarInContentHeight all describe a scrollbar the editor draws. rscode scrolls the editor by wheel and keys and draws only the minimap slider (ADR-0053). The scrollbar is a feature of its own; these wait for it."
+match = ["editor.scrollbar.vertical", "editor.scrollbar.horizontal", "editor.scrollbar.verticalScrollbarSize", "editor.scrollbar.horizontalScrollbarSize", "editor.scrollbar.scrollByPage", "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight"]

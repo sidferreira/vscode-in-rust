@@ -1716,3 +1716,20 @@ under a parent (`a.ts` > `a.js`, `package.json` > `package-lock.json`). The matc
   patterns we have).
 - Not ported: upstream's tree model (`nestedParent`, `nestedChildren`) and nested files sorting with the
   parent. Keyboard navigation uses the flat rows, so arrows move through nests in display order.
+
+## ADR-0053 — Editor scrollbar settings: blocked until rscode draws an editor scrollbar (2026-11-10)
+
+**Context.** The `editor.scrollbar.*` group (six todo settings, P2) describes the scrollbars of the editor:
+their visibility, their sizes, what a click on the track does, and whether the horizontal bar adds to the
+content height. Before deciding how to port them, we looked at what rscode draws. The editor's list is a gpui
+`uniform_list` that scrolls by wheel and keys (`editor_view.rs`); gpui-pre reserves layout space for a
+`scrollbar_width` but this crate paints no scrollbar, and rscode has no thumb (the only slider it draws is the
+minimap's, ADR-0042). Upstream's `scrollableElement` draws both bars.
+
+**Decision.** The six settings are `blocked` (needs an editor scrollbar). The reason is the missing scrollbar,
+not the settings: there is nothing to size, hide or click yet. Building one is a visual feature of its own
+(thumb, track, drag, visibility modes), so it is scheduled as such. Choosing `blocked` over `todo` is deliberate:
+no half-drawn scrollbar is shipped to satisfy the settings, and the policy is recorded here.
+
+**Not done.** `scrollbar_width` was not used to size the bars: gpui reserves the space but draws nothing in it,
+so the setting would change the layout without a visible bar.

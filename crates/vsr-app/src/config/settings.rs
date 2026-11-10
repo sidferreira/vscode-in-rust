@@ -862,6 +862,8 @@ pub struct EditorGroupSettings {
     pub limit_exclude_dirty: bool,
     pub highlight_modified_tabs: bool,
     pub label_format: LabelFormat,
+    /// `workbench.editor.untitled.labelFormat`: the tab title of an untitled text (ADR-0059).
+    pub untitled_label_format: vsr_editor::untitled::LabelFormat,
     pub scroll_to_switch_tabs: bool,
     /// `workbench.editor.empty.hint` is `text` (the hint is shown) rather than `hidden`.
     pub empty_hint: bool,
@@ -881,6 +883,7 @@ impl Default for EditorGroupSettings {
             limit_exclude_dirty: false,
             highlight_modified_tabs: false,
             label_format: LabelFormat::Default,
+            untitled_label_format: vsr_editor::untitled::LabelFormat::Content,
             scroll_to_switch_tabs: false,
             empty_hint: true,
         }
@@ -910,6 +913,10 @@ impl EditorGroupSettings {
                 .get_bool("workbench.editor.highlightModifiedTabs")
                 .unwrap_or(d.highlight_modified_tabs),
             label_format: c.get_enum("workbench.editor.labelFormat").unwrap_or(d.label_format),
+            untitled_label_format: c
+                .get_str("workbench.editor.untitled.labelFormat")
+                .map(vsr_editor::untitled::LabelFormat::from_setting)
+                .unwrap_or(d.untitled_label_format),
             scroll_to_switch_tabs: c.get_bool("workbench.editor.scrollToSwitchTabs").unwrap_or(d.scroll_to_switch_tabs),
             empty_hint: c.get_str("workbench.editor.empty.hint") != Some("hidden"),
         }

@@ -106,8 +106,9 @@ impl Workbench {
             return Vec::new();
         }
         match self.editors.active_editor() {
-            Some(e) => model::file_segments(&self.root, &e.path, settings.file_path),
-            None => Vec::new(),
+            // An untitled text has no file path to show (ADR-0058).
+            Some(e) if !e.is_untitled() => model::file_segments(&self.root, &e.path, settings.file_path),
+            _ => Vec::new(),
         }
     }
 

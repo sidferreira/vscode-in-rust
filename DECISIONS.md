@@ -2098,3 +2098,50 @@ associated-file-path case (save-as makes a file, so the untitled rules stop appl
 
 **Consequences.** `files.defaultLanguage` and `workbench.editor.untitled.labelFormat` can be wired
 once the workbench creates untitled editors (ADR-0058, ADR-0059).
+
+## ADR-0058 — Untitled text editors in the workbench: keys, Save As through the name box, hot exit (2026-11-10)
+
+**Context.** File: New Untitled Text File (Cmd+N) and a dirty untitled text need an editor. The open
+list, MRU, preview and history are keyed by `PathBuf` (ADR-0033, ADR-0039), and the session keys its
+backups by path (ADR-0040). Changing the key type would touch the status bar and the editor view,
+which other work edits at the same time. rscode also has no file dialog, and tests must not open one.
+
+**Decision.**
+
+- **Identity.** An untitled text is an `OpenEditor` whose path is the relative key `untitled:Untitled-N`
+  (`model::untitled_key`). A relative path never names a file, so no file operation can hit it by
+  accident, and every path-keyed list keeps working. `OpenEditor::is_untitled` reads the key.
+- **Dirty and title.** `OpenEditor::is_dirty` is `vsr_editor::untitled::is_dirty` for an untitled text
+  (ADR-0057). Its tab title is computed on each read by `Editors::title_of` (the first line under
+  `labelFormat: content`), so it follows typing without a cache.
+- **Creation.** `Editors::open_untitled` takes the lowest free `Untitled-N` and opens the text pinned.
+  `Workbench::new_untitled` (Cmd+N, the palette, and `workbench.startupEditor` in ADR-0059) chooses the
+  language with `new_language`. The language is not explicit, so the untitled text keeps it across
+  `files.associations` changes (`apply_associations` skips untitled editors), and Save As detects it
+  from the new name.
+- **Save As.** Save (Cmd+S, the palette or the Save bar of Close) on an untitled text opens the
+  Explorer's name box at the workspace folder (`InlineKind::SaveUntitled`), with the tab's title typed
+  in and its name part selected. Enter or a valid blur commits (`save_untitled_in`), which
+  refuses an existing file and otherwise writes the text through the `files.*` save transforms
+  (`Editors::save_untitled_as`). The editor then follows the file: the open list, MRU and preview are
+  renamed, the history gets the file, and the backup under the key is removed (the text is saved).
+  Tests call the commit with the path they choose; no dialog is involved.
+- **Session.** An untitled text is never saved in the tab list (its key is not a file). Its text is
+  kept by hot exit as a backup under its key (`Backup.path` is the key, `base` is `None`). On restart
+  `restore_backup` brings it back as an untitled text with its name, and `restore_untitled` places it
+  after the restored tabs. The backup does not record a language, so a restored text is plain text.
+- **Missing files.** `close_missing` never closes an untitled text (it has no file), and autosave never
+  saves one (upstream does not either: it needs a name).
+
+**Consequences and what is not done.**
+
+- The name box is the Save As flow. It only offers the workspace folder, and it suggests no extension
+  (upstream's dialog suggests one from the language). It closes when the box loses focus with a valid
+  name, so a click elsewhere saves to the typed name.
+- Save All when quitting with a dirty untitled text reports a save error (there is no name box on the
+  quit path). Hot exit keeps the text in that case, so nothing is lost.
+- A clean empty untitled text is not restored after a restart (its backup is removed when it is
+  empty), and its position in the tab order is lost for restored untitled texts.
+- Working-copy events, encodings and `files.encoding` for untitled texts are not modelled (ADR-0057).
+- Search editor, binary and custom editors stay blocked (`upstream/settings.toml`).
+

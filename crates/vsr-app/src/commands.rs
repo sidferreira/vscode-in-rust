@@ -35,7 +35,7 @@ use crate::welcome::{self, ShowWelcome};
 
 actions!(
     rscode,
-    [ShowCommands, ToggleSidebar, ShowExplorer, GoToLine, ClearCommandHistory, ToggleReadonlyInSession, ZoomIn, ZoomOut, ZoomReset]
+    [ShowCommands, ToggleSidebar, ShowExplorer, NewUntitledFile, GoToLine, ClearCommandHistory, ToggleReadonlyInSession, ZoomIn, ZoomOut, ZoomReset]
 );
 
 /// Where a command's action must be dispatched from.
@@ -99,6 +99,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("f1", ShowCommands, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-shift-e", ShowExplorer, None),
+        KeyBinding::new("cmd-n", NewUntitledFile, None),
         KeyBinding::new("ctrl-g", GoToLine, None),
         KeyBinding::new("cmd-k cmd-t", SelectTheme, None),
         KeyBinding::new("cmd-=", ZoomIn, None),
@@ -186,6 +187,10 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
     r.register(D::new(welcome::COMMAND_ID, "Welcome").category("Help").f1().description("Opens the Welcome page."), action(ShowWelcome, Workbench));
 
     // Files and editors.
+    r.register(
+        D::new("workbench.action.files.newUntitledFile", "New Untitled Text File").category("File").f1(),
+        action(NewUntitledFile, Workbench),
+    );
     r.register(
         D::new("workbench.action.files.save", "Save").category("File").f1().precondition(ACTIVE_EDITOR),
         action(Run(Command::Save), Editor),

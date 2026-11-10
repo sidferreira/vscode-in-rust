@@ -115,16 +115,13 @@ fn is_word_char(c: char) -> bool {
     !c.is_whitespace() && !"`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?".contains(c)
 }
 
-/// The tab title of an untitled text: its first line under [`LabelFormat::Content`] when that has
-/// words, else the resource name.
-pub fn label(name: &str, text: &str, format: LabelFormat) -> String {
-    if format == LabelFormat::Content {
-        let first_line = text.split('\n').next().unwrap_or("");
-        if let Some(title) = first_line_name(first_line) {
-            return title;
-        }
+/// The tab title of an untitled text, given its first line: the first line under
+/// [`LabelFormat::Content`] when that has words, else the resource name.
+pub fn label(name: &str, first_line: &str, format: LabelFormat) -> String {
+    match (format, first_line_name(first_line)) {
+        (LabelFormat::Content, Some(title)) => title,
+        _ => name.to_string(),
     }
-    name.to_string()
 }
 
 #[cfg(test)]
@@ -164,15 +161,11 @@ mod tests {
     #[test]
     fn label_uses_the_first_line_only_under_content() {
         assert_eq!(
-            label("Untitled-1", "todo list\nmilk", LabelFormat::Content),
+            label("Untitled-1", "todo list", LabelFormat::Content),
             "todo list"
         );
         assert_eq!(
-            label("Untitled-1", "todo list\nmilk", LabelFormat::Name),
-            "Untitled-1"
-        );
-        assert_eq!(
-            label("Untitled-1", "\ntodo", LabelFormat::Content),
+            label("Untitled-1", "todo list", LabelFormat::Name),
             "Untitled-1"
         );
         assert_eq!(label("Untitled-1", "", LabelFormat::Content), "Untitled-1");

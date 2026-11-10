@@ -121,7 +121,7 @@ impl Workbench {
             return false;
         };
         // A file changed on disk is a save conflict, which an auto save does not resolve (ADR-0039).
-        if !e.is_dirty() || e.is_read_only() || (e.disk_changed() && save_conflict_ask) {
+        if !e.is_dirty() || e.is_untitled() || e.is_read_only() || (e.disk_changed() && save_conflict_ask) {
             return false;
         }
         match e.save_with(transforms) {

@@ -20,6 +20,9 @@ pub enum InlineKind {
     NewFile,
     NewFolder,
     Rename,
+    /// Save As of an untitled text (ADR-0058): the name is the file the text is saved to, in the
+    /// workspace folder. The untitled editor's key is the entry's `target`.
+    SaveUntitled,
 }
 
 /// An inline name input in progress.
@@ -74,6 +77,8 @@ impl Workbench {
                 self.expand_to(&parent);
                 (parent, None, String::new(), 0)
             }
+            // Save As starts from `start_save_untitled_inline`, which knows the untitled text.
+            InlineKind::SaveUntitled => return,
             InlineKind::Rename => {
                 let Some(target) = selected else { return };
                 if target == self.root {
@@ -86,6 +91,30 @@ impl Workbench {
                 (parent, Some(target), name, selection)
             }
         };
+        self.open_inline(kind, parent, target, initial, selection, window, cx);
+    }
+
+    /// Save As of the untitled editor `key` (ADR-0058): the name box opens in the workspace folder,
+    /// with `name` typed in and its name part selected.
+    pub(crate) fn start_save_untitled_inline(&mut self, key: PathBuf, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.root.clone();
+        self.expand_to(&root);
+        let selection = rename_selection(name, false);
+        self.open_inline(InlineKind::SaveUntitled, root, Some(key), name.to_string(), selection, window, cx);
+    }
+
+    /// The name box itself: the input (validated on every change), focus and the entry.
+    #[allow(clippy::too_many_arguments)]
+    fn open_inline(
+        &mut self,
+        kind: InlineKind,
+        parent: PathBuf,
+        target: Option<PathBuf>,
+        initial: String,
+        selection: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let placeholder = match kind {
             InlineKind::NewFolder => "Folder name",
             _ => "File name",
@@ -160,6 +189,11 @@ impl Workbench {
             (InlineKind::NewFolder, _) => self.create_entry(&edit.parent, &name, true, cx),
             (InlineKind::Rename, Some(target)) => self.rename_entry(&target, &name, cx),
             (InlineKind::Rename, None) => Err("nothing to rename".to_string()),
+            (InlineKind::SaveUntitled, Some(key)) => {
+                let parent = edit.parent.clone();
+                self.save_untitled_in(&key, &parent, &name, cx)
+            }
+            (InlineKind::SaveUntitled, None) => Err("nothing to save".to_string()),
         };
         match result {
             Ok(path) => {

@@ -16,6 +16,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use vsr_editor::untitled;
 use vsr_editor::{Editor, EditorOptions, Selection};
 use vsr_syntax::SyntaxService;
 use vsr_text::{DefaultEol, Eol, Position, TextBuffer};
@@ -93,6 +94,24 @@ pub struct OpenEditor {
 /// The modification time of `path`, if it exists.
 pub fn disk_stamp(path: &Path) -> Option<SystemTime> {
     fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// The prefix of the key of an untitled editor. A key is a relative path (`untitled:Untitled-1`),
+/// so it never names a file on disk; it is what the path-keyed editor list stores for a new file
+/// (ADR-0058).
+pub const UNTITLED_SCHEME: &str = "untitled:";
+
+/// The key of the untitled editor called `name`.
+pub fn untitled_key(name: &str) -> PathBuf {
+    PathBuf::from(format!("{UNTITLED_SCHEME}{name}"))
+}
+
+/// The name of an untitled key (`Untitled-1`), or `None` for a file path.
+pub fn untitled_name_of(path: &Path) -> Option<&str> {
+    if path.is_absolute() {
+        return None;
+    }
+    path.to_str()?.strip_prefix(UNTITLED_SCHEME)
 }
 
 impl OpenEditor {
@@ -231,8 +250,31 @@ impl OpenEditor {
         }
     }
 
+    /// Whether the editor has changes to save. An untitled text is dirty while it has text (ADR-0057).
     pub fn is_dirty(&self) -> bool {
+        if self.is_untitled() {
+            let buffer = self.buffer();
+            return buffer.line_count() > 1 || !buffer.line_content(1).is_empty();
+        }
         self.editor.is_dirty()
+    }
+
+    /// Whether this is a new file that has no path on disk yet (ADR-0058).
+    pub fn is_untitled(&self) -> bool {
+        untitled_name_of(&self.path).is_some()
+    }
+
+    /// The name (`Untitled-1`) of an untitled editor.
+    pub fn untitled_name(&self) -> Option<&str> {
+        untitled_name_of(&self.path)
+    }
+
+    /// A new untitled editor with `text` (empty for a new file). Its title is set from the name;
+    /// the tab label follows the first line through [`Editors::title_of`].
+    pub fn from_untitled(name: &str, text: &str, options: EditorOptions, default_eol: DefaultEol) -> Self {
+        let mut editor = Self::from_text(&untitled_key(name), text, options, default_eol, false);
+        editor.title = name.to_string();
+        editor
     }
 
     /// Save without the `files.*` save transforms.
@@ -246,6 +288,27 @@ impl OpenEditor {
     /// to disk (`value()` already uses the file's EOL) and mark it clean. An auto save leaves the
     /// lines the caret is on alone, as upstream does.
     pub fn save_with(&mut self, transforms: SaveTransforms) -> io::Result<()> {
+        if self.is_untitled() {
+            return Err(io::Error::other("an untitled editor has no file yet; it is saved with Save As"));
+        }
+        let path = self.path.clone();
+        self.apply_and_write(&path, transforms)
+    }
+
+    /// Save an untitled editor to `target` (Save As): the save transforms, the write, then the
+    /// editor follows `target` as a file. The caller moves the editor's list entries
+    /// (`Editors::save_untitled_as`).
+    pub fn save_untitled_as(&mut self, target: &Path, transforms: SaveTransforms) -> io::Result<()> {
+        if !self.is_untitled() {
+            return Err(io::Error::other("only an untitled editor is saved as a new file"));
+        }
+        self.apply_and_write(target, transforms)?;
+        self.follow(target.to_path_buf());
+        Ok(())
+    }
+
+    /// The save transforms, then the write of the buffer to `target` and the clean mark.
+    fn apply_and_write(&mut self, target: &Path, transforms: SaveTransforms) -> io::Result<()> {
         let cursors: Vec<Position> = if transforms.auto_save { vec![self.editor.selection().active] } else { Vec::new() };
         if transforms.trim_trailing_whitespace {
             self.sync_syntax();
@@ -264,9 +327,9 @@ impl OpenEditor {
         if transforms.trim_final_newlines {
             self.editor.trim_final_newlines(&cursors);
         }
-        fs::write(&self.path, self.editor.buffer().value())?;
+        fs::write(target, self.editor.buffer().value())?;
         self.editor.mark_saved();
-        self.disk_stamp = disk_stamp(&self.path);
+        self.disk_stamp = disk_stamp(target);
         Ok(())
     }
 }
@@ -386,7 +449,30 @@ impl Editors {
         self.init_language(&mut editor, &text);
         editor.editor.set_typing_options(self.typing);
         editor.apply_indentation(self.options, self.detect_indentation);
+        self.place(editor, options);
+        self.touch_history(path);
+        Ok(())
+    }
 
+    /// Open a new untitled text (`file.newUntitledFile`, ADR-0058) with `text` and `language`. Its
+    /// name is the lowest `Untitled-N` that no open editor uses. Returns its key.
+    pub fn open_untitled(&mut self, text: &str, language: &str, options: OpenOptions) -> PathBuf {
+        self.pin_dirty_preview();
+        let names: Vec<String> = self.open.iter().filter_map(|e| e.untitled_name().map(str::to_string)).collect();
+        let name = untitled::next_name(names.iter().map(String::as_str));
+        let mut editor = OpenEditor::from_untitled(&name, text, self.options, self.default_eol);
+        editor.editor.set_typing_options(self.typing);
+        editor.apply_indentation(self.options, self.detect_indentation);
+        let max = self.max_tokenization_line_length;
+        editor.set_language(&self.syntax, language, false, max);
+        let key = editor.path.clone();
+        self.place(editor, options);
+        key
+    }
+
+    /// Put a new editor in the list where its open options say (the placement, preview and limit
+    /// rules of upstream `EditorGroupModel.openEditor`).
+    fn place(&mut self, editor: OpenEditor, options: OpenOptions) {
         let target = self.target_index();
         let preview_index = self.preview.as_deref().and_then(|p| self.index_of(p));
         let make_active =
@@ -416,7 +502,35 @@ impl Editors {
             self.preview = Some(new_path);
         }
         self.enforce_limit();
-        self.touch_history(path);
+    }
+
+    /// Bring back an untitled text from its hot exit backup (ADR-0058). It opens as a pinned tab
+    /// with its saved name and text, without taking the focus. Its language is plain text, since the
+    /// backup does not keep one.
+    pub fn restore_untitled(&mut self, name: &str, text: &str) -> PathBuf {
+        let editor = OpenEditor::from_untitled(name, text, self.options, self.default_eol);
+        let key = editor.path.clone();
+        self.place(editor, OpenOptions { pinned: true, active: false });
+        self.mru.retain(|p| *p != key);
+        self.mru.push(key.clone());
+        key
+    }
+
+    /// Save the untitled editor at `index` to `target` (Save As, ADR-0058). The editor becomes the
+    /// file's: it follows `target` in the open list, the MRU list and the preview, joins the
+    /// history, and its language is detected from the new name unless it was picked by hand.
+    pub fn save_untitled_as(&mut self, index: usize, target: &Path, transforms: SaveTransforms) -> io::Result<()> {
+        let old = self.open[index].path.clone();
+        self.open[index].save_untitled_as(target, transforms)?;
+        self.follow_rename(&old, target);
+        self.touch_history(target);
+        if !self.open[index].language_explicit {
+            let first = self.open[index].buffer().line_content(1).to_string();
+            let id = self.syntax.language_for_file(&target.to_string_lossy(), Some(&first));
+            let max = self.max_tokenization_line_length;
+            let syntax = self.syntax.clone();
+            self.open[index].set_language(&syntax, &id, false, max);
+        }
         Ok(())
     }
 
@@ -438,7 +552,7 @@ impl Editors {
     pub fn apply_associations(&mut self, associations: &[(String, String)]) {
         self.syntax.set_configured_associations(associations);
         for i in 0..self.open.len() {
-            if self.open[i].language_explicit {
+            if self.open[i].language_explicit || self.open[i].is_untitled() {
                 continue;
             }
             let first = self.open[i].buffer().line_content(1).to_string();
@@ -608,7 +722,7 @@ impl Editors {
     /// unsaved changes stay open. Returns the paths that were closed.
     pub fn close_missing(&mut self, exists: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
         let missing: Vec<usize> = (0..self.open.len())
-            .filter(|&i| !self.open[i].is_dirty() && !exists(&self.open[i].path))
+            .filter(|&i| !self.open[i].is_dirty() && !self.open[i].is_untitled() && !exists(&self.open[i].path))
             .collect();
         let mut closed = Vec::new();
         for &i in missing.iter().rev() {
@@ -678,12 +792,22 @@ impl Editors {
     /// `short`: the name and the directory's own name. `medium`: the name and the directory
     /// relative to the root. `long`: the name and the directory's absolute path. `default`: the
     /// name, with the relative directory added when two open tabs share a name.
+    /// The title of an open editor: the file name, or for an untitled text its first line
+    /// (`workbench.editor.untitled.labelFormat`, ADR-0057).
+    pub fn title_of(&self, e: &OpenEditor) -> String {
+        match e.untitled_name() {
+            Some(name) => untitled::label(name, e.buffer().line_content(1), self.settings.untitled_label_format),
+            None => e.title.clone(),
+        }
+    }
+
     pub fn tab_labels(&self, root: &Path, format: LabelFormat) -> Vec<TabLabel> {
+        let titles: Vec<String> = self.open.iter().map(|e| self.title_of(e)).collect();
         self.open
             .iter()
             .enumerate()
             .map(|(i, e)| {
-                let title = e.title.clone();
+                let title = titles[i].clone();
                 let dir = e.path.parent();
                 let relative = || {
                     dir.and_then(|d| d.strip_prefix(root).ok())
@@ -695,7 +819,7 @@ impl Editors {
                     LabelFormat::Medium => relative(),
                     LabelFormat::Long => dir.map(|d| d.display().to_string()).filter(|d| !d.is_empty()),
                     LabelFormat::Default => {
-                        let shared = self.open.iter().enumerate().any(|(j, o)| j != i && o.title == e.title);
+                        let shared = titles.iter().enumerate().any(|(j, t)| j != i && *t == titles[i]);
                         shared.then(relative).flatten()
                     }
                 };
@@ -708,7 +832,7 @@ impl Editors {
     /// most recent first (`IHistoryService.getHistory`).
     pub fn recent_files(&self) -> Vec<PathBuf> {
         let mut out: Vec<PathBuf> = Vec::new();
-        if let Some(a) = self.active_editor() {
+        if let Some(a) = self.active_editor().filter(|a| !a.is_untitled()) {
             out.push(a.path.clone());
         }
         for p in &self.history {

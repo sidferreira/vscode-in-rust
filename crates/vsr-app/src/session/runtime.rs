@@ -45,7 +45,7 @@ use super::state::{
 use super::store::{Loaded, SessionStorage, SessionStore, load_json, write_atomic};
 use crate::config::AppConfig;
 use crate::config::settings::{FindSettings, StartupEditor, startup_editor};
-use crate::model::OpenEditor;
+use crate::model::{OpenEditor, untitled_name_of};
 use crate::theme::Theme;
 use crate::ui::to_gpui;
 use crate::{ActivityView, Workbench};
@@ -119,7 +119,7 @@ pub struct Runtime {
     /// The text version each file was last backed up at (and so has a backup file for).
     pub backed_up: HashMap<PathBuf, u64>,
     /// The version seen on the previous tick (a backup is written when seen twice).
-    seen: HashMap<PathBuf, u64>,
+    pub seen: HashMap<PathBuf, u64>,
     /// `workbench.editor.restoreViewState`, for reopening closed tabs (set at startup and on changes).
     pub restore_view_state: bool,
     pub recent_folders: Vec<PathBuf>,
@@ -290,6 +290,16 @@ impl Workbench {
     /// Brings one backup back as a dirty buffer (opening a tab for it when the saved tabs have none).
     fn restore_backup(&mut self, backup: &super::backup::Backup, store: &BackupStore) {
         let path = PathBuf::from(&backup.path);
+        if let Some(name) = untitled_name_of(&path).map(str::to_string) {
+            // An untitled text has no file: its text comes back as the untitled text it was (ADR-0058).
+            if self.editors.index_of(&path).is_none() {
+                self.editors.restore_untitled(&name, &backup.text);
+            }
+            if let Some(i) = self.editors.index_of(&path) {
+                self.session.backed_up.insert(path, self.editors.open[i].editor.version());
+            }
+            return;
+        }
         let on_disk = fs::read(&path).ok().map(|b| String::from_utf8_lossy(&b).into_owned());
         if on_disk.as_deref() == Some(backup.text.as_str()) {
             // The file already has this text: nothing is lost by dropping the backup.
@@ -321,11 +331,13 @@ impl Workbench {
 
     /// The state of this workbench as it would be saved now.
     pub(crate) fn session_snapshot(&self, cx: &App) -> WorkspaceState {
+        // Untitled texts are not tabs to reopen by path: their text is in the backups (ADR-0058).
         let editors = self
             .editors
             .open
             .iter()
             .enumerate()
+            .filter(|(_, e)| !e.is_untitled())
             .map(|(i, e)| EditorState {
                 path: e.path.to_string_lossy().into_owned(),
                 preview: self.editors.is_preview(i),
@@ -340,8 +352,18 @@ impl Workbench {
             find_history,
             replace_history,
             editors,
-            active: self.editors.active,
-            mru: self.editors.mru.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
+            active: self
+                .editors
+                .active
+                .filter(|&a| self.editors.open.get(a).is_some_and(|e| !e.is_untitled()))
+                .map(|a| self.editors.open[..a].iter().filter(|e| !e.is_untitled()).count()),
+            mru: self
+                .editors
+                .mru
+                .iter()
+                .filter(|p| untitled_name_of(p).is_none())
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
             side_bar: SideBarState {
                 visible: self.sidebar_visible,
                 width: self.sidebar_width,
@@ -577,7 +599,7 @@ impl Workbench {
         if !self.session.prompt {
             return None;
         }
-        let dirty = self.editors.open.iter().filter(|e| e.is_dirty()).map(|e| e.title.clone()).collect();
+        let dirty = self.editors.open.iter().filter(|e| e.is_dirty()).map(|e| self.editors.title_of(e)).collect();
         Some(self.save_prompt_bar(PromptKind::Quit, dirty, cx))
     }
 
@@ -588,7 +610,7 @@ impl Workbench {
             .iter()
             .filter_map(|p| self.editors.index_of(p).map(|i| &self.editors.open[i]))
             .filter(|e| e.is_dirty())
-            .map(|e| e.title.clone())
+            .map(|e| self.editors.title_of(e))
             .collect();
         if dirty.is_empty() {
             return None;

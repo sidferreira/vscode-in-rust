@@ -664,6 +664,18 @@ reason = "needs folding range providers from the extension host"
 comment = "editor.defaultFoldingRangeProvider picks the folding provider that wins over the others. rscode folds by indentation only (folding.rs); the providers come from the extension host."
 match = ["editor.defaultFoldingRangeProvider"]
 
+# ---------------------------------------------------------------------------------------------
+# breadcrumbs (ADR-0047). breadcrumbs.enabled, filePath and icons are wired (config/wired.rs).
+# The symbol part needs the document symbol providers of the extension host, and the outline
+# filters (showFiles and the other show<Kind> settings) filter those same symbols.
+# ---------------------------------------------------------------------------------------------
+
+[[rule]]
+status = "blocked"
+reason = "needs custom editors (the editor type dropdown switches between editors for one file)"
+comment = "breadcrumbs.showEditorType shows a dropdown when a custom editor can open the file. rscode has the text editor only."
+match = ["breadcrumbs.showEditorType"]
+
 [[rule]]
 status = "blocked"
 reason = "needs document symbols (outline provider from the extension host)"
@@ -711,3 +723,6 @@ status = "blocked"
 reason = "needs sash grippers (the drawn handle in the middle of a sash)"
 comment = "workbench.sash.autoHideGrippers and autoHideGrippersDelay fade the gripper of a sash when the mouse is idle. rscode's sashes have a hover colour only, no gripper."
 match = ["workbench.sash.autoHideGrippers", "workbench.sash.autoHideGrippersDelay"]
+
+comment = "breadcrumbs.symbolPath, symbolSortOrder and symbolPathSeparator order and show the symbols of the file. breadcrumbs.show<Kind> (showFiles, showModules, ... showTypeParameters) filter the same symbol kinds in the outline, so they change nothing without symbols (documentSymbolsTree.ts)."
+match = ["breadcrumbs.symbol*", "breadcrumbs.show*"]

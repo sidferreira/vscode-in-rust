@@ -172,6 +172,13 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
     r.register(D::new("workbench.view.search", "Show Search").category("View").f1(), action(sv::FocusSearch, Workbench));
     r.register(D::new("workbench.action.openSettings", "Open Settings (UI)").category("Preferences").f1(), action(OpenSettings, Workbench));
     r.register(D::new("workbench.action.selectTheme", "Color Theme").category("Preferences").f1(), action(SelectTheme, Workbench));
+    // Breadcrumbs (ADR-0047): the ids and labels of upstream breadcrumbsControl.ts.
+    r.register(D::new("breadcrumbs.toggle", "Toggle Breadcrumbs").category("View").f1(), action(crate::breadcrumbs::BreadcrumbsToggle, Workbench));
+    r.register(D::new("breadcrumbs.focus", "Focus Breadcrumbs").category("View").f1(), action(crate::breadcrumbs::BreadcrumbsFocus, Workbench));
+    r.register(
+        D::new("breadcrumbs.focusAndSelect", "Focus and Select Breadcrumbs").category("View").f1(),
+        action(crate::breadcrumbs::BreadcrumbsFocusAndSelect, Workbench),
+    );
     r.register(D::new("workbench.action.clearCommandHistory", "Clear Command History").f1(), action(ClearCommandHistory, Workbench));
     r.register(D::new("workbench.action.editor.changeLanguageMode", "Change Language Mode").f1(), action(crate::language_mode::ChangeLanguageMode, Workbench));
     r.register(D::new("workbench.action.quit", "Quit"), action(Quit, Workbench));

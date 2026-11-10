@@ -6,6 +6,7 @@
 //! upstream: src/vs/workbench/browser/layout.ts @ 50e1350fc78d
 
 mod autosave; // files.autoSave triggers (ADR-0034)
+mod breadcrumbs; // the path bar under the tab strip and its dropdown (ADR-0047)
 mod commands; // command registry + Command Palette (ADR-0030)
 mod config;
 mod editor_view;
@@ -78,6 +79,7 @@ fn main() {
         search_view::init(cx); // Shift+Cmd+F and Search view bindings
         quick_open::init(cx); // Cmd+P
         commands::init(cx); // command registry; Shift+Cmd+P, F1, Cmd+B, Shift+Cmd+E, Ctrl+G
+        breadcrumbs::init(cx); // Shift+Cmd+; and Shift+Cmd+. focus the breadcrumbs (ADR-0047)
         language_mode::init(cx); // Cmd+K M
         explorer::actions::init(cx); // Explorer tree keys (ADR-0041)
 
@@ -202,6 +204,7 @@ struct Workbench {
     search: Option<Entity<SearchView>>,
     /// Quick Open (Cmd+P) state.
     quick: quick_open::QuickOpenState,
+    crumbs: breadcrumbs::Crumbs,
     /// Change Language Mode picker and the syntax repaint poll (ADR-0038).
     lang: language_mode::LanguageUi,
     /// Root focus handle so workbench-level actions (Cmd+,) dispatch even before anything is focused.
@@ -275,6 +278,7 @@ impl Workbench {
             applied_window_title: None,
             search: None,
             quick: Default::default(),
+            crumbs: Default::default(),
             lang: Default::default(),
             focus: None,
             auto_save: Default::default(),
@@ -1154,6 +1158,7 @@ impl Workbench {
 
     fn editor_group(&mut self, cx: &mut Context<Self>, show_tabs: ShowTabs) -> impl IntoElement {
         let t = self.theme.clone();
+        let crumbs = self.breadcrumb_bar(cx);
         let settings = self.editor_settings.clone();
         let settings_surface = self.settings.clone().filter(|_| self.settings_active);
         let conflict = self
@@ -1185,6 +1190,7 @@ impl Workbench {
             .bg(to_gpui(t.editor_bg))
             .debug_selector(|| "editor-group".to_string())
             .when(show_tabs != ShowTabs::None, |d| d.child(self.tab_strip(cx, show_tabs)))
+            .when_some(crumbs, |d, bar| d.child(bar))
             .when_some(conflict, |d, path| d.child(self.conflict_bar(&path, cx)))
             .child(div().flex_1().min_h_0().overflow_hidden().child(surface))
     }
@@ -1330,6 +1336,9 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::GoToLine, window, cx| this.show_quick_access(":", window, cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(cx.listener(|this, _: &theme_picker::SelectTheme, window, cx| this.show_theme_picker(window, cx)))
+            .on_action(cx.listener(|this, _: &breadcrumbs::BreadcrumbsFocus, window, cx| this.focus_crumbs(false, window, cx)))
+            .on_action(cx.listener(|this, _: &breadcrumbs::BreadcrumbsFocusAndSelect, window, cx| this.focus_crumbs(true, window, cx)))
+            .on_action(cx.listener(|this, _: &breadcrumbs::BreadcrumbsToggle, _, cx| this.toggle_breadcrumbs(cx)))
             .on_action(cx.listener(|this, _: &commands::ZoomIn, _, cx| this.zoom(Some(1.0), cx)))
             .on_action(cx.listener(|this, _: &commands::ZoomOut, _, cx| this.zoom(Some(-1.0), cx)))
             .on_action(cx.listener(|this, _: &commands::ZoomReset, _, cx| this.zoom(None, cx)))

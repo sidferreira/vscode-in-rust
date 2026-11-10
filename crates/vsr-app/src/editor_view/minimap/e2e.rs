@@ -185,7 +185,9 @@ fn the_slider_tracks_scrolling_and_stays_inside_the_minimap(cx: &mut TestAppCont
     assert!(scroll_top(&wb, cx) > 10_000.0, "scrolled: {}", scroll_top(&wb, cx));
     assert!(last.top() > first.top() + px(100.0), "slider moved down: {first:?} -> {last:?}");
     assert!(near(f32::from(last.size.height), f32::from(height), 0.5), "stable height");
-    assert!(last.bottom() <= m.bottom() + px(1.0), "inside the minimap: {last:?} in {m:?}");
+    // Inside the minimap, up to part of a line: the aligned top (upstream sliderTopAligned) may run past
+    // the bottom by a fraction of a minimap line when the viewport is not a whole number of lines.
+    assert!(last.bottom() <= m.bottom() + px(2.0), "inside the minimap: {last:?} in {m:?}");
     assert!(near(f32::from(last.top() - m.top()), f.layout.slider_top as f32, 0.5), "bounds match the layout");
 
     cx.simulate_keystrokes("cmd-up");

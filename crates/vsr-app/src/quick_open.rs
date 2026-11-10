@@ -212,7 +212,7 @@ impl Workbench {
     /// line, `?` help), or switch the one that is open (`quickAccess.show(prefix)`).
     pub(crate) fn show_quick_access(&mut self, prefix: &str, window: &mut Window, cx: &mut Context<Self>) {
         crate::commands::ensure_installed(cx);
-        if self.quick.theme_pick {
+        if self.quick.theme_pick || self.crumbs.picker_open() {
             self.hide_quick_open(false, window, cx);
         }
         self.quick.data.borrow_mut().ctx = self.context_keys();
@@ -303,6 +303,7 @@ impl Workbench {
     /// Close Quick Open. `restore_focus` gives focus back to where it was (Escape, click outside).
     pub(crate) fn hide_quick_open(&mut self, restore_focus: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.end_theme_pick(cx);
+        self.crumbs.end_picker();
         if let Some(pick) = self.quick.pick.take() {
             let text = pick.read(cx).query(cx);
             let provider = self.provider_prefix(&text, cx);

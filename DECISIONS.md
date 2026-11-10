@@ -1468,6 +1468,50 @@ would want.
 - `.gitignore` edits are seen when the folder is listed again. There is no watch on `.gitignore`
   files, and the global gitignore and `.git/info/exclude` are not read.
 
+## ADR-0047 — Breadcrumbs: the file path bar, its dropdown and the focus keys (2026-11-10)
+
+**Context.** The `breadcrumbs.*` group has 33 settings. Their upstream meaning is the file path
+above the editor plus the symbol path from the document symbol providers (the outline). The
+symbol providers come from the extension host (ADR-0020), so the symbol part cannot work yet.
+
+**Decision.** Build the file path part now and block the rest.
+
+- **Bar.** A 22px row under the tab strip (`crates/vsr-app/src/breadcrumbs/`), drawn for the active
+  text editor only (not the Settings editor or the Welcome page). Crumbs are the folders and the file
+  name below the workspace folder, which is not a crumb (upstream does the same for one folder). A
+  file outside the folder shows its absolute path, as upstream does. The bar hides when there are no
+  crumbs. Colours: `breadcrumb.background`, `foreground`, `focusForeground` (the keyboard crumb),
+  `activeSelectionForeground` (the crumb whose dropdown is open).
+- **Model.** `breadcrumbs/model.rs` is UI-free: `file_segments` (the three `filePath` modes),
+  `list_children` (folders first, then by name, `files.exclude` applied) and the settings.
+- **Dropdown.** Clicking a crumb opens the Quick Pick (`quick_input.rs`, ADR-0028), not a new widget.
+  It lists the crumb's siblings (the parent folder's entries) with the crumb selected. A folder
+  accepted lists its own entries in place; a file accepted opens (as Quick Open does) and closes it.
+  This is the reuse the theme picker also makes.
+- **Keys.** `breadcrumbs.focus` (Shift+Cmd+;) and `breadcrumbs.focusAndSelect` (Shift+Cmd+.) focus
+  the last crumb; Left and Right move; Enter opens its dropdown; Escape gives focus to the editor.
+  `breadcrumbs.toggle` flips `breadcrumbs.enabled` (palette, no key, as upstream).
+- **Wired:** `breadcrumbs.enabled`, `breadcrumbs.filePath`, `breadcrumbs.icons`.
+- **Blocked** (`upstream/settings.toml`, reason "needs document symbols"): `symbolPath`,
+  `symbolSortOrder`, `symbolPathSeparator`, and every `breadcrumbs.show<Kind>`. `showFiles` is in
+  this set on purpose: upstream applies it to the file symbol in the outline, so it does nothing
+  without symbols. `showEditorType` is blocked on custom editors.
+
+**Consequences.**
+- The bar sits under the tab strip whatever `workbench.editor.showTabs` says, and it is not
+  anchored under the crumb (the dropdown is the centred Quick Pick).
+- Single-group, single-window only, like the rest of the editor.
+- The dropdown's rows come from a synchronous directory read on each change. A folder with a very
+  large number of entries is not paged.
+- `Shift+Cmd+;` and `Shift+Cmd+.` are matched by gpui on the unshifted key; the headless tests drive
+  them through `simulate_keystrokes`, so a real keyboard layout is not verified.
+
+**Testing.** `breadcrumbs/model.rs` unit tests (segments inside and outside the folder, `last`, `off`,
+children order and `files.exclude`). `breadcrumbs/e2e_tests.rs` (headless, `docs/testing.md`): the path
+shows, a click lists the siblings, a folder opens in place, a file opens, `filePath` last and off,
+`enabled` false, the colour theme, and the keys. The scenario rows are in
+`tests/e2e-scenarios/workbench.md`.
+
 ## ADR-0048 — Explorer sort options, auto-reveal exclusions and the small P1 settings groups (2026-11-10)
 
 **Context.** The P1 groups `explorer.sort`, `explorer.auto`, `explorer.confirm`, `editor.default`,

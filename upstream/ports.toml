@@ -965,6 +965,7 @@ rust = [
   "crates/vsr-exthost/src/language_features/uri.rs",
   "crates/vsr-exthost/src/language_features/selector.rs",
   "crates/vsr-exthost/src/language_features/registry.rs",
+  "crates/vsr-exthost/src/language_features/main_thread.rs",
   "crates/vsr-exthost/tests/upstream_language_selector.rs",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"

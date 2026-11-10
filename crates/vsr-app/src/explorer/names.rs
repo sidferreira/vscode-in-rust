@@ -244,38 +244,38 @@ mod tests {
         increment_file_name(name, true, IncrementalNaming::Smart)
     }
 
-    // upstream: Increment file name without any version
+    // upstream: Files - Increment file name simple > Increment file name without any version
     #[test]
     fn increment_file_name_without_any_version() {
         assert_eq!(simple_of("test.js"), "test copy.js");
     }
 
-    // upstream: Increment file name with suffix version
+    // upstream: Files - Increment file name simple > Increment file name with suffix version
     #[test]
     fn increment_file_name_with_suffix_version() {
         assert_eq!(simple_of("test copy.js"), "test copy 2.js");
     }
 
-    // upstream: Increment file name with suffix version with leading zeros
+    // upstream: Files - Increment file name simple > Increment file name with suffix version with leading zeros
     #[test]
     fn increment_file_name_with_suffix_version_with_leading_zeros() {
         assert_eq!(simple_of("test copy 005.js"), "test copy 6.js");
     }
 
-    // upstream: Increment file name with suffix version, too big number
+    // upstream: Files - Increment file name simple > Increment file name with suffix version, too big number
     #[test]
     fn increment_file_name_with_suffix_version_too_big_number() {
         assert_eq!(simple_of("test copy 9007199254740992.js"), "test copy 9007199254740992 copy.js");
     }
 
-    // upstream: Increment file name with just version in name
+    // upstream: Files - Increment file name simple > Increment file name with just version in name
     #[test]
     fn increment_file_name_with_just_version_in_name() {
         assert_eq!(simple_of("copy.js"), "copy copy.js");
         assert_eq!(simple_of("copy 2.js"), "copy 2 copy.js");
     }
 
-    // upstream: Increment file name without any extension or version
+    // upstream: Files - Increment file name simple > Increment file name without any extension or version
     #[test]
     fn increment_file_name_without_any_extension_or_version() {
         assert_eq!(simple_of("test"), "test copy");
@@ -284,45 +284,45 @@ mod tests {
         assert_eq!(simple_of("..test"), ". copy.test");
     }
 
-    // upstream: Increment file name without any extension but with suffix version
+    // upstream: Files - Increment file name simple > Increment file name without any extension but with suffix version
     #[test]
     fn increment_file_name_without_any_extension_but_with_suffix_version() {
         assert_eq!(simple_of("test copy 5"), "test copy 6");
     }
 
-    // upstream: Increment folder name without any version
+    // upstream: Files - Increment file name simple > Increment folder name without any version
     #[test]
     fn increment_folder_name_without_any_version() {
         assert_eq!(folder_simple("test"), "test copy");
     }
 
-    // upstream: Increment folder name with suffix version
+    // upstream: Files - Increment file name simple > Increment folder name with suffix version
     #[test]
     fn increment_folder_name_with_suffix_version() {
         assert_eq!(folder_simple("test copy 1"), "test copy 2");
     }
 
-    // upstream: Increment file name with suffix version, zero is a copy
+    // upstream: Files - Increment file name simple > Increment file/folder name with suffix version, special case 1
     #[test]
     fn copy_zero_becomes_plain_copy() {
         assert_eq!(folder_simple("test copy 0"), "test copy");
     }
 
-    // upstream: Increment file name without any version (smart)
+    // upstream: Files - Increment file name smart > Increment file name without any version
     #[test]
     fn smart_file_without_version_gets_dot_one() {
         assert_eq!(smart_of("test.js"), "test.1.js");
         assert_eq!(smart_of("test"), "test1");
     }
 
-    // upstream: Increment file name with suffix version (smart)
+    // upstream: Files - Increment file name smart > Increment file name with suffix version
     #[test]
     fn smart_file_with_suffix_version() {
         assert_eq!(smart_of("test.1.js"), "test.2.js");
         assert_eq!(smart_of("test.001.js"), "test.002.js");
     }
 
-    // upstream: Increment folder name with suffix version (smart)
+    // upstream: Files - Increment file name smart > Increment folder name with suffix version
     #[test]
     fn smart_folder_with_suffix_version() {
         assert_eq!(smart_folder("test.1"), "test.2");

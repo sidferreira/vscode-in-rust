@@ -15,15 +15,20 @@
 //! element, so the find keys work from either. Enter in the Find box comes from the input's
 //! `PressEnter` event (the input propagates Enter, a second binding would fire twice).
 //!
-//! Not implemented: "Select All Occurrences of Find Match" (one cursor), the find history
-//! (`editor.find.history`), the global find clipboard, the options-only widget shown when the
-//! widget is closed, the Tab order between the buttons, resizing the widget, and the overview
-//! ruler marks.
+//! The history of both boxes (`editor.find.history`, `replaceHistory`) is kept in the session state
+//! (ADR-0040) and walked with Up / Down in the box. `globalFindClipboard` uses the macOS find
+//! pasteboard (`clipboard.rs`).
+//!
+//! Not implemented: "Select All Occurrences of Find Match" (one cursor), `addExtraSpaceOnTop`, the
+//! options-only widget shown when the widget is closed, the Tab order between the buttons, resizing
+//! the widget, and the overview ruler marks.
+
+pub(crate) mod clipboard;
 
 use std::path::PathBuf;
 use std::time::Instant;
 
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState, MoveDown, MoveUp};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -31,11 +36,12 @@ use gpui_kit::{
     Focusable, KeyBinding, MouseButton, ParentElement, ScrollStrategy, Stateful, StatefulInteractiveElement, Styled, Subscription,
     Window, actions, div, point, px,
 };
-use vsr_find::{FindModel, FindState, SeedMode, scope_from_selection, seed_search_string};
+use clipboard::{FindPasteboard, SystemFindPasteboard};
+use vsr_find::{FindModel, FindState, SearchHistory, SeedMode, scope_from_selection, seed_search_string};
 use vsr_text::Range as TextRange;
 
 use super::{EditorHost, EditorView};
-use crate::config::settings::{AutoFindInSelection, FindSettings, SeedSearchString};
+use crate::config::settings::{AutoFindInSelection, FindHistoryMode, FindSettings, SeedSearchString};
 use crate::icons;
 use crate::model::OpenEditor;
 use crate::theme::{Rgba8, Theme};
@@ -184,9 +190,40 @@ pub(super) struct FindUi {
     model: Option<FindModel>,
     model_path: Option<PathBuf>,
     settings: FindSettings,
+    /// The histories of the two boxes (kept only when their setting is `workspace`).
+    find_history: SearchHistory,
+    replace_history: SearchHistory,
+    /// The find pasteboard; `None` is the system one (tests set an in-memory one).
+    pasteboard: Option<Box<dyn FindPasteboard>>,
+}
+
+/// Which box a history belongs to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HistoryBox {
+    Find,
+    Replace,
 }
 
 impl FindUi {
+    fn pasteboard(&self) -> &dyn FindPasteboard {
+        self.pasteboard.as_deref().unwrap_or(&SystemFindPasteboard)
+    }
+
+    /// The history of one box, `None` when its setting is `never`.
+    fn history_mut(&mut self, which: HistoryBox) -> Option<&mut SearchHistory> {
+        match which {
+            HistoryBox::Find => (self.settings.history == FindHistoryMode::Workspace).then_some(&mut self.find_history),
+            HistoryBox::Replace => (self.settings.replace_history == FindHistoryMode::Workspace).then_some(&mut self.replace_history),
+        }
+    }
+
+    /// Records a text as submitted (Enter in the box, closing the widget).
+    fn record(&mut self, which: HistoryBox, text: &str) {
+        if let Some(h) = self.history_mut(which) {
+            h.add(text);
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn is_open(&self) -> bool {
         self.open
@@ -312,6 +349,12 @@ fn open<T: EditorHost>(this: &mut T, replace: bool, focus: Focus, seed: bool, wi
         };
         if seed && let Some(s) = seed_search_string(&e.editor, mode, state.is_regex) {
             state.search_string = s;
+        } else if seed && cfg.global_clipboard && let Some(s) = ui.pasteboard().read().filter(|s| !s.is_empty()) {
+            // `seedSearchStringFromGlobalClipboard`: the find pasteboard seeds the box when no selection does.
+            state.search_string = s;
+        }
+        if seed && cfg.global_clipboard && !state.search_string.is_empty() {
+            ui.pasteboard().write(&state.search_string);
         }
         let multiline = e.editor.selection().anchor.line != e.editor.selection().active.line;
         let auto_scope = match cfg.auto_find_in_selection {
@@ -366,6 +409,9 @@ fn close<T: EditorHost>(this: &mut T, window: &mut Window, cx: &mut Context<T>) 
     if !view.find.open {
         return;
     }
+    let (find, replace) = (view.find.state().search_string.clone(), view.find.state().replace_string.clone());
+    view.find.record(HistoryBox::Find, &find);
+    view.find.record(HistoryBox::Replace, &replace);
     let mut state = view.find.state().clone();
     state.search_scope = None;
     view.find.state = state;
@@ -398,6 +444,9 @@ fn finish<T: EditorHost>(this: &mut T, edited: bool, window: &mut Window, cx: &m
 
 fn search_text_changed<T: EditorHost>(this: &mut T, text: String, window: &mut Window, cx: &mut Context<T>) {
     with_editor(this, |e, view| {
+        if view.find.settings.global_clipboard && !text.is_empty() {
+            view.find.pasteboard().write(&text);
+        }
         if let Some(m) = &mut view.find.model {
             if m.state().search_string != text {
                 m.change(&mut e.editor, true, |s| s.search_string = text);
@@ -423,6 +472,7 @@ fn on_find_input<T: EditorHost>(
             search_text_changed(this, text, window, cx);
         }
         InputEvent::PressEnter { shift, .. } => {
+            record_submitted(this, HistoryBox::Find, st, cx);
             if !find_on_type {
                 let text = st.read(cx).value().to_string();
                 let changed = with_editor(this, |_, v| v.find.state().search_string != text).unwrap_or(false);
@@ -456,6 +506,7 @@ fn on_replace_input<T: EditorHost>(
             });
         }
         InputEvent::PressEnter { secondary, .. } => {
+            record_submitted(this, HistoryBox::Replace, st, cx);
             if *secondary {
                 replace_all(this, window, cx);
             } else {
@@ -464,6 +515,57 @@ fn on_replace_input<T: EditorHost>(
         }
         _ => {}
     }
+}
+
+/// Enter in a box: its text goes into the history.
+fn record_submitted<T: EditorHost>(this: &mut T, which: HistoryBox, input: &Entity<InputState>, cx: &App) {
+    let text = input.read(cx).value().to_string();
+    this.editor_host().1.find.record(which, &text);
+}
+
+/// Up (`older`) or Down in a box: the history entry before or after the text in the box. `false`
+/// when there is nothing to show (the key then keeps its caret meaning).
+fn history_step<T: EditorHost>(this: &mut T, which: HistoryBox, older: bool, window: &mut Window, cx: &mut Context<T>) -> bool {
+    let (_, view) = this.editor_host();
+    let input = match which {
+        HistoryBox::Find => view.find.find_input.clone(),
+        HistoryBox::Replace => view.find.replace_input.clone(),
+    };
+    let Some(input) = input else { return false };
+    let current = input.read(cx).value().to_string();
+    let Some(text) = view.find.history_mut(which).and_then(|h| {
+        if older { h.previous(&current).map(str::to_string) } else { h.next(&current).map(str::to_string) }
+    }) else {
+        return false;
+    };
+    // `set_value` does not raise the input's change event, so the widget is told here what
+    // `on_find_input` / `on_replace_input` would have done for a typed change.
+    input.update(cx, |s, cx| s.set_value(text.clone(), window, cx));
+    match which {
+        HistoryBox::Find if this.editor_host().1.find.settings.find_on_type => search_text_changed(this, text, window, cx),
+        HistoryBox::Find => {}
+        HistoryBox::Replace => with_editor(this, |_, view| match &mut view.find.model {
+            Some(m) => m.set_replace_string(text),
+            None => view.find.state.replace_string = text,
+        })
+        .unwrap_or_default(),
+    }
+    true
+}
+
+/// Up / Down in a box recall the history. The capture phase takes the keys before the input moves
+/// its caret, and only when there is an entry to show.
+fn history_keys<T: EditorHost>(el: Stateful<Div>, which: HistoryBox, cx: &mut Context<T>) -> Stateful<Div> {
+    el.capture_action(cx.listener(move |this: &mut T, _: &MoveUp, window, cx| {
+        if history_step(this, which, true, window, cx) {
+            cx.stop_propagation();
+        }
+    }))
+    .capture_action(cx.listener(move |this: &mut T, _: &MoveDown, window, cx| {
+        if history_step(this, which, false, window, cx) {
+            cx.stop_propagation();
+        }
+    }))
 }
 
 /// Next (`forward`) or previous match. `from_input`: Enter in the Find box, which may close the
@@ -615,6 +717,30 @@ pub(super) fn register_actions<T: EditorHost>(el: Stateful<Div>, cx: &mut Contex
 }
 
 impl EditorView {
+    /// The two histories for the session state (ADR-0040): empty when their setting is `never`.
+    pub(crate) fn find_histories(&self, settings: &FindSettings) -> (Vec<String>, Vec<String>) {
+        let f = &self.find;
+        let find = if settings.history == FindHistoryMode::Workspace { f.find_history.entries().to_vec() } else { Vec::new() };
+        let replace = if settings.replace_history == FindHistoryMode::Workspace {
+            f.replace_history.entries().to_vec()
+        } else {
+            Vec::new()
+        };
+        (find, replace)
+    }
+
+    /// Restores the histories read from the session state.
+    pub(crate) fn restore_find_histories(&mut self, find: Vec<String>, replace: Vec<String>) {
+        self.find.find_history = SearchHistory::from_entries(find);
+        self.find.replace_history = SearchHistory::from_entries(replace);
+    }
+
+    /// Tests: the find pasteboard is an in-memory one, never the user's.
+    #[cfg(test)]
+    pub(crate) fn set_find_pasteboard(&mut self, pasteboard: impl FindPasteboard + 'static) {
+        self.find.pasteboard = Some(Box::new(pasteboard));
+    }
+
     /// Scroll so that lines `first..=last` (1-based) are visible, centring the first when it is
     /// outside the viewport (`revealRangeInCenterIfOutsideViewport`).
     fn reveal_range_if_outside(&mut self, e: &OpenEditor, first: usize, last: usize) {
@@ -781,7 +907,7 @@ impl FindUi {
             .items_center()
             .ml(px(17.))
             .mt(px(3.))
-            .child(input_box(t, &colors, "find-box", find_input, find_focus, no_results, toggles))
+            .child(history_keys(input_box(t, &colors, "find-box", find_input, find_focus, no_results, toggles), HistoryBox::Find, cx))
             .child(count)
             .child(button(t, &colors, "find-prev", ic::ARROW_UP, "Previous Match (⇧⌘G)", can_nav, false, cx, |this: &mut T, w, cx| {
                 navigate(this, false, false, w, cx)
@@ -821,7 +947,7 @@ impl FindUi {
                 .items_center()
                 .ml(px(17.))
                 .mt(px(3.))
-                .child(input_box(t, &colors, "replace-box", replace_input, replace_focus, false, preserve))
+                .child(history_keys(input_box(t, &colors, "replace-box", replace_input, replace_focus, false, preserve), HistoryBox::Replace, cx))
                 .child(div().w(px(3. + 69.)).flex_none())
                 .child(button(t, &colors, "find-replace", ic::REPLACE, "Replace (Enter)", can_replace, false, cx, |this: &mut T, w, cx| {
                     replace_one(this, w, cx)

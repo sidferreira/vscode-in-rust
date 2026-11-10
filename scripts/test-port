@@ -228,22 +228,76 @@ def _first_arg_title(toks, j):
     return _concat_literals(parts)
 
 
+def _title_tables(toks):
+    """Title tables: `const NAME[: type] = [ ['title', ...], ... ]` (also let / var) whose rows start
+    with a string literal. Returns {NAME: [(title, pos), ...]} in source order. The rows are what a
+    `for (const [name, ...] of NAME) { test(name, ...) }` loop turns into test titles (cursor.test.ts)."""
+    tables = {}
+    n = len(toks)
+    for i in range(n - 2):
+        if toks[i][0] != "id" or toks[i][1] not in ("const", "let", "var") or toks[i + 1][0] != "id":
+            continue
+        name = toks[i + 1][1]
+        j = i + 2
+        while j < n and not (_is(toks[j], "punct", "=") or _is(toks[j], "punct", ";")):
+            j += 1
+        if j + 1 >= n or not _is(toks[j], "punct", "=") or not _is(toks[j + 1], "punct", "["):
+            continue
+        rows, depth, k = [], 0, j + 1
+        while k < n:
+            kind, val, _ = toks[k]
+            if kind == "punct" and val in OPEN:
+                if (val == "[" and depth == 1 and k + 2 < n and toks[k + 1][0] in ("str", "tmpl")
+                        and toks[k + 1][1] is not None and (_is(toks[k + 2], "punct", ",") or _is(toks[k + 2], "punct", "]"))):
+                    rows.append((toks[k + 1][1], toks[k + 1][2]))
+                depth += 1
+            elif kind == "punct" and val in CLOSE:
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        if rows:
+            tables[name] = rows
+    return tables
+
+
+def _loop_table(toks, i):
+    """toks[i] is the '(' of a `for`: the NAME of `... of NAME)` in its head, or None."""
+    depth, k, table = 0, i, None
+    while k < len(toks):
+        kind, val, _ = toks[k]
+        if kind == "punct" and val in OPEN:
+            depth += 1
+        elif kind == "punct" and val in CLOSE:
+            depth -= 1
+            if depth == 0:
+                break
+        elif kind == "id" and val == "of" and k + 2 < len(toks) and toks[k + 1][0] == "id" and _is(toks[k + 2], "punct", ")"):
+            table = toks[k + 1][1]
+        k += 1
+    return table
+
+
 def parse_ts(src):
     """Returns (suites, tests) for one TS file.
     suites: [{"path": [..], "line": n, "skip": bool}] (path includes the suite itself)
     tests:  [{"suite": [..], "title": str|None, "dynamic": bool, "skip": bool,
-              "looped": bool, "line": n}]"""
+              "looped": bool, "line": n}]
+    A test whose title is a loop variable over a title table (`_title_tables`) yields one test per
+    row, with the row's title, not dynamic."""
     toks = lex(src)
     nls = [m.start() for m in re.finditer("\n", src)]
 
     def line_of(pos):
         return bisect.bisect_left(nls, pos) + 1
 
+    tables = _title_tables(toks)
     suites, tests = [], []
-    braces = []   # {"suite": title|None, "skip": bool, "loop": bool}
-    parens = []   # {"loop": bool, "call": None | {"title", "skip", "body"}}
+    braces = []   # {"suite": title|None, "skip": bool, "loop": bool, "table": NAME|None}
+    parens = []   # {"loop": bool, "call": None | {"title", "skip", "body"}, "table": NAME|None}
     loop_depth = 0
     last_close_loop = False
+    last_close_table = None
     n = len(toks)
     i = 0
     while i < n:
@@ -262,9 +316,16 @@ def parse_ts(src):
                 skip = mod in ("skip", "todo") or any(b["skip"] for b in braces)
                 owner = [b["suite"] for b in braces if b["suite"] is not None]
                 if TEST_CALL[val] == "test":
-                    tests.append({"suite": owner, "title": None if dynamic else title,
-                                  "dynamic": dynamic or mod == "each", "skip": skip,
-                                  "looped": loop_depth > 0, "line": line_of(pos)})
+                    loops = [b for b in braces if b["loop"]]
+                    table = loops[-1]["table"] if loops else None
+                    if dynamic and mod != "each" and table in tables:
+                        for row_title, _row_pos in tables[table]:
+                            tests.append({"suite": owner, "title": row_title, "dynamic": False,
+                                          "skip": skip, "looped": True, "line": line_of(pos)})
+                    else:
+                        tests.append({"suite": owner, "title": None if dynamic else title,
+                                      "dynamic": dynamic or mod == "each", "skip": skip,
+                                      "looped": loop_depth > 0, "line": line_of(pos)})
                     parens.append({"loop": False, "call": None})
                 else:
                     name = "<dynamic>" if dynamic else title
@@ -276,15 +337,18 @@ def parse_ts(src):
         if kind == "punct":
             if val == "(":
                 is_loop = _is(prev, "id") and prev[1] in LOOP_CALLS
-                parens.append({"loop": is_loop, "call": None})
+                table = _loop_table(toks, i) if is_loop and prev[1] == "for" else None
+                parens.append({"loop": is_loop, "call": None, "table": table})
                 loop_depth += int(is_loop)
             elif val == ")":
-                entry = parens.pop() if parens else {"loop": False, "call": None}
+                entry = parens.pop() if parens else {"loop": False, "call": None, "table": None}
                 loop_depth -= int(entry["loop"])
                 last_close_loop = entry["loop"]
+                last_close_table = entry.get("table")
             elif val == "{":
-                entry = {"suite": None, "skip": False,
-                         "loop": _is(prev, "punct", ")") and last_close_loop}
+                closes_loop = _is(prev, "punct", ")") and last_close_loop
+                entry = {"suite": None, "skip": False, "loop": closes_loop,
+                         "table": last_close_table if closes_loop else None}
                 call = parens[-1]["call"] if parens else None
                 if (call is not None and not call["body"] and prev is not None
                         and (_is(prev, "punct", "=>") or _is(prev, "punct", ")"))):

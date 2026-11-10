@@ -526,6 +526,59 @@ fn hot_exit_off_save_all_saves_then_quits(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn quit_save_all_on_a_file_changed_on_disk_keeps_the_app_open_and_the_disk_text(cx: &mut TestAppContext) {
+    let env = env("quit-conflict", Some(r#"{ "files.hotExit": "off" }"#));
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "MINE ");
+    tick(vcx);
+    tick(vcx);
+    write_elsewhere(&env.root.join("a.txt"), "theirs\n");
+    assert!(!wb.update(vcx, |wb, cx| wb.request_quit(false, cx)), "unsaved changes: the bar is raised");
+    vcx.run_until_parked();
+    click(vcx, "quit-prompt:save");
+    assert!(!wb.read_with(vcx, |wb, _| wb.session.quit_requested), "the app does not quit");
+    assert!(vcx.debug_bounds("quit-prompt").is_none(), "the bar is gone");
+    assert_eq!(wb.read_with(vcx, |wb, _| wb.editor_view.save_conflict.clone()), Some(env.root.join("a.txt")), "the conflict bar shows");
+    assert_eq!(fs::read_to_string(env.root.join("a.txt")).unwrap(), "theirs\n", "the external version is kept");
+    assert!(dirty_of(&wb, vcx, "a.txt"), "the text is still there");
+}
+
+#[gpui_kit::test]
+fn quit_save_all_saves_the_other_files_and_shows_the_refused_one(cx: &mut TestAppContext) {
+    let env = env("quit-conflict-others", Some(r#"{ "files.hotExit": "off" }"#));
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "MINE ");
+    open(&wb, vcx, &env.root.join("b.txt"));
+    type_in_active(&wb, vcx, "B ");
+    write_elsewhere(&env.root.join("a.txt"), "theirs\n");
+    assert!(!wb.update(vcx, |wb, cx| wb.request_quit(false, cx)));
+    vcx.run_until_parked();
+    click(vcx, "quit-prompt:save");
+    assert!(!wb.read_with(vcx, |wb, _| wb.session.quit_requested));
+    assert_eq!(fs::read_to_string(env.root.join("a.txt")).unwrap(), "theirs\n", "a.txt is not overwritten");
+    assert!(fs::read_to_string(env.root.join("b.txt")).unwrap().starts_with("B line 1"), "b.txt is saved");
+    assert!(!dirty_of(&wb, vcx, "b.txt"));
+    assert_eq!(active_title(&wb, vcx).as_deref(), Some("a.txt"), "the refused editor is shown");
+    assert_eq!(wb.read_with(vcx, |wb, _| wb.editor_view.save_conflict.clone()), Some(env.root.join("a.txt")));
+}
+
+#[gpui_kit::test]
+fn quit_save_all_with_overwrite_file_on_disk_saves_the_changed_file_and_quits(cx: &mut TestAppContext) {
+    let env = env("quit-overwrite", Some(r#"{ "files.hotExit": "off", "files.saveConflictResolution": "overwriteFileOnDisk" }"#));
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    type_in_active(&wb, vcx, "MINE ");
+    write_elsewhere(&env.root.join("a.txt"), "theirs\n");
+    assert!(!wb.update(vcx, |wb, cx| wb.request_quit(false, cx)));
+    vcx.run_until_parked();
+    click(vcx, "quit-prompt:save");
+    assert!(wb.read_with(vcx, |wb, _| wb.session.quit_requested), "saved, so it quits");
+    assert!(fs::read_to_string(env.root.join("a.txt")).unwrap().starts_with("MINE line 1"), "the buffer overwrote the file");
+}
+
+#[gpui_kit::test]
 fn hot_exit_off_dont_save_discards_but_keeps_the_text_aside(cx: &mut TestAppContext) {
     let env = env("off-discard", Some(r#"{ "files.hotExit": "off" }"#));
     let (wb, vcx) = start(cx, &env);
@@ -559,6 +612,35 @@ fn window_close_asks_with_on_exit_but_not_with_on_exit_and_window_close(cx: &mut
 }
 
 // ---- the Welcome page ---------------------------------------------------------------------------
+
+/// What the session state would hold for the find histories (find, replace).
+fn histories(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> (Vec<String>, Vec<String>) {
+    wb.read_with(cx, |wb, cx| {
+        let settings = crate::config::settings::FindSettings::from_configuration(AppConfig::get(cx).configuration());
+        wb.editor_view.find_histories(&settings)
+    })
+}
+
+#[gpui_kit::test]
+fn the_find_histories_are_kept_in_the_session_unless_the_setting_is_never(cx: &mut TestAppContext) {
+    let kept = env("find-history", None);
+    let (wb, vcx) = start(cx, &kept);
+    wb.update(vcx, |wb, _| wb.editor_view.restore_find_histories(vec!["beta".into()], vec!["x".into()]));
+    quit(&wb, vcx);
+    let (wb, vcx) = start(cx, &kept);
+    assert_eq!(histories(&wb, vcx), (vec!["beta".to_string()], vec!["x".to_string()]));
+
+    let never = env("find-history-never", Some(r#"{ "editor.find.history": "never" }"#));
+    let (wb, vcx) = start(cx, &never);
+    wb.update(vcx, |wb, _| wb.editor_view.restore_find_histories(vec!["beta".into()], vec!["x".into()]));
+    quit(&wb, vcx);
+    let (wb, vcx) = start(cx, &never);
+    assert_eq!(
+        histories(&wb, vcx),
+        (Vec::<String>::new(), vec!["x".to_string()]),
+        "never: the find history is not kept, the replace history still is"
+    );
+}
 
 #[gpui_kit::test]
 fn with_nothing_restored_the_welcome_tab_shows_and_a_recent_file_opens_on_click(cx: &mut TestAppContext) {

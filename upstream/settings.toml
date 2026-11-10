@@ -160,6 +160,12 @@ match = ["workbench.editor.closeEmptyGroups", "workbench.editor.autoLockGroups",
 
 [[rule]]
 status = "blocked"
+reason = "needs editor top padding for the Find widget (view zone)"
+comment = "addExtraSpaceOnTop adds a view zone above the first line while the Find widget is open, so the widget does not cover the match at the top. rscode draws the widget over the text and the editor has no top padding that the hit-testing and scrolling would agree with (ADR-0027)."
+match = ["editor.find.addExtraSpaceOnTop"]
+
+[[rule]]
+status = "blocked"
 reason = "needs navigation history (Go Back / Go Forward)"
 comment = "Needs a navigation history of editor positions. Mouse buttons 4 and 5, three-finger swipe and the scope of history navigation all depend on it."
 match = ["workbench.editor.mouseBackForwardToNavigate", "workbench.editor.swipeToNavigate", "workbench.editor.navigationScope"]

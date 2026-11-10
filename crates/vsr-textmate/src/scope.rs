@@ -293,7 +293,7 @@ pub fn create_matchers(selector: &str) -> Vec<PrioritizedSelector> {
         fn inner_expression(&mut self) -> Selector {
             let mut any = Vec::new();
             loop {
-                // upstream: `while (matcher = parseConjunction())` where an empty conjunction is a
+                // note: upstream loops on `while (matcher = parseConjunction())`, where an empty conjunction is a
                 // matcher too (it matches everything); the loop ends at a missing separator.
                 let m = self.conjunction();
                 any.push(m);

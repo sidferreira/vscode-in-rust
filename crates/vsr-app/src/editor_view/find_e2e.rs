@@ -403,6 +403,104 @@ fn auto_find_in_selection_always_scopes_a_selection(cx: &mut TestAppContext) {
     assert_eq!(highlighted_matches(&wb, cx), 3, "lines 1 and 2 only");
 }
 
+// ---- editor.find.history and editor.find.globalFindClipboard -------------------------------------
+
+/// Replaces the text of the Find box without pressing Enter (the box keeps the focus).
+fn set_find_box(wb: &Entity<Workbench>, cx: &mut VisualTestContext, text: &str) {
+    wb.update_in(cx, |wb, window, cx| {
+        let input = wb.editor_view.find.find_input().cloned().expect("find input exists");
+        input.update(cx, |s, cx| s.set_value(text.to_string(), window, cx));
+    });
+    cx.run_until_parked();
+}
+
+/// Types `text` into the Find box and presses Enter.
+fn submit_find(wb: &Entity<Workbench>, cx: &mut VisualTestContext, text: &str) {
+    set_find_box(wb, cx, text);
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+}
+
+#[gpui_kit::test]
+fn up_and_down_walk_the_find_history_entered_with_enter(cx: &mut TestAppContext) {
+    let (wb, cx) = start(cx, "history", TEXT);
+    cx.simulate_keystrokes("cmd-f");
+    submit_find(&wb, cx, "beta");
+    submit_find(&wb, cx, "gamma");
+    set_find_box(&wb, cx, "dra");
+    cx.simulate_keystrokes("up");
+    assert_eq!(find_text(&wb, cx), "gamma", "the newest entry");
+    cx.simulate_keystrokes("up");
+    assert_eq!(find_text(&wb, cx), "beta");
+    cx.simulate_keystrokes("up");
+    assert_eq!(find_text(&wb, cx), "beta", "the oldest stays");
+    cx.simulate_keystrokes("down");
+    assert_eq!(find_text(&wb, cx), "gamma");
+    cx.simulate_keystrokes("down");
+    assert_eq!(find_text(&wb, cx), "dra", "down past the newest gives back what was typed");
+}
+
+#[gpui_kit::test]
+fn find_history_never_recalls_nothing(cx: &mut TestAppContext) {
+    let (wb, cx) = start(cx, "history-never", TEXT);
+    set_setting(cx, "editor.find.history", json!("never"));
+    cx.simulate_keystrokes("cmd-f");
+    submit_find(&wb, cx, "beta");
+    set_find_box(&wb, cx, "");
+    cx.simulate_keystrokes("up");
+    assert_eq!(find_text(&wb, cx), "", "no history: the caret moves, the box keeps its text");
+}
+
+#[gpui_kit::test]
+fn closing_the_widget_records_both_boxes_and_the_history_is_kept_in_the_session(cx: &mut TestAppContext) {
+    let (wb, cx) = start(cx, "history-session", TEXT);
+    cx.simulate_keystrokes("cmd-f");
+    submit_find(&wb, cx, "beta");
+    cx.simulate_keystrokes("escape");
+    let settings = crate::config::settings::FindSettings::default();
+    let (find, replace) = wb.read_with(cx, |wb, _| wb.editor_view.find_histories(&settings));
+    assert_eq!(find, ["beta"], "recorded on close");
+    assert!(replace.is_empty());
+    wb.update(cx, |wb, _| wb.editor_view.restore_find_histories(vec!["one".into()], vec!["two".into()]));
+    let (find, replace) = wb.read_with(cx, |wb, _| wb.editor_view.find_histories(&settings));
+    assert_eq!((find, replace), (vec!["one".to_string()], vec!["two".to_string()]));
+}
+
+#[gpui_kit::test]
+fn the_global_find_clipboard_seeds_the_box_and_receives_the_search(cx: &mut TestAppContext) {
+    use super::find::clipboard::MemoryFindPasteboard;
+    let (wb, cx) = start(cx, "clipboard", TEXT);
+    let pasteboard = MemoryFindPasteboard::default();
+    *pasteboard.0.borrow_mut() = Some("from another app".into());
+    wb.update(cx, |wb, _| wb.editor_view.set_find_pasteboard(pasteboard.clone()));
+    set_setting(cx, "editor.find.globalFindClipboard", json!(true));
+    set_setting(cx, "editor.find.seedSearchStringFromSelection", json!("never"));
+
+    cx.simulate_keystrokes("cmd-f");
+    assert_eq!(find_text(&wb, cx), "from another app", "the find pasteboard seeds the box");
+    cx.simulate_keystrokes("escape");
+
+    cx.simulate_keystrokes("cmd-f");
+    cx.simulate_input("gamma"); // typed: the seed is selected, so it is replaced
+    cx.run_until_parked();
+    assert_eq!(pasteboard.0.borrow().as_deref(), Some("gamma"), "the search string is written to it");
+}
+
+#[gpui_kit::test]
+fn without_the_global_clipboard_the_find_pasteboard_is_not_touched(cx: &mut TestAppContext) {
+    use super::find::clipboard::MemoryFindPasteboard;
+    let (wb, cx) = start(cx, "clipboard-off", TEXT);
+    let pasteboard = MemoryFindPasteboard::default();
+    *pasteboard.0.borrow_mut() = Some("kept".into());
+    wb.update(cx, |wb, _| wb.editor_view.set_find_pasteboard(pasteboard.clone()));
+    set_setting(cx, "editor.find.seedSearchStringFromSelection", json!("never"));
+    cx.simulate_keystrokes("cmd-f");
+    cx.simulate_input("gamma");
+    cx.run_until_parked();
+    assert_eq!(find_text(&wb, cx), "gamma");
+    assert_eq!(pasteboard.0.borrow().as_deref(), Some("kept"));
+}
+
 #[gpui_kit::test]
 fn the_widget_is_laid_out_at_the_top_right_of_the_editor(cx: &mut TestAppContext) {
     let (wb, cx) = start(cx, "layout", TEXT);

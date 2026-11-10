@@ -169,11 +169,26 @@ pub enum AutoFindInSelection {
     Multiline,
 }
 
+/// `editor.find.history` and `editor.find.replaceHistory`: `never` keeps no history, `workspace`
+/// keeps it in the session state of the folder (ADR-0040).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FindHistoryMode {
+    Never,
+    Workspace,
+}
+
 /// The `editor.find.*` settings that change how the Find widget behaves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FindSettings {
     pub seed_search_string_from_selection: SeedSearchString,
     pub auto_find_in_selection: AutoFindInSelection,
+    /// `editor.find.globalFindClipboard`: the macOS find pasteboard is read when the widget opens and
+    /// written when the search string changes.
+    pub global_clipboard: bool,
+    /// `editor.find.history` / `editor.find.replaceHistory`.
+    pub history: FindHistoryMode,
+    pub replace_history: FindHistoryMode,
     /// `editor.find.loop`: wrap around at the first / last match.
     pub loop_: bool,
     /// `editor.find.cursorMoveOnType`: jump to the next match while typing.
@@ -190,6 +205,9 @@ impl Default for FindSettings {
         Self {
             seed_search_string_from_selection: SeedSearchString::Always,
             auto_find_in_selection: AutoFindInSelection::Never,
+            global_clipboard: false,
+            history: FindHistoryMode::Workspace,
+            replace_history: FindHistoryMode::Workspace,
             loop_: true,
             cursor_move_on_type: true,
             find_on_type: true,
@@ -206,6 +224,9 @@ impl FindSettings {
                 .get_enum("editor.find.seedSearchStringFromSelection")
                 .unwrap_or(d.seed_search_string_from_selection),
             auto_find_in_selection: c.get_enum("editor.find.autoFindInSelection").unwrap_or(d.auto_find_in_selection),
+            global_clipboard: c.get_bool("editor.find.globalFindClipboard").unwrap_or(d.global_clipboard),
+            history: c.get_enum("editor.find.history").unwrap_or(d.history),
+            replace_history: c.get_enum("editor.find.replaceHistory").unwrap_or(d.replace_history),
             loop_: c.get_bool("editor.find.loop").unwrap_or(d.loop_),
             cursor_move_on_type: c.get_bool("editor.find.cursorMoveOnType").unwrap_or(d.cursor_move_on_type),
             find_on_type: c.get_bool("editor.find.findOnType").unwrap_or(d.find_on_type),
@@ -905,8 +926,11 @@ mod tests {
         let f = FindSettings::from_configuration(&config(
             r#"{ "editor.find.seedSearchStringFromSelection": "selection", "editor.find.autoFindInSelection": "multiline",
                  "editor.find.loop": false, "editor.find.cursorMoveOnType": false, "editor.find.findOnType": false,
-                 "editor.find.closeOnResult": true }"#,
+                 "editor.find.closeOnResult": true, "editor.find.globalFindClipboard": true,
+                 "editor.find.history": "never", "editor.find.replaceHistory": "never" }"#,
         ));
+        assert!(f.global_clipboard);
+        assert_eq!((f.history, f.replace_history), (FindHistoryMode::Never, FindHistoryMode::Never));
         assert_eq!(f.seed_search_string_from_selection, SeedSearchString::Selection);
         assert_eq!(f.auto_find_in_selection, AutoFindInSelection::Multiline);
         assert!(!f.loop_ && !f.cursor_move_on_type && !f.find_on_type && f.close_on_result);

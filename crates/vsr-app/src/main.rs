@@ -315,7 +315,8 @@ impl Workbench {
         if self.explorer.settings.exclude_git_ignore {
             explorer::gitignore::retain_visible(&mut entries, &self.root, dir);
         }
-        explorer::sort::sort_entries(&mut entries, self.explorer.settings.sort_order);
+        let s = &self.explorer.settings;
+        explorer::sort::sort_entries(&mut entries, s.sort_order, s.lexicographic, s.sort_reverse);
         entries
     }
 

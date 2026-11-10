@@ -49,6 +49,8 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "files.enableTrash",
             "explorer.confirmDelete",
             "explorer.sortOrder",
+            "explorer.sortOrderLexicographicOptions",
+            "explorer.sortOrderReverse",
             "explorer.compactFolders",
             "explorer.autoReveal",
             "explorer.excludeGitIgnore",

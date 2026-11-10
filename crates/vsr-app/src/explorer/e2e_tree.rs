@@ -240,6 +240,22 @@ fn sort_order_follows_explorer_sort_order_live(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn sort_reverse_and_lexicographic_options_follow_settings_live(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("sort-reverse");
+    fs::write(ws.path().join("a.txt"), "").unwrap();
+    fs::write(ws.path().join("B.txt"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "explorer.sortOrder", json!("mixed"));
+    assert_eq!(row_names(&wb, cx), ["a.txt", "B.txt", "src"], "mixed: names ignore case");
+    set(cx, "explorer.sortOrderReverse", json!(true));
+    assert_eq!(row_names(&wb, cx), ["src", "B.txt", "a.txt"], "reverse flips the whole order");
+    set(cx, "explorer.sortOrderLexicographicOptions", json!("unicode"));
+    assert_eq!(row_names(&wb, cx), ["src", "a.txt", "B.txt"], "unicode: code points, so B sorts before a");
+    set(cx, "explorer.sortOrderReverse", json!(false));
+    assert_eq!(row_names(&wb, cx), ["B.txt", "a.txt", "src"]);
+}
+
+#[gpui::test]
 fn compact_folders_shows_a_single_child_chain_as_one_row(cx: &mut TestAppContext) {
     let (ws, bin) = workspace("compact");
     fs::create_dir_all(ws.path().join("a/b/c")).unwrap();

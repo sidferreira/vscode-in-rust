@@ -148,7 +148,8 @@ impl Workbench {
     /// sort order changed.
     pub(crate) fn apply_explorer_settings(&mut self, cx: &mut Context<Self>) {
         let new = ExplorerSettings::from_configuration(AppConfig::get(cx).configuration());
-        let sort_changed = new.sort_order != self.explorer.settings.sort_order;
+        let old = self.explorer.settings;
+        let sort_changed = (new.sort_order, new.lexicographic, new.sort_reverse) != (old.sort_order, old.lexicographic, old.sort_reverse);
         self.explorer.settings = new;
         if sort_changed {
             self.refresh_all(cx);

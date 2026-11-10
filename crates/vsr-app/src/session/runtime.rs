@@ -499,19 +499,43 @@ impl Workbench {
         cx.notify();
     }
 
-    /// Save All, then quit. A file that fails to save keeps the bar up and the app open.
-    pub(crate) fn quit_prompt_save_all(&mut self, cx: &mut Context<Self>) {
+    /// Save All, then quit (ADR-0040). Each dirty file is saved as Cmd+S saves it (ADR-0039): a file
+    /// changed on disk is not overwritten while `files.saveConflictResolution` is `askUser`, and a failed
+    /// save is an error. The other files are still saved. When any file is refused the app stays open:
+    /// the first refused editor is activated and shows its conflict bar (or the error).
+    pub(crate) fn quit_prompt_save_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let transforms = self.editor_settings.save_transforms(false);
-        for e in &mut self.editors.open {
-            if e.is_dirty()
-                && let Err(err) = e.save_with(transforms)
-            {
+        let ask_on_conflict = self.editor_settings.save_conflict_ask;
+        let mut shown: Option<usize> = None;
+        for i in 0..self.editors.open.len() {
+            let e = &mut self.editors.open[i];
+            if !e.is_dirty() {
+                continue;
+            }
+            if e.disk_changed() && ask_on_conflict {
+                if shown.is_none() {
+                    self.editor_view.save_conflict = Some(e.path.clone());
+                }
+                shown.get_or_insert(i);
+            } else if let Err(err) = e.save_with(transforms) {
                 self.error = Some(format!("{}: {err}", e.path.display()));
-                cx.notify();
-                return;
+                shown.get_or_insert(i);
+            } else if self.editor_view.save_conflict.as_deref() == Some(e.path.as_path()) {
+                self.editor_view.save_conflict = None;
             }
         }
-        self.finish_quit(cx);
+        let Some(i) = shown else {
+            self.finish_quit(cx);
+            return;
+        };
+        // The app stays open: the prompt is gone and the refused editor is on screen with its conflict bar.
+        self.session.prompt = false;
+        self.session.confirmed = false;
+        self.editors.activate(i);
+        self.settings_active = false;
+        self.welcome_active = false;
+        self.editor_view.focus(window, cx);
+        cx.notify();
     }
 
     /// Don't Save, then quit: the unsaved text is moved aside (`discarded/`), not deleted.
@@ -618,7 +642,7 @@ impl Workbench {
                 button(save, if dirty.len() > 1 { "Save All" } else { "Save" }, true).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, window, cx| match kind {
-                        PromptKind::Quit => this.quit_prompt_save_all(cx),
+                        PromptKind::Quit => this.quit_prompt_save_all(window, cx),
                         PromptKind::Close => this.close_prompt_save(window, cx),
                     }),
                 ),

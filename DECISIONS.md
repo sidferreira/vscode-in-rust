@@ -1213,7 +1213,12 @@ serialization, `gettingStarted`.
   macOS `onWindowChange` asks, as upstream. A close of several tabs asks once (no command closes several yet). After
   an answer the editor has the keyboard again: the bar's buttons must not move focus to the workbench root, which
   takes focus on any click that no focusable element above it takes (the bar sets `prevent_default`, as gpui does for
-  the editor). The quit bar (Cmd+Q, window close) is the same bar (`PromptKind`).
+  the editor). The quit bar (Cmd+Q, window close) is the same bar (`PromptKind`). **Save All** on the quit bar
+  saves each dirty file by the Cmd+S path (`files.saveConflictResolution`, ADR-0039): a file changed on disk is not
+  overwritten under `askUser`, and a failed save is an error. The other files are still saved. If any file is
+  refused, the app does **not** quit: the bar closes, the first refused editor is shown with its conflict bar (or
+  error), and a later Cmd+Q asks again. Under `overwriteFileOnDisk` every file saves and the app quits. Tests:
+  `quit_save_all_*` in `session/e2e_tests.rs`.
 - **Data safety rules** (the full list is in `backup.rs`): writes are atomic (temp file, fsync, rename); a backup is
   deleted only when the buffer is saved or is back at the saved text, or equals the file at restore; a tab closed
   with unsaved changes and Don't Save **move** the backup to `discarded/`, they never delete it; a state or backup

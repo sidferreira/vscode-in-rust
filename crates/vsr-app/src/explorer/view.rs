@@ -5,6 +5,7 @@
 //! upstream: src/vs/workbench/contrib/files/browser/views/explorerView.ts @ 50e1350fc78d
 //! upstream: src/vs/workbench/contrib/files/browser/views/explorerViewer.ts @ 50e1350fc78d
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use gpui_kit::component::input::{Enter as InputEnter, Escape as InputEscape, Input};
@@ -14,6 +15,7 @@ use gpui_kit::*;
 
 use super::inline::{self, InlineKind};
 use super::names::Severity;
+use super::nesting::{ExplorerFileNestingTrie, Nests};
 
 /// The group of the Explorer header: its title actions show while it is hovered.
 const HEADER_GROUP: &str = "explorer-header";
@@ -90,7 +92,13 @@ impl Workbench {
 
     fn flatten(&self, dir: &Path, depth: usize, out: &mut Vec<(DirEntry, usize)>) {
         let Some(entries) = self.children.get(dir) else { return };
+        let nests = self.file_nests(dir, entries);
+        let nested: HashSet<&str> = nests.iter().flat_map(|(_, children)| children.iter().map(String::as_str)).collect();
         for e in entries {
+            // A nested file is shown under its parent, not in its own place.
+            if !e.is_dir && nested.contains(e.name.as_str()) {
+                continue;
+            }
             let row = if e.is_dir && self.explorer.settings.compact_folders { self.compacted(e) } else { e.clone() };
             let descend = row.is_dir && self.expanded.contains(&row.path);
             let path = row.path.clone();
@@ -98,7 +106,48 @@ impl Workbench {
             if descend {
                 self.flatten(&path, depth + 1, out);
             }
+            if let Some((_, children)) = nests.iter().find(|(parent, _)| *parent == e.name).filter(|_| self.nest_open(&e.path)) {
+                out.extend(children.iter().filter_map(|name| entries.iter().find(|c| c.name == *name)).map(|c| (c.clone(), depth + 1)));
+            }
         }
+    }
+
+    /// `explorer.fileNesting`: the nests of the files in `dir` (none while nesting is off).
+    fn file_nests(&self, dir: &Path, entries: &[DirEntry]) -> Nests {
+        let settings = &self.explorer.settings;
+        if !settings.file_nesting {
+            return Vec::new();
+        }
+        let names: Vec<String> = entries.iter().filter(|e| !e.is_dir).map(|e| e.name.clone()).collect();
+        let dirname = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        ExplorerFileNestingTrie::new(&settings.file_nesting_patterns).nest(&names, &dirname)
+    }
+
+    /// Whether the nests of the file `parent` are shown: `explorer.fileNesting.expand` unless toggled.
+    pub(crate) fn nest_open(&self, parent: &Path) -> bool {
+        self.explorer.settings.file_nesting_expand != self.explorer.nests_toggled.contains(parent)
+    }
+
+    /// The files that have nests in the listed folders.
+    fn nest_parents(&self) -> HashSet<PathBuf> {
+        self.children
+            .iter()
+            .flat_map(|(dir, entries)| {
+                self.file_nests(dir, entries)
+                    .into_iter()
+                    .filter(|(_, children)| !children.is_empty())
+                    .filter_map(|(name, _)| entries.iter().find(|e| e.name == name).map(|e| e.path.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    /// Show or hide the nests of a file (the chevron beside it).
+    pub(crate) fn toggle_nest(&mut self, parent: &Path, cx: &mut Context<Self>) {
+        if !self.explorer.nests_toggled.remove(parent) {
+            self.explorer.nests_toggled.insert(parent.to_path_buf());
+        }
+        cx.notify();
     }
 
     /// `explorer.compactFolders`: a folder whose only child is a folder shares its row with that
@@ -173,7 +222,7 @@ impl Workbench {
         let configuration = AppConfig::get(cx).configuration();
         let new = ExplorerSettings::from_configuration(configuration);
         self.explorer.reveal_exclude = super::settings::reveal_exclude(configuration);
-        let old = self.explorer.settings;
+        let old = self.explorer.settings.clone();
         let sort_changed = (new.sort_order, new.lexicographic, new.sort_reverse) != (old.sort_order, old.lexicographic, old.sort_reverse);
         self.explorer.settings = new;
         if sort_changed {
@@ -331,6 +380,7 @@ impl Workbench {
         let active = self.editors.active_editor().map(|e| e.path.clone());
         let selected = self.explorer.selected.clone();
 
+        let nest_parents = self.nest_parents();
         let chevron = |c: char| {
             div()
                 .flex_none()
@@ -440,9 +490,25 @@ impl Workbench {
                 .when(is_active || is_selected, |d| d.bg(to_gpui(t.list_active_bg)))
                 .when(!(is_active || is_selected), |d| d.hover(|s| s.bg(to_gpui(t.list_hover_bg))))
                 .child(match (is_dir, open) {
-                    (true, true) => chevron(icons::CHEVRON_DOWN),
-                    (true, false) => chevron(icons::CHEVRON_RIGHT),
-                    _ => div().flex_none().w(px(16.)),
+                    (true, true) => chevron(icons::CHEVRON_DOWN).into_any_element(),
+                    (true, false) => chevron(icons::CHEVRON_RIGHT).into_any_element(),
+                    // A file with nests: its chevron shows and hides them, and does not open the file.
+                    _ if nest_parents.contains(&entry.path) => {
+                        let parent = entry.path.clone();
+                        let shown = entry.path.display().to_string();
+                        let nests_open = self.nest_open(&entry.path);
+                        let glyph = if nests_open { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT };
+                        chevron(glyph)
+                            .id(("nest-toggle", i))
+                            .cursor_pointer()
+                            .debug_selector(move || format!("nest-toggle:{shown}"))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.toggle_nest(&parent, cx);
+                            }))
+                            .into_any_element()
+                    }
+                    _ => div().flex_none().w(px(16.)).into_any_element(),
                 })
                 .child(div().whitespace_nowrap().overflow_hidden().child(entry.name))
                 .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {

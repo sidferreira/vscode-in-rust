@@ -1689,3 +1689,30 @@ shows them again on a mouse move.
 sashes are 1px borders that take the hover colour (`sidebar-resize` in `main.rs`); no dots are drawn, so there
 is nothing to fade. Drawing grippers is a visual feature of the sash itself, and it lands first. Until then the
 settings have no effect, which is what the rule says.
+
+## ADR-0052 — File nesting: the trie, and nests in the tree (2026-11-10)
+
+**Context.** `explorer.fileNesting.enabled`, `expand` and `patterns` were todo. Upstream nests related files
+under a parent (`a.ts` > `a.js`, `package.json` > `package-lock.json`). The matcher is
+`explorerFileNestingTrie.ts`, a pair of tries over pattern characters with `${capture}`, `${basename}`,
+`${extname}` and `${dirname}` substitutions.
+
+**Decision.**
+
+- `explorer/nesting.rs` is a line-by-line port of the trie (`SufTrie`, `PreTrie`, `ExplorerFileNestingTrie`) with
+  the 26 upstream tests as `// upstream:` refs. Both `$(x)` and `${x}` substitutions work. The `is fast` test
+  is skipped upstream and not ported.
+- A parent pattern that ends in `*` is malformed; upstream throws. Here it is ignored, so a bad user pattern
+  cannot break the tree.
+- `explorer.fileNesting.patterns` is read as an object (parent → comma-separated children). Empty parents
+  or children are dropped, as upstream does. The default rules are `nesting::default_rules()`, the upstream
+  defaults; `ExplorerSettings::default()` and the configuration agree (a test proves it). The object is
+  read in key order of serde_json, which is sorted; nests are the same, but a child matched by two
+  parents may be listed under either one.
+- The tree (`explorer/view.rs`): nested files are not listed in their folder. They follow their parent row,
+  one level deeper. A parent with nests shows a chevron; a click on it toggles the nests and does not open
+  the file. `expand` is the initial state; `ExplorerState::nests_toggled` holds the parents toggled away
+  from it. The nests come from the folder's file names, per listing, on every paint (cheap for the
+  patterns we have).
+- Not ported: upstream's tree model (`nestedParent`, `nestedChildren`) and nested files sorting with the
+  parent. Keyboard navigation uses the flat rows, so arrows move through nests in display order.

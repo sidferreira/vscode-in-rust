@@ -23,6 +23,9 @@ pub struct ExplorerState {
     pub settings: ExplorerSettings,
     /// `explorer.autoRevealExclude`, compiled (re-read with the settings).
     pub reveal_exclude: crate::config::glob::ExcludeMatcher,
+    /// Parent files whose nests were toggled: with `explorer.fileNesting.expand` a toggled parent is
+    /// collapsed, without it expanded (ADR-0052).
+    pub nests_toggled: std::collections::HashSet<PathBuf>,
 }
 
 /// A delete the user has to confirm: the path, and whether it goes to the Trash.
@@ -44,6 +47,7 @@ impl ExplorerState {
             inline: None,
             settings,
             reveal_exclude: super::settings::reveal_exclude(configuration),
+            nests_toggled: Default::default(),
         }
     }
 }

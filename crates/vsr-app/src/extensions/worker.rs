@@ -178,7 +178,7 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
         if !saved.is_empty() {
             let _ = out.unbounded_send(FromHost::Save(saved));
         }
-        if handled > 0 || dirty {
+        if handled > 0 || dirty || last.is_none() {
             let snap = Snapshot::of(&host.main_thread);
             if last.as_ref() != Some(&snap) {
                 last = Some(snap.clone());

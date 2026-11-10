@@ -59,6 +59,16 @@ fn start<'a>(
     activation: &[&str],
     files: &[(&str, &str)],
 ) -> Option<(Entity<Workbench>, &'a mut VisualTestContext, Scratch)> {
+    start_with_env(cx, name, activation, files, &[])
+}
+
+fn start_with_env<'a>(
+    cx: &'a mut TestAppContext,
+    name: &str,
+    activation: &[&str],
+    files: &[(&str, &str)],
+    env: &[(&str, &str)],
+) -> Option<(Entity<Workbench>, &'a mut VisualTestContext, Scratch)> {
     let launch = match Launch::from_env() {
         Ok(l) => l,
         Err(why) => {
@@ -80,7 +90,8 @@ fn start<'a>(
     cx.executor().allow_parking();
     let root = s.ws.clone();
     let (wb, cx) = cx.add_window_view(move |_, cx| Workbench::new(root, cx));
-    let config = cx.update(|_, cx| super::config(launch, vec![s.ext.parent().unwrap().to_path_buf()], s.ws.join("../storage"), &s.ws, cx));
+    let mut config = cx.update(|_, cx| super::config(launch, vec![s.ext.parent().unwrap().to_path_buf()], s.ws.join("../storage"), &s.ws, cx));
+    config.env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     wb.update_in(cx, |wb, window, cx| wb.start_extensions(config, window, cx));
     Some((wb, cx, s))
 }
@@ -184,7 +195,6 @@ fn open_documents_drive_decorations_squiggles_and_the_status_bar(cx: &mut TestAp
     cx.simulate_click(at, gpui::Modifiers::default());
     wait_for(&wb, cx, "the click to run the command", |wb| !wb.sidebar_visible);
 
-    // Closing the tab drops the document: its diagnostics go with the next scan (none open).
     wb.update(cx, |wb, _| wb.ext_shutdown());
 }
 
@@ -246,6 +256,15 @@ fn workspace_contains_activates_at_startup(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn an_activation_error_at_startup_reaches_the_workbench(cx: &mut TestAppContext) {
+    let Some((wb, cx, _s)) = start_with_env(cx, "fail", &["*"], &[], &[("FIXTURE_FAIL", "1")]) else { return };
+    wait_for(&wb, cx, "the activation error", |wb| wb.ext.problems.iter().any(|p| p.contains("fixture failed on purpose")));
+    let shown = wb.read_with(cx, |wb, _| wb.error.clone().unwrap_or_default());
+    assert!(shown.contains("Extensions: activation failed") && shown.contains("rscode-test.errorlens-fixture"), "{shown}");
+    wb.update(cx, |wb, _| wb.ext_shutdown());
+}
+
+#[gpui::test]
 fn without_a_build_extensions_are_off_and_nothing_is_reported(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -257,7 +276,7 @@ fn without_a_build_extensions_are_off_and_nothing_is_reported(cx: &mut TestAppCo
         crate::commands::init(cx);
         AppConfig::install(cx, None);
     });
-    let dir = std::env::temp_dir();
+    let dir = scratch("off", &[], &[], |js| js).ws;
     let (wb, cx) = cx.add_window_view(move |_, cx| Workbench::new(dir, cx));
     wb.update_in(cx, |wb, window, cx| wb.ext_autostart(Err("RSCODE_CODE_OSS is not set".into()), window, cx));
     cx.run_until_parked();

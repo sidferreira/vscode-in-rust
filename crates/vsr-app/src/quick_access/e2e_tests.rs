@@ -256,7 +256,8 @@ fn question_mark_lists_the_providers_and_enter_switches_to_one(cx: &mut TestAppC
     cx.run_until_parked();
     type_text(cx, "?");
     assert_eq!(provider(&wb, cx), "?");
-    assert_eq!(rows(&wb, cx), ["…", ":", ">"]);
+    // `@` and `@:` are Go to Symbol in Editor (ADR-0087).
+    assert_eq!(rows(&wb, cx), ["…", ":", ">", "@", "@:"]);
     let (desc, kb) = picker(&wb, cx).unwrap().read_with(cx, |p, _| {
         let items: Vec<_> = p.list().rows().iter().filter_map(PickRow::item).cloned().collect();
         (
@@ -264,8 +265,8 @@ fn question_mark_lists_the_providers_and_enter_switches_to_one(cx: &mut TestAppC
             items.iter().map(|i| i.keybinding.iter().map(|c| c.concat()).collect::<Vec<_>>().join(" ")).collect::<Vec<_>>(),
         )
     });
-    assert_eq!(desc, ["Go to File", "Go to Line/Column", "Show and Run Commands"]);
-    assert_eq!(kb, ["⌘P", "⌃G", "⇧⌘P"]);
+    assert_eq!(desc, ["Go to File", "Go to Line/Column", "Show and Run Commands", "Go to Symbol in Editor", "Go to Symbol in Editor (by kind)"]);
+    assert_eq!(kb, ["⌘P", "⌃G", "⇧⌘P", "⇧⌘O", "⇧⌘O"]);
 
     cx.simulate_keystrokes("down down enter");
     cx.run_until_parked();

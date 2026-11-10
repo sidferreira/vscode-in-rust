@@ -90,7 +90,7 @@ fn outline_model_create_cached_cancel() {
     );
 }
 
-// upstream: OutlineElement > OutlineElement - updateMarker
+// upstream: OutlineModel > OutlineElement - updateMarker
 #[test]
 fn outline_element_update_marker() {
     let symbols = vec![
@@ -126,7 +126,7 @@ fn outline_element_update_marker() {
     assert_eq!(model.marker(e2), None);
 }
 
-// upstream: OutlineElement > OutlineElement - updateMarker, 2
+// upstream: OutlineModel > OutlineElement - updateMarker, 2
 #[test]
 fn outline_element_update_marker_2() {
     let p = fake_symbol(r(1, 1, 11, 1), "A");
@@ -165,7 +165,7 @@ fn outline_element_update_marker_2() {
     assert_eq!(model.marker(c2).unwrap().count, 1);
 }
 
-// upstream: OutlineElement > OutlineElement - updateMarker/multiple groups
+// upstream: OutlineModel > OutlineElement - updateMarker/multiple groups
 #[test]
 fn outline_element_update_marker_multiple_groups() {
     let mut c2 = fake_symbol(r(1, 1, 7, 1), "c2");

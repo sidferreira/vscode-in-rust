@@ -261,3 +261,19 @@ fn service_drops_a_superseded_version_and_its_providers_are_cancelled() {
     s.forget(URI);
     assert!(s.cached(URI).is_none());
 }
+
+#[test]
+fn every_show_setting_hides_exactly_its_symbol_kind() {
+    use vsr_exthost::language_features::outline::KIND_SETTINGS;
+    for (kind, name) in KIND_SETTINGS.iter().enumerate() {
+        let key = format!("breadcrumbs.{name}");
+        let filter = KindFilter::from_settings("breadcrumbs", |k| (k == key).then_some(false));
+        for other in 0..26u32 {
+            assert_eq!(
+                filter.allows(other),
+                other as usize != kind,
+                "{name} hides kind {kind} only"
+            );
+        }
+    }
+}

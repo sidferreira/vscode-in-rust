@@ -35,7 +35,7 @@ use crate::welcome::{self, ShowWelcome};
 
 actions!(
     rscode,
-    [ShowCommands, ToggleSidebar, ShowExplorer, NewUntitledFile, GoToLine, ClearCommandHistory, ToggleReadonlyInSession, ZoomIn, ZoomOut, ZoomReset]
+    [ShowCommands, ToggleSidebar, ShowExplorer, NewUntitledFile, GoToLine, GoToSymbol, ClearCommandHistory, ToggleReadonlyInSession, ZoomIn, ZoomOut, ZoomReset]
 );
 
 /// Where a command's action must be dispatched from.
@@ -106,6 +106,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-shift-e", ShowExplorer, None),
         KeyBinding::new("cmd-n", NewUntitledFile, None),
         KeyBinding::new("ctrl-g", GoToLine, None),
+        KeyBinding::new("cmd-shift-o", GoToSymbol, None),
         KeyBinding::new("cmd-k cmd-t", SelectTheme, None),
         KeyBinding::new("cmd-=", ZoomIn, None),
         KeyBinding::new("cmd--", ZoomOut, None),
@@ -164,6 +165,7 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
     r.register(D::new("workbench.action.showCommands", "Show All Commands").f1(), action(ShowCommands, Workbench));
     r.register(D::new("workbench.action.quickOpen", "Go to File...").f1(), action(GoToFile, Workbench));
     r.register(D::new("workbench.action.gotoLine", "Go to Line/Column...").f1(), action(GoToLine, Workbench));
+    r.register(D::new("workbench.action.gotoSymbol", "Go to Symbol in Editor...").f1(), action(GoToSymbol, Workbench));
     r.register(D::new("workbench.action.zoomIn", "Zoom In").category("View").f1(), action(ZoomIn, Workbench));
     r.register(D::new("workbench.action.zoomOut", "Zoom Out").category("View").f1(), action(ZoomOut, Workbench));
     r.register(D::new("workbench.action.zoomReset", "Reset Zoom").category("View").f1(), action(ZoomReset, Workbench));
@@ -381,6 +383,14 @@ fn register_quick_access(q: &mut QuickAccessRegistry) {
     q.register(
         ProviderDescriptor::new(":", "Type the line number and optional column to go to (e.g. :42:5 for line 42, column 5). Type :: to go to a character offset (e.g. ::1024 for character 1024 from the start of the file). Use negative values to navigate backwards.")
             .help("Go to Line/Column", Some("workbench.action.gotoLine")),
+    );
+    q.register(
+        ProviderDescriptor::new("@", "Type the name of a symbol to go to in the active file.")
+            .help("Go to Symbol in Editor", Some("workbench.action.gotoSymbol")),
+    );
+    q.register(
+        ProviderDescriptor::new("@:", "Type the name of a symbol to go to, grouped by symbol kind.")
+            .help("Go to Symbol in Editor (by kind)", Some("workbench.action.gotoSymbol")),
     );
     q.register(
         ProviderDescriptor::new(vsr_quickinput::quick_access::HELP_PREFIX, "Type '?' to get help on the actions you can take from here.")

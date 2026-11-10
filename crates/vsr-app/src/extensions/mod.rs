@@ -14,7 +14,7 @@ pub mod status;
 pub mod worker;
 
 #[cfg(test)]
-mod e2e;
+pub(crate) mod e2e;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -72,7 +72,6 @@ pub struct Extensions {
 }
 
 impl Extensions {
-    #[cfg(test)]
     pub fn is_running(&self) -> bool {
         self.handle.is_some()
     }
@@ -176,7 +175,7 @@ impl Workbench {
         }
     }
 
-    fn ext_send(&self, msg: ToHost) {
+    pub(crate) fn ext_send(&self, msg: ToHost) {
         if let Some(h) = &self.ext.handle {
             h.send(msg);
         }
@@ -233,6 +232,11 @@ impl Workbench {
                 }
             }
             FromHost::Save(keys) => self.ext_save(&keys, cx),
+            FromHost::Symbols { path, version, groups } => {
+                if self.outline.deliver(&path, version, groups) {
+                    cx.notify();
+                }
+            }
             FromHost::AppCommand { id, args, reply } => {
                 let known = cx.try_global::<Commands>().is_some_and(|c| c.execution(&id).is_some());
                 if known {

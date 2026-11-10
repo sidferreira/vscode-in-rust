@@ -2381,3 +2381,97 @@ a host (`tests/language_features_dto.rs`).
 8. *Needed from the host side later:* `$tryApplyWorkspaceEdit` (MainThreadBulkEdits), `$executeCommand`
    results back into editors, and the remaining provider kinds listed in ADR-0072 (semantic tokens first:
    it unblocks `editor.semanticHighlighting`).
+
+## ADR-0085 — The outline model: symbols grouped by provider, ids, markers, sort and kind filter (2026-11-10)
+
+`vsr-exthost::language_features::outline` (UI-free; next to the `DocumentSymbol` DTO it consumes, as
+ADR-0072 kept the registry there). It ports `outlineModel.ts` and the sort and kind filter of
+`documentSymbolsTree.ts`.
+
+- **Groups.** One group per provider, labelled with its display name (`Unknown Outline Provider` when
+  it has none), ordered by registry order. Empty groups are dropped. With exactly one non-empty group its
+  symbols become the top level (`_compact`); otherwise the groups are the top level. The UI shows group
+  rows only when several providers answered.
+- **Ids.** `TreeElement.findId`: `root/provider_<i>/<name>`, then `<name>_<line>_<col>` when a sibling has
+  that name, then `_<n>` suffixes. Ids survive compaction, so an expanded tree keeps its state.
+- **Enclosing symbol.** The first child in order whose range contains the position (inclusive at the
+  end column), then its first matching child, and so on. Not the smallest range: the order is upstream's.
+- **Markers** (`outline.problems.*`): a marker belongs to the first symbol that takes it; children take
+  from what the parent took; a parent's count is what is left after its children took theirs (a parent
+  whose markers all went to children has `count 0` and still shows the severity). The sorted list is
+  consumed in place, as upstream. Binary search starts at the first marker not before the symbol's range
+  and steps back over intersecting markers, so equal starts are not missed (upstream's single step can miss
+  them). No diagnostics feed exists yet, so the marker code is ported and tested but not painted.
+- **Sort** (`breadcrumbs.symbolSortOrder`, `outline.*` later): `position` (start, then name), `name`
+  (name, then start), `type` (kind, then name). Groups keep provider order. The name order is a natural
+  order (digit runs by value, case-insensitive, exact text breaks ties); it stands in for
+  `Intl.Collator(numeric: true)`, so it matches ICU for ordinary names but not for every locale.
+- **Kind filter.** `KindFilter` reads `<prefix>.show<Kind>` (`outline` or `breadcrumbs`); a missing key
+  shows the kind. A hidden symbol hides its subtree (the tree does not render its children).
+- **Flattened list** (`asListOfDocumentSymbols`, used by Go to Symbol): depth first, `containerName` falls
+  back to the parent's name, sorted by start then end descending. Go to Symbol does not apply the kind
+  filter, as upstream.
+- **OutlineService** (`OutlineModelService`): one model per document version. `request` answers from the
+  cache, joins a request already waiting for the same version, or starts one; a request for a newer version
+  supersedes the waiting one. Cancellation is shared: the providers are cancelled only when every requester
+  cancelled (`take_cancelled`). Upstream's async retry on a provider change is not ported (the worker
+  replaces a request in flight instead, ADR-0086).
+
+Ported (`tests/upstream_outline_model.rs`, `// upstream: OutlineModel > ...` and
+`OutlineElement > ...`): the two service tests and the three `updateMarker` tests. Own tests in
+`tests/outline_model.rs`: ids, compaction, enclosing position, flat list, sorting, filter, natural order,
+supersession. Not ported: the `OutlineModel.create` retry on provider change, the adaptive debounce.
+
+## ADR-0086 — Document symbols in the app: the worker answers, the UI debounces and keeps one model per document (2026-11-10)
+
+ADR-0073 said the UI should call `poll_query` from the event loop. That predates the worker thread
+(ADR-0066): the host lives on `rscode-exthost`, and nothing on the UI thread may block on it. So the query
+lives on the worker:
+
+- `ToHost::Symbols { path, version }` starts `begin_provide(Kind::DocumentSymbol, ..,
+  "$provideDocumentSymbols")` and keeps the `Query` in the worker's loop, polled after each pump. A newer
+  request for any document cancels the job in flight (`cancel_query`) and starts again; there is one job at
+  a time. Nothing waits on the host with a timeout (`finish_query` would block the loop).
+- `FromHost::Symbols { path, version, groups }`: one group per answering provider, labelled with the
+  registration's `displayName` (`ProviderSymbols::new`). Failed providers are reported as `Problem`s.
+  The DTO conversion is `DocumentSymbol::from_json` per item, tolerant as in ADR-0073.
+- **UI** (`outline/mod.rs`, `OutlineState`): `outline_sync` runs every frame after `ext_sync`. A change of
+  the active file's version (or of the file) restarts a **fixed 300 ms debounce** (upstream's
+  `LanguageFeatureDebounceService` adapts to the provider's latency; not ported). When it is due,
+  `OutlineService::request`: a cached version does nothing, a started request is sent to the worker when a
+  host runs. The answer goes through `OutlineState::deliver`, which the worker's `FromHost::Symbols` arm calls.
+- **One model per document**, kept until the next version of that document is delivered (breadcrumbs keep
+  showing the previous symbols while the new ones are asked for). Models of closed documents are not
+  evicted yet (a small leak, to fix with the Outline view).
+- **Without a host** nothing is answered (the bar shows no symbols). Headless tests answer in-process through
+  `OutlineState::fake` (a `#[cfg(test)]` closure), so the whole UI path runs under `TestAppContext`.
+- **Real host**: `outline/e2e_tests.rs` runs the language-features fixture (`lang-features-fixture`, its
+  selector patched to `plaintext`) under the Code-OSS host and checks the outline answers `alpha`, `beta`,
+  `Point`, `x`. It skips, printing why, without `RSCODE_CODE_OSS` or Node. `extensions::e2e` gained
+  `start_fixture` to start a fixture other than errorlens; `scratch` takes the fixture name.
+
+## ADR-0087 — Breadcrumb symbols, Go to Symbol in Editor, and the symbol settings (2026-11-10)
+
+- **Breadcrumb symbols** (`breadcrumbs/symbols.rs`): after the file crumbs, the symbols that contain the
+  caret, outermost first (`breadcrumbs.symbolPath`: `on` the default, `off` hides them, `last` keeps only
+  the innermost). The caret is the active end of the selection, 0-based, converted to the 1-based symbol
+  positions. Symbols have no icon yet (`breadcrumbs.icons` covers the file crumbs only).
+- **Dropdown of a symbol crumb**: the siblings of the crumb in the outline's order
+  (`breadcrumbs.symbolSortOrder`) with the `breadcrumbs.show<Kind>` filter applied, each row showing its
+  kind. The crumb's own symbol is selected when it is listed. Accepting a row selects the symbol's
+  `selectionRange` in its editor. The file path is not filtered (as upstream: the filter is for the lists).
+- **Go to Symbol in Editor** (`outline/goto.rs`): `@` lists the symbols of the active file, filtered by the
+  text after the prefix (the same fuzzy filter as Quick Open's); `@:` orders them by kind and shows the kind
+  in the description, without upstream's category headers. Enter selects the symbol's `selectionRange`. The
+  row value carries the range, so accepting does not depend on the list order.
+- **Settings wired** (`config/wired.rs`, group "Breadcrumbs symbols"): `breadcrumbs.symbolPath`,
+  `breadcrumbs.symbolSortOrder` and the 26 `breadcrumbs.show<Kind>` filters (the dropdown applies them).
+  Wired total: 185 → 213 (the report's `wired` count). Blocked: 342 → 314. Each wired setting has at least
+  one headless test (`symbolPath` last and off, `showMethods`, the dropdown and accept, Go to Symbol) or a
+  unit test of the filter (the other kinds: `KindFilter::from_settings`). `breadcrumbs.symbolPathSeparator`
+  stays blocked: it joins the path for the Copy Breadcrumbs Path command, which rscode does not have.
+- **Still blocked**: the `outline.*` settings (31, the Outline view is not built: `outline.icons`,
+  `collapseItems`, `problems.*`, and `outline.show<Kind>`). The view is the next step on this model.
+  `breadcrumbs.showEditorType` stays blocked as before (custom editors).
+- **Not done**: the Outline view in the Explorer (follow cursor, sort and filter actions, refresh with
+  the debounce, the empty state), symbol icons in the bar, and the `Go to Symbol` 'outline view' sync.

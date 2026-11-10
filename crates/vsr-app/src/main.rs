@@ -19,6 +19,7 @@ mod model;
 mod quick_access; // Command Palette, Go to Line, help on the Quick Pick (ADR-0030)
 mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
+mod outline; // the document outline: symbols per document, debounced (ADR-0086)
 mod search_view; // Search view (ADR-0023)
 mod syntax; // syntax highlighting glue (ADR-0038)
 mod session; // session restore, hot exit (ADR-0040)
@@ -228,6 +229,8 @@ struct Workbench {
     auto_save: autosave::AutoSaveState,
     /// The extension host and what it shows (ADR-0066); off without a Code-OSS build.
     ext: extensions::Extensions,
+    /// The document outline the breadcrumbs and Go to Symbol read (ADR-0086).
+    outline: outline::OutlineState,
     branch: Option<String>,
     error: Option<String>,
 }
@@ -304,6 +307,7 @@ impl Workbench {
             focus: None,
             auto_save: Default::default(),
             ext: Default::default(),
+            outline: Default::default(),
             branch: git_branch(&root),
             error: None,
         };
@@ -1315,6 +1319,7 @@ impl Render for Workbench {
         self.poll_syntax(cx);
         self.session_render_hook(window, cx);
         self.ext_render_hook(window, cx);
+        self.outline_sync();
         // The OS window title and the dirty dot (macOS shows it in the close button).
         let title = self.window_title(cx);
         let dirty = self.editors.active_editor().is_some_and(|e| e.is_dirty()) && self.editor_surface_active();
@@ -1422,6 +1427,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| this.focus_search(window, cx)))
             .on_action(cx.listener(|this, _: &commands::ShowCommands, window, cx| this.show_quick_access(">", window, cx)))
             .on_action(cx.listener(|this, _: &commands::GoToLine, window, cx| this.show_quick_access(":", window, cx)))
+            .on_action(cx.listener(|this, _: &commands::GoToSymbol, window, cx| this.show_quick_access("@", window, cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(cx.listener(|this, _: &theme_picker::SelectTheme, window, cx| this.show_theme_picker(window, cx)))
             .on_action(cx.listener(|this, _: &breadcrumbs::BreadcrumbsFocus, window, cx| this.focus_crumbs(false, window, cx)))

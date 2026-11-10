@@ -303,13 +303,11 @@ class RealRepoTest(unittest.TestCase):
         self.assertEqual(ready, latest["scenarios_ready"])
 
     def test_scenario_total_reconciles_with_history(self):
-        # scripts/progress-report reads only the first status table of each file. search.md has a
-        # second table (rows 8-11, "Settings migration: search group") that it never reads, so its
-        # total is every row minus those four.
+        # scripts/progress-report counts every status table of each file (search.md and explorer.md
+        # have two), so both scripts see the same scenario rows.
         with open(HISTORY, encoding="utf-8") as fh:
             latest = json.load(fh)[-1]
-        missed = [r for r in self.model["scenarios"] if r["file"] == "search.md" and r["number"] >= 8]
-        self.assertEqual(latest["scenarios_total"], len(self.model["scenarios"]) - len(missed))
+        self.assertEqual(latest["scenarios_total"], len(self.model["scenarios"]))
 
     def test_every_extension_phase_has_a_node(self):
         phases = set(self.model["phase_efforts"]) - {"P0"}
@@ -334,10 +332,12 @@ class RealRepoTest(unittest.TestCase):
     def test_no_cycles(self):
         self.assertEqual(dt.find_cycles(self.model["nodes"]), [])
 
-    def test_sash_data_bug_is_mapped_to_document_symbols(self):
-        reason = "needs sash grippers (the drawn handle in the middle of a sash)"
-        owner = [nid for nid, n in self.model["nodes"].items() if reason in n["reasons"]]
-        self.assertEqual(owner, ["document-symbols"])
+    def test_sash_grippers_are_done_and_no_settings_wait_on_them(self):
+        # the breadcrumbs settings were once mis-filed as "needs sash grippers" (repaired, ADR-0055)
+        self.assertEqual(self.model["nodes"]["sash-grippers"]["status"], "done")
+        waiting = [nid for nid, n in self.model["nodes"].items()
+                   if any("sash grippers" in r for r in n["reasons"])]
+        self.assertEqual(waiting, [])
 
     def test_generated_doc_is_current(self):
         att, counts, order = self.att, self.counts, dt.ranked(self.model, self.counts)

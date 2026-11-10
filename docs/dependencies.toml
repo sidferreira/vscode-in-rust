@@ -28,8 +28,7 @@
 #   note        free text; "inferred" marks an edge or mapping that no source states
 #
 # Counting rules are in docs/dependency-tree.md (header). Node statuses reflect the repo at
-# 2026-11-10 (HEAD d9d4c66). Sibling agents own ext-host-p1, editor-scrollbar,
-# overview-ruler-glyph-margin and sash-grippers (in-progress).
+# 2026-11-10 (after the editor UI and extension host P1 merges).
 #
 # MERGE NOTE: when those sibling branches land they delete their `blocked` [[rule]]s from
 # settings.toml. scripts/dependency-tree then errors ("reason is not a blocked reason") until the
@@ -171,38 +170,53 @@ note = "Done (ADR-0062..0065): vsr-exthost serves commands, configuration, statu
 [[node]]
 id = "editor-scrollbar"
 title = "Editor scrollbar (vertical and horizontal)"
-status = "in-progress"
+status = "done"
 effort = "M"
 effort_source = "guess"
 needs = []
+note = "Done (ADR-0054): five editor.scrollbar.* settings wired."
+
+[[node]]
+id = "scrollbar-content-height"
+title = "Horizontal scrollbar height in the editor's scroll height"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["editor-scrollbar"]
 reasons = [
-  "needs an editor scrollbar (rscode draws no editor scrollbar yet)",
+  "needs the horizontal bar's height in the scroll height (rscode's list measures whole rows)",
 ]
-note = "Owned by the editor scrollbar sibling worktree (ADR-0053)."
+note = "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight: needs a spacer row (ADR-0054)."
 
 [[node]]
 id = "overview-ruler-glyph-margin"
-title = "Decoration lanes: overview ruler and glyph margin"
-status = "in-progress"
+title = "Overview ruler (decoration lane beside the vertical scrollbar)"
+status = "done"
+effort = "M"
+effort_source = "guess"
+needs = ["editor-scrollbar"]
+note = "Done (ADR-0055): cursor, selection and find marks; overviewRulerBorder and hideCursorInOverviewRuler wired. Folding is not accounted for yet. The glyph margin is its own node."
+
+[[node]]
+id = "glyph-margin"
+title = "Glyph margin (breakpoints and lightbulb lane)"
+status = "todo"
 effort = "M"
 effort_source = "guess"
 needs = []
 reasons = [
-  "needs the glyph margin and the overview ruler (decoration lanes next to the editor)",
+  "needs the glyph margin (breakpoints and the code action lightbulb in the margin)",
 ]
-note = "Owned by the overview ruler sibling worktree."
+note = "Split from the overview ruler when that landed (ADR-0055)."
 
 [[node]]
 id = "sash-grippers"
 title = "Sash grippers (the drawn handle on a sash)"
-status = "in-progress"
+status = "done"
 effort = "S"
 effort_source = "guess"
 needs = []
-reasons = [
-  "needs sash grippers (the dots drawn on a sash, which rscode does not draw)",
-]
-note = "Owned by the sash grippers sibling worktree (ADR-0051). The 29 breadcrumbs settings that carry the 'drawn handle' reason belong to document-symbols; see the data notes."
+note = "Done (ADR-0056): the sidebar sash grip; autoHideGrippers and autoHideGrippersDelay wired."
 
 # ---------------------------------------------------------------------------------------------
 # Extension host: main-side plumbing (roadmap P1 to P4)
@@ -391,9 +405,8 @@ effort_source = "guess"
 needs = ["lang-providers-main"]
 reasons = [
   "needs document symbols (outline provider from the extension host)",
-  "needs sash grippers (the drawn handle in the middle of a sash)",
 ]
-note = "DATA BUG: the 29 settings under the 'drawn handle' reason are breadcrumbs.symbol* and breadcrumbs.show* (upstream/settings.toml lines 882-889). That [[rule]] has a second comment/match pair with no new table header, so its match is overwritten. They need document symbols, not sash grippers. Mapped here on purpose; fix the rule in settings.toml."
+note = "Includes the 29 breadcrumbs.symbol*/show* settings, which were mis-filed under sash grippers until the settings.toml rule was repaired (ADR-0055 commit)."
 
 [[node]]
 id = "diagnostics-view"

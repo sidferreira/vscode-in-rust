@@ -20,8 +20,8 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 
 | source | count | attributed to a node |
 |---|---|---|
-| settings: wired | 174 | n/a (done) |
-| settings: blocked | 353 | 353 of 353 (by reason) |
+| settings: wired | 183 | n/a (done) |
+| settings: blocked | 344 | 344 of 344 (by reason) |
 | settings: exthost | 426 | 426 of 426 (by built-in extension) |
 | settings: todo | 559 | 335 of 559 matched by a node's todo_globs |
 | settings: n/a | 550 | not dependency-blocked (policy: product, Windows, deprecated) |
@@ -29,8 +29,8 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 58 | every ADR cited by a node exists (latest ADR-0065) |
-| upstream/ports.toml entries | 48 | not nodes (file ports, not features): partial 45, planned 1, ported 2 |
+| ADR headings in DECISIONS.md | 61 | every ADR cited by a node exists (latest ADR-0065) |
+| upstream/ports.toml entries | 51 | not nodes (file ports, not features): partial 48, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 174.
 
@@ -61,9 +61,11 @@ flowchart LR
   n_editor_tabs["Editor tabs: preview, MRU, placement, limit (ADR-0033) (done)"]:::done
   n_code_folding["Code folding and sticky scroll (ADR-0042) (done)"]:::done
   n_ext_host_p1["Extension host P1: main-thread shapes for ErrorLens (done)"]:::done
-  n_editor_scrollbar["Editor scrollbar (vertical and horizontal) (in-progress)"]:::inprogress
-  n_overview_ruler_glyph_margin["Decoration lanes: overview ruler and glyph margin (in-progress)"]:::inprogress
-  n_sash_grippers["Sash grippers (the drawn handle on a sash) (in-progress)"]:::inprogress
+  n_editor_scrollbar["Editor scrollbar (vertical and horizontal) (done)"]:::done
+  n_scrollbar_content_height["Horizontal scrollbar height in the editor's scroll height (todo)"]:::todo
+  n_overview_ruler_glyph_margin["Overview ruler (decoration lane beside the vertical scrollbar) (done)"]:::done
+  n_glyph_margin["Glyph margin (breakpoints and lightbulb lane) (todo)"]:::todo
+  n_sash_grippers["Sash grippers (the drawn handle on a sash) (done)"]:::done
   n_child_process_main["Child processes on the main side (spawn, stdio) (todo)"]:::todo
   n_workspace_fs_api["workspace.fs and file system provider API (ext host) (todo)"]:::todo
   n_text_decorations["TextEditorDecorationType (after and before text, gutter) (todo)"]:::todo
@@ -179,6 +181,8 @@ flowchart LR
   n_remote_development{{"Remote development (dev containers, WSL) (blocked-external)"}}:::external
   n_cross_version_migration{{"Cross-version state migration (needs a stable VS Code install) (blocked-external)"}}:::external
   n_ext_host_p0 --> n_ext_host_p1
+  n_editor_scrollbar --> n_scrollbar_content_height
+  n_editor_scrollbar --> n_overview_ruler_glyph_margin
   n_ext_host_p1 --> n_child_process_main
   n_ext_host_p1 --> n_workspace_fs_api
   n_ext_host_p1 --> n_text_decorations
@@ -305,7 +309,7 @@ flowchart LR
 | 11 | gpui-text-rendering | gpui text system gaps (letter spacing, font variation axes, smoothing) | M (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 12 | link-opener | External browser and URI openers | M (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+2) | link-detection, uri-handler |
 
-Top 12 of 63 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
+Top 12 of 65 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
 
 ### Waiting on in-progress work
 
@@ -346,7 +350,7 @@ None.
 | editor-find-widget | Editor Find widget (ADR-0027) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-groups | Editor splits and editor groups | todo | feature | L (guess) | - | 7 (+3) | 7 (+3) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-multi-cursor | Multi-cursor editing and column selection | todo | feature | L (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| editor-scrollbar | Editor scrollbar (vertical and horizontal) | in-progress | feature | M (guess) | - | 6 (+0) | 6 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| editor-scrollbar | Editor scrollbar (vertical and horizontal) | done | feature | M (guess) | - | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-tabs | Editor tabs: preview, MRU, placement, limit (ADR-0033) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-view-zones | Editor view zones and top and bottom padding | todo | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-watermark-tips | Watermark tips for the empty editor | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -376,6 +380,7 @@ None.
 | folding-providers | Folding range providers (ext host and LSP import ranges) | todo | feature | S (guess) | lang-providers-main, lsp-client | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | formatting-providers | Formatting providers (format on save, paste, type; default formatter) | todo | feature | S (guess) | lang-providers-main | 5 (+0) | 5 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | git-scm | Git and SCM (built-in vscode.git, Source Control view) | todo (deferred) | feature | XL (guess) | ext-host-p1 | 103 (+31) | 103 (+31) | 0 (+0) | 2 | 2 (+0) | 0 (+2) |
+| glyph-margin | Glyph margin (breakpoints and lightbulb lane) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | gpui-text-rendering | gpui text system gaps (letter spacing, font variation axes, smoothing) | todo | feature | M (guess) | - | 5 (+0) | 5 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | hot-exit-undo | Undo history saved with the hot exit backup | todo | feature | S (guess) | session-restore | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | hover-delay | Hover widgets with a configurable delay | todo | feature | S (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -404,7 +409,7 @@ None.
 | open-editors-pane | Open Editors pane in the Explorer | todo | feature | S (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | os-appearance | OS high contrast signal and native window appearance | todo | feature | M (guess) | - | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | overtype-input | Overtype input mode (Insert key) | todo | feature | S (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| overview-ruler-glyph-margin | Decoration lanes: overview ruler and glyph margin | in-progress | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| overview-ruler-glyph-margin | Overview ruler (decoration lane beside the vertical scrollbar) | done | feature | M (guess) | editor-scrollbar | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | paste-indentation | Paste re-indentation (AutoIndentOnPaste) | todo | feature | S (guess) | language-config | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | per-language-settings | Per-language setting scopes ([language] overrides) | todo | feature | M (guess) | config-service | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | proposed-api-gating | Proposed API allowlist (product config) | todo | feature | S (guess) | ext-host-p1 | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+1) |
@@ -413,8 +418,9 @@ None.
 | refactor-code-actions | Peek, rename, code actions and linked editing | todo | feature | M (guess) | lang-providers-main | 9 (+0) | 9 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | remote-development | Remote development (dev containers, WSL) | blocked-external | feature | - | - | 1 (+0) | 1 (+0) | 0 (+0) | 4 | 4 (+0) | 0 (+0) |
 | replace-preview | Replace preview | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| sash-grippers | Sash grippers (the drawn handle on a sash) | in-progress | feature | S (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| sash-grippers | Sash grippers (the drawn handle on a sash) | done | feature | S (guess) | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | scroll-capture | Scroll capture on the editor surface (wheel zoom, sensitivity, middle click) | todo | feature | S (guess) | - | 5 (+0) | 5 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| scrollbar-content-height | Horizontal scrollbar height in the editor's scroll height | todo | feature | S (guess) | editor-scrollbar | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | search-editor | Search editor (results in an editor tab) | todo | feature | L (guess) | untitled-editors | 6 (+0) | 6 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | search-tree-view | Search tree view and action bar placement | todo | feature | M (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | search-view | Search view and find in files (ADR-0023, ADR-0029) | done | feature | - | - | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -462,7 +468,7 @@ None.
 
 - Cycles in the needs graph: none.
 - Orphan nodes (not done, no edges, nothing attributed): none.
-- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, code-folding, editor-find-widget, editor-tabs, settings-editor.
+- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, code-folding, editor-find-widget, editor-tabs, overview-ruler-glyph-margin, sash-grippers, settings-editor.
 - Blocked settings with no node: 0. Exthost settings with no node: 0. Blocked smoke rows that name a feature with no node: 0.
 - Todo settings matched by no node's `todo_globs`: 224. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
 - DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is "needs sash grippers (the drawn handle in the middle of a sash)" has a second `comment` and `match` pair after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show settings (29) therefore land on the sash reason. They need document symbols. The graph maps that reason to `document-symbols` with a note.

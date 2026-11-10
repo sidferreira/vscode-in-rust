@@ -363,6 +363,19 @@ fn rulers_follow_the_setting_live(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn control_characters_follow_the_setting_live(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "controls", None, &[("a.txt", "a\u{1}b\n")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("ctrl:1:2").is_some(), "a control character is drawn by default");
+    set(cx, "editor.renderControlCharacters", json!(false));
+    assert!(cx.debug_bounds("ctrl:1:2").is_none(), "false draws no picture");
+    set(cx, "editor.renderControlCharacters", json!(true));
+    assert!(cx.debug_bounds("ctrl:1:2").is_some());
+    assert_eq!(editor_value(&wb, cx), "a\u{1}b\n", "the picture is drawn over the text, which is unchanged");
+}
+
+#[gpui_kit::test]
 fn indent_guides_follow_the_settings_live(cx: &mut TestAppContext) {
     let (wb, cx, f) = workbench(cx, "guides", None, &[("a.txt", "a\n  b\n      c\n")]);
     open_file(&wb, cx, &f.dir.join("a.txt"));

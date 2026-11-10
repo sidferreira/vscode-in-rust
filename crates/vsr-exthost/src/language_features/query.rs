@@ -304,6 +304,61 @@ impl ExtensionHost {
 
     // ---- completion ----
 
+    /// The provider groups a completion asks, in order, for a document and trigger: providers of
+    /// equal score together, best group first, and for a character trigger only the providers
+    /// that registered that character. Asking stops at the first group that offered items
+    /// (upstream's `provideSuggestionItems`), so a caller asks group by group with
+    /// [`begin_completion_group`](Self::begin_completion_group).
+    pub fn completion_groups(
+        &mut self,
+        path: &std::path::Path,
+        trigger: CompletionTrigger,
+    ) -> Result<Vec<Vec<u32>>, HostError> {
+        let (_, model) = self.model_of(path)?;
+        let groups = self
+            .main_thread
+            .language_features
+            .ordered_groups(Kind::Completion, &model);
+        Ok(groups
+            .into_iter()
+            .map(|group| {
+                group
+                    .into_iter()
+                    .filter(|h| match trigger {
+                        CompletionTrigger::Character(c) => self
+                            .main_thread
+                            .language_features
+                            .registration(*h)
+                            .is_some_and(|r| {
+                                r.meta_strings("triggerCharacters").contains(&c.to_string())
+                            }),
+                        _ => true,
+                    })
+                    .collect::<Vec<u32>>()
+            })
+            .filter(|g| !g.is_empty())
+            .collect())
+    }
+
+    /// `$provideCompletionItems` on the providers of one group (see
+    /// [`completion_groups`](Self::completion_groups)), without waiting: poll the query.
+    pub fn begin_completion_group(
+        &mut self,
+        path: &std::path::Path,
+        handles: Vec<u32>,
+        pos: Position,
+        trigger: CompletionTrigger,
+    ) -> Result<Query<CompletionList>, HostError> {
+        let (resource, _) = self.model_of(path)?;
+        self.begin_provide_to(
+            handles,
+            &resource,
+            "$provideCompletionItems",
+            &[pos.to_json(), trigger.context()],
+            Box::new(CompletionList::from_json),
+        )
+    }
+
     /// `$provideCompletionItems` on the providers that apply. Providers are asked in groups of
     /// equal score, best group first, and the asking stops at the first group that offered items
     /// (upstream's `provideSuggestionItems`); for a character trigger only providers that
@@ -315,33 +370,9 @@ impl ExtensionHost {
         trigger: CompletionTrigger,
         timeout: Duration,
     ) -> Result<Provided<CompletionList>, HostError> {
-        let (resource, model) = self.model_of(path)?;
-        let groups = self
-            .main_thread
-            .language_features
-            .ordered_groups(Kind::Completion, &model);
         let mut all = Provided::default();
-        for group in groups {
-            let handles: Vec<u32> = group
-                .into_iter()
-                .filter(|h| match trigger {
-                    CompletionTrigger::Character(c) => self
-                        .main_thread
-                        .language_features
-                        .registration(*h)
-                        .is_some_and(|r| {
-                            r.meta_strings("triggerCharacters").contains(&c.to_string())
-                        }),
-                    _ => true,
-                })
-                .collect();
-            let q = self.begin_provide_to(
-                handles,
-                &resource,
-                "$provideCompletionItems",
-                &[pos.to_json(), trigger.context()],
-                Box::new(CompletionList::from_json),
-            )?;
+        for group in self.completion_groups(path, trigger)? {
+            let q = self.begin_completion_group(path, group, pos, trigger)?;
             let got = self.finish_query(q, timeout);
             let any = got.results.iter().any(|(_, l)| !l.items.is_empty());
             all.results.extend(got.results);

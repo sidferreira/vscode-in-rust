@@ -41,6 +41,8 @@ vsr-languages.workspace = true
 vsr-textmate.workspace = true
 # The extension host in the workbench (ADR-0066).
 vsr-exthost.workspace = true
+# Completion adapter and model (ADR-0082).
+vsr-suggest.workspace = true
 vsr-rpc.workspace = true
 # Pixel buffer for the minimap image (gpui `RenderImage` frames); already in the lockfile via gpui.
 image = { version = "0.25", default-features = false }

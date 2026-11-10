@@ -140,6 +140,10 @@ upstream = [
   "src/vs/editor/common/cursor/cursorWordOperations.ts",
   "src/vs/editor/common/cursor/cursorTypeOperations.ts",
   "src/vs/editor/common/cursor/cursorDeleteOperations.ts",
+  "src/vs/editor/common/cursor/cursorTypeEditOperations.ts",
+  "src/vs/editor/common/cursorCommon.ts",
+  "src/vs/editor/common/commands/surroundSelectionCommand.ts",
+  "src/vs/editor/common/commands/shiftCommand.ts",
   "src/vs/editor/common/core/selection.ts",
   "src/vs/editor/common/core/cursorColumns.ts",
   "src/vs/editor/common/core/misc/indentation.ts",
@@ -151,7 +155,7 @@ upstream = [
 ]
 rust = ["crates/vsr-editor/src", "crates/vsr-editor/tests"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "Cursor, selection, typing and undo core (vsr-editor). Single cursor; no indent/onEnter rules, no multi-line Tab indent, no sticky tab stops (editor.wordSeparators is read, word segmentation is not). 30 cursor-move cases and 10 edit cases (one simplified) ported from cursor.test.ts and cursorMoveCommand.test.ts, plus our own edit, undo and word tests."
+notes = "Cursor, selection, typing and undo core (vsr-editor). Single cursor; typing follows the language rules (typing.rs, ADR-0046: auto closing, over typing, surround, auto indent on type and Enter, electric characters; 17 + 25 cases of cursor.test.ts ported in upstream_cursor_auto_closing.rs and upstream_cursor_enter.rs); no multi-line Tab indent, no sticky tab stops (editor.wordSeparators is read, word segmentation is not). 30 cursor-move cases and 10 edit cases (one simplified) ported from cursor.test.ts and cursorMoveCommand.test.ts, plus our own edit, undo and word tests."
 
 [[port]]
 id = "settings-editor"
@@ -726,3 +730,64 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Breadcrumbs (ADR-0047): the file path part of breadcrumbsModel.ts (workspace-relative segments, absolute outside the workspace, filePath on/off/last), the bar of breadcrumbsControl.ts and breadcrumbscontrol.css (22px, the four breadcrumb colours), the dropdown of breadcrumbsPicker.ts on the Quick Pick (siblings, folders open in place, files open), and the focus commands breadcrumbs.focus, focusAndSelect and toggle with Left, Right, Enter and Escape. Not ported: the symbol path (needs document symbols), the outline filters breadcrumbs.show<Kind>, the editor type dropdown (custom editors), the picker's type-to-filter folder navigation and the Quick Pick's own styling."
+
+[[port]]
+id = "language-configuration"
+status = "partial"
+upstream = [
+  "src/vs/editor/common/languages/languageConfiguration.ts",
+  "src/vs/editor/common/languages/languageConfigurationRegistry.ts",
+  "src/vs/editor/common/languages/supports/characterPair.ts",
+  "src/vs/editor/common/languages/supports/onEnter.ts",
+  "src/vs/editor/common/languages/supports/indentRules.ts",
+  "src/vs/editor/common/languages/supports/indentationLineProcessor.ts",
+  "src/vs/editor/common/languages/autoIndent.ts",
+  "src/vs/editor/common/languages/enterAction.ts",
+  "src/vs/editor/test/common/modes/supports/characterPair.test.ts",
+  "src/vs/editor/test/common/modes/supports/onEnter.test.ts",
+  "src/vs/editor/test/common/modes/supports/onEnterRules.ts",
+]
+rust = [
+  "crates/vsr-languages/src/config.rs",
+  "crates/vsr-languages/src/character_pair.rs",
+  "crates/vsr-languages/src/on_enter.rs",
+  "crates/vsr-languages/src/indent_rules.rs",
+  "crates/vsr-languages/src/auto_indent.rs",
+  "crates/vsr-languages/tests/upstream_character_pair.rs",
+  "crates/vsr-languages/tests/upstream_on_enter.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "The editing rules of a language (ADR-0046): comments, brackets, auto closing and surrounding pairs, autoCloseBefore, indentationRules, onEnterRules, from the language-configuration.json of every built-in language (scripts/bundle-grammars). Regular expressions run on Oniguruma. 13 of 13 characterPair.test.ts and 4 of 4 onEnter.test.ts. Not ported: merging configurations of several extensions for one language, colorizedBracketPairs, the legacy docComment, embedded languages (one language per file), electricCharacter.test.ts (the electric characters are tested through cursor.test.ts)."
+
+[[port]]
+id = "editor-comments"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/comment/browser/lineCommentCommand.ts",
+  "src/vs/editor/contrib/comment/browser/blockCommentCommand.ts",
+  "src/vs/editor/contrib/comment/browser/comment.ts",
+  "src/vs/editor/contrib/comment/test/browser/lineCommentCommand.test.ts",
+  "src/vs/editor/contrib/comment/test/browser/blockCommentCommand.test.ts",
+]
+rust = [
+  "crates/vsr-editor/src/comments.rs",
+  "crates/vsr-editor/tests/upstream_line_comment_command.rs",
+  "crates/vsr-editor/tests/upstream_block_comment_command.rs",
+  "crates/vsr-app/src/config/e2e_typing.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Toggle, Add and Remove Line Comment (Cmd+/, Cmd+K Cmd+C, Cmd+K Cmd+U) and Toggle Block Comment (Shift+Alt+A) from the language's comment tokens, with editor.comments.insertSpace and ignoreEmptyLines (ADR-0046). 36 of 39 line comment tests (not ported: the mixed modes suite, 3 tests of embedded languages) and 12 of 12 block comment tests. One cursor: the ignoreFirstLine path of several selections on one line is not ported."
+
+[[port]]
+id = "editor-indentation-detection"
+status = "partial"
+upstream = [
+  "src/vs/editor/common/model/indentationGuesser.ts",
+  "src/vs/editor/test/common/model/textModel.test.ts",
+]
+rust = [
+  "crates/vsr-editor/src/indentation.rs",
+  "crates/vsr-editor/tests/upstream_indentation_guesser.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "editor.detectIndentation: guessIndentation (ADR-0046) with the 8 indentation guessing tests of textModel.test.ts (43 assertGuess calls). The rest of textModel.test.ts (the text model itself) is not ported here."

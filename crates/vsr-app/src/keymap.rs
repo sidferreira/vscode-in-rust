@@ -8,6 +8,7 @@
 //! supports is bound. Not yet: word delete (Alt+Backspace), line delete (Cmd+Backspace),
 //! outdent (Shift+Tab), line copy/cut when nothing is selected, multi-cursor.
 
+use vsr_editor::comments::CommentType;
 use vsr_editor::{Editor, FoldAction};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +50,11 @@ pub enum Command {
     ToggleWordWrap,
     /// The folding commands (`editor.fold`, `editor.foldAll`, ...; ADR-0042).
     Fold(FoldAction),
+    /// Cmd+/ (`editor.action.commentLine`), Cmd+K Cmd+C (`addCommentLine`) and Cmd+K Cmd+U
+    /// (`removeCommentLine`): ADR-0046.
+    LineComment(CommentType),
+    /// Shift+Alt+A (`editor.action.blockComment`).
+    BlockComment,
 }
 
 use Command::*;
@@ -99,6 +105,11 @@ pub const BINDINGS: &[(&str, Command)] = &[
     ("cmd-s", Save),
     ("cmd-w", CloseTab),
     ("alt-z", ToggleWordWrap),
+    // Comments (comment.ts): macOS keys.
+    ("cmd-/", LineComment(CommentType::Toggle)),
+    ("cmd-k cmd-c", LineComment(CommentType::ForceAdd)),
+    ("cmd-k cmd-u", LineComment(CommentType::ForceRemove)),
+    ("shift-alt-a", BlockComment),
     // Folding (folding.ts): macOS keys.
     ("alt-cmd-[", Fold(FoldAction::Fold)),
     ("alt-cmd-]", Fold(FoldAction::Unfold)),
@@ -177,14 +188,14 @@ pub fn apply(editor: &mut Editor, cmd: Command, page: usize) -> bool {
         Fold(action) => {
             editor.fold_action(action);
         }
-        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap => return false,
+        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment => return false,
     }
     true
 }
 
 /// Whether `cmd` changes the document (as opposed to moving the caret or leaving the editor).
 pub fn is_edit(cmd: Command) -> bool {
-    matches!(cmd, Backspace | Delete | Enter | Tab | Undo | Redo | Cut | Paste)
+    matches!(cmd, Backspace | Delete | Enter | Tab | Undo | Redo | Cut | Paste | LineComment(_) | BlockComment)
 }
 
 #[cfg(test)]

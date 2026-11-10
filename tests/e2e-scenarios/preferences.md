@@ -110,3 +110,27 @@ scroll state and buffer text, not pixels.
 | the default style does not enforce the margin for a click; `all` does | ready | `default_style_does_not_enforce_the_margin_for_a_click` |
 | `editor.tabFocusMode` keeps Tab out of the text | ready | `tab_focus_mode_keeps_the_tab_out_of_the_text` |
 | `editor.cursorSmoothCaretAnimation`, `mouseWheelZoom`, `mouseWheelScrollSensitivity`, `guides.bracketPairs*`, `highlightActiveBracketPair`, `fontVariations`, `mouseMiddleClickAction`, `editor.format*` | blocked | see `upstream/settings.toml` |
+
+### Typing rules, comments and indentation (ADR-0046)
+
+Headless (`crates/vsr-app/src/config/e2e_typing.rs`); the rules themselves are tested in `crates/vsr-editor/tests`
+(ports of cursor.test.ts, lineCommentCommand.test.ts, blockCommentCommand.test.ts, textModel.test.ts).
+
+| scenario | status | test |
+|---|---|---|
+| typing `(` in a `.rs` file gives `()` with the caret inside; typing `)` types over the closing bracket; `{` and `"` close too | ready | `typing_an_open_bracket_closes_it_and_the_close_bracket_types_over` |
+| Backspace between a pair removes both; `editor.autoClosingDelete: never` removes one | ready | `backspace_between_a_pair_removes_both` |
+| `editor.autoClosingBrackets`, `autoClosingQuotes`, `autoClosingOvertype` (never, beforeWhitespace) turn each rule off | ready | `the_auto_closing_settings_turn_each_rule_off` |
+| a selection plus a typed quote or bracket is surrounded; `editor.autoSurround: never` replaces it | ready | `a_selection_is_surrounded_by_a_typed_quote_or_bracket` |
+| Enter after `{` indents and `{\|}` splits into three lines (Rust); after `:` in Python the onEnter rule indents | ready | `enter_indents_after_an_open_brace_and_splits_a_pair`, `enter_indents_after_a_colon_in_python` |
+| `editor.autoIndent` none, keep and brackets | ready | `the_auto_indent_levels` |
+| typing `}` first on a line puts it at the indentation of the line with the matching `{` | ready | `typing_a_close_brace_first_on_a_line_outdents_it` |
+| Cmd+/ toggles line comments in `.rs` (`//`) and `.py` (`#`), as one undo step | ready | `cmd_slash_toggles_line_comments_in_rust_and_python` |
+| `editor.comments.insertSpace` and `ignoreEmptyLines` | ready | `comments_settings_insert_space_and_ignore_empty_lines` |
+| Shift+Alt+A wraps the selection in `/* */` and unwraps it | ready | `shift_alt_a_toggles_a_block_comment` |
+| `editor.detectIndentation` picks tabs for a tab-indented file and 2 spaces for a 2-space file; off keeps the settings | ready | `detect_indentation_picks_tabs_for_a_tab_indented_file` |
+| `editor.trimAutoWhitespace` removes the indentation an Enter left on an empty line | ready | `trim_auto_whitespace_removes_the_indentation_an_enter_left_alone` |
+| `editor.useTabStops` and `editor.indentSize` | ready | `use_tab_stops_and_indent_size` |
+| `editor.trimWhitespaceOnDelete` joins lines without the next line's indentation | ready | `trim_whitespace_on_delete_joins_lines_smartly` |
+| `editor.emptySelectionClipboard: false` copies and cuts nothing without a selection | ready | `empty_selection_clipboard_copies_the_line_unless_off` |
+| `autoIndentOnPaste*`, `stickyTabStops`, `editor.language.*`, `bracketPairColorization.*`, `columnSelection`, `copyWithSyntaxHighlighting`, `dragAndDrop`, `links`, `overtype*`, `padding.*`, `smartSelect.*`, `largeFileOptimizations`, accessibility, peek, code actions | blocked | see `upstream/settings.toml` |

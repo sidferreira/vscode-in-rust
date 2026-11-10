@@ -1468,6 +1468,87 @@ would want.
 - `.gitignore` edits are seen when the folder is listed again. There is no watch on `.gitignore`
   files, and the global gitignore and `.git/info/exclude` are not read.
 
+## ADR-0046 — Typing rules, comments and indentation: language configuration in the editor (2026-11-10)
+
+**Context.** The `editor` settings group had 51 todo settings, most of them the typing rules every
+editor has: auto closing of brackets and quotes, over typing, surrounding a selection, auto indentation,
+Cmd+/ for comments, tab or space detection. All of them read the *language configuration*
+(`language-configuration.json`: brackets, pairs, comments, indentation rules, on-enter rules), of which
+rscode bundled only `folding` and the block comment tokens (ADR-0042).
+
+**Decision.**
+
+- **Data** (`scripts/bundle-grammars` -> `vsr-languages/data/language-configurations.json`): the
+  editing keys of every built-in language's configuration, keyed by the `configuration` path (56 files,
+  shared by the 83 languages). `vsr_languages::config` parses them (`LanguageConfiguration`; the regular
+  expression keys are a string or `{pattern, flags}`), resolves one per language (`language_support(id)`:
+  upstream's `ResolvedLanguageConfiguration`, with the plain text configuration upstream registers:
+  brackets and surrounding pairs) and builds the supports: `CharacterPairSupport`, `OnEnterSupport`,
+  `IndentRulesSupport`, plus `auto_indent` (ports of `autoIndent.ts`, `enterAction.ts` and the indentation
+  line processor).
+- **Regular expressions** are JavaScript's. `JsRegex` runs them on Oniguruma (the engine of the
+  grammars, `onig`, Perl syntax: lookaheads work, which the Rust `regex` crate cannot do). A test compiles
+  every bundled pattern. Two JS quirks are translated (`[]` and `[^]`); `onig`'s `Regex::is_match` matches
+  the whole text, so `JsRegex::is_match` is a search.
+- **Typing** (`vsr-editor/src/typing.rs`, ports of `cursorTypeOperations.ts` and
+  `cursorTypeEditOperations.ts`): `Editor::type_text` is `typeWithInterceptors` one character at a time:
+  auto indent on type (`decreaseIndentPattern`), over typing a closing character the editor added, auto
+  closing (longest open text, `autoCloseBefore`, `notIn` string/comment/regex by the token before the caret
+  and by the token type a neutral character would get, balanced brackets, no quote after a word
+  character, contained pairs), surrounding a selection, electric characters, then the plain character.
+  `enter()` is `EnterOperation._enter`: the onEnter rules (advanced and up), bracket rules (brackets and
+  up), `getIndentForEnter` (full), else the line's indentation. Backspace deletes an auto closed pair.
+  `editor.trimAutoWhitespace` records the lines an auto indent edit left with whitespace only and removes
+  them with the next edit near the caret (one undo step with it). `editor.useTabStops`,
+  `editor.indentSize` and `editor.trimWhitespaceOnDelete` change Tab, Backspace and Delete.
+- **Dependency.** `vsr-editor` now depends on `vsr-languages` (ADR-0013 had it depend on `vsr-text`
+  only). The editor stores an `Arc<LanguageSupport>`; the workbench sets it with the language
+  (`OpenEditor::set_language`). Tokens come in through the `TokenSource` trait, passed per call, so the
+  editor stays UI free: the app's `SyntaxTokens` reads the incremental tokenizer
+  (`DocumentTokens::token_type_if_inserting` is new in `vsr-syntax`). A line the tokenizer has not reached
+  gives `None`, and auto closing and auto indent then leave it alone (upstream's `isCheapToTokenize`).
+- **Where typing rules apply.** A key press (`replace_text_in_range` with no range and no composition)
+  goes through the rules; a composition (dead keys, IME) and a replacement of a given range insert the text
+  as it is (`Editor::type_raw`), so composition cannot be auto closed.
+- **Comments** (`vsr-editor/src/comments.rs`, ports of `lineCommentCommand.ts` and
+  `blockCommentCommand.ts`): Toggle, Add and Remove Line Comment (`editor.action.commentLine`, Cmd+/;
+  `addCommentLine`, Cmd+K Cmd+C; `removeCommentLine`, Cmd+K Cmd+U) and Toggle Block Comment
+  (`editor.action.blockComment`, Shift+Alt+A). A language without a line comment uses the block
+  comment. The selection follows the edits as upstream's tracked selection does (a point at an
+  insertion moves after it, the end of a selection does not grow).
+- **Indentation detection** (`vsr-editor/src/indentation.rs`, port of `indentationGuesser.ts`):
+  `editor.detectIndentation` (default on) guesses tabs or spaces and the indent size when a file opens and
+  when the settings change. `Editors::apply_editor_settings` applies tab size, spaces, detection and the
+  typing options to the open editors; the status bar shows the guess.
+- **Settings.** Wired (15): `editor.autoClosingBrackets`, `autoClosingQuotes`, `autoClosingComments`,
+  `autoClosingDelete`, `autoClosingOvertype`, `autoSurround`, `autoIndent`, `useTabStops`,
+  `trimAutoWhitespace`, `trimWhitespaceOnDelete`, `emptySelectionClipboard`, `comments.insertSpace`,
+  `comments.ignoreEmptyLines`, `detectIndentation`, `indentSize`. Blocked or n/a, 45 (42 and 3), each with its reason
+  in `upstream/settings.toml`: `autoIndentOnPaste*` (the paste re-indent contribution), `stickyTabStops`,
+  `editor.language.*` (language scopes), `bracketPairColorization.*`, accessibility (4), `columnSelection`,
+  `copyWithSyntaxHighlighting`, `dragAndDrop`, `fastScrollSensitivity`, `smoothScrolling`, glyph margin and
+  overview ruler (3), `letterSpacing`, `fullwidthCharacterWidth`, `links`, `overtype*`, `padding.*`,
+  `selectedTextMatchMode`, `smartSelect.*`, `unusualLineTerminators`, `wrapOnEscapedLineFeeds`,
+  `doubleClickSelectsBlock`, `largeFileOptimizations`, the language-feature ones (peek, rename, code
+  actions, linked editing, semantic token colours); n/a: `editContext`, `inertialScroll`, `aiStats.*`.
+
+**Simplifications.** One cursor. Auto closed ranges are tracked by column through single-line
+edits instead of decorations. A multi-character auto close (`/**` closing ` */`) is one undo step (upstream
+makes an undo stop between the typed text and the auto closed text). Bracket balance counts the brackets
+of the pair in 2000 lines around the caret instead of using the bracket pair model. One language per file
+(no embedded languages: JSX in JavaScript, scripts in HTML). The legacy `docComment` of a language is not
+read. `autoIndent: full` does not re-indent on Tab or on paste.
+
+**Consequences.**
+- Opening a tab-indented file now gives tabs (`detectIndentation` is on upstream); two existing tests that
+  assumed a 4-space default for such files were updated.
+- The language configuration files are 71 KB of JSON compiled into `vsr-languages`; the supports are built
+  on first use per language and cached.
+- Tests: 13 of 13 `characterPair.test.ts`, 4 of 4 `onEnter.test.ts`, 12 of 12 `blockCommentCommand.test.ts`,
+  36 of 39 `lineCommentCommand.test.ts`, 8 of 8 of the guessing tests of `textModel.test.ts` (43 assertGuess
+  calls) and 42 cases of `cursor.test.ts` (17 auto closing, 25 Enter, auto indent and electric characters);
+  headless E2E in `config/e2e_typing.rs` (16 tests, every setting also checked off).
+
 ## ADR-0047 — Breadcrumbs: the file path bar, its dropdown and the focus keys (2026-11-10)
 
 **Context.** The `breadcrumbs.*` group has 33 settings. Their upstream meaning is the file path

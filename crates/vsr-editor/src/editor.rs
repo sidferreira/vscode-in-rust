@@ -37,6 +37,14 @@ pub struct Editor {
     /// A caret at a wrap boundary is drawn at the end of the earlier view line (upstream's
     /// `PositionAffinity.Left`) when this equals the active position.
     pub(crate) caret_trailing: Option<Position>,
+    /// The options typing and Enter read (`editor.autoClosing*`, `autoIndent`, ...; `typing.rs`).
+    pub(crate) typing: crate::typing::TypingOptions,
+    /// The language rules, once the language is known.
+    pub(crate) language: Option<std::sync::Arc<vsr_languages::config::LanguageSupport>>,
+    /// Auto closed pairs that can still be over typed or deleted.
+    pub(crate) auto_closed: Vec<crate::typing::AutoClosed>,
+    /// Lines an auto indent edit left with whitespace only (`editor.trimAutoWhitespace`).
+    pub(crate) trim_lines: Vec<usize>,
 }
 
 impl Editor {
@@ -53,6 +61,10 @@ impl Editor {
             wrap: RefCell::new(crate::wrapping::WrapState::default()),
             folding: Default::default(),
             caret_trailing: None,
+            typing: Default::default(),
+            language: None,
+            auto_closed: Vec::new(),
+            trim_lines: Vec::new(),
         }
     }
 

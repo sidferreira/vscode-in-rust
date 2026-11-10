@@ -9,14 +9,17 @@
 //! port notes and simplifications are in each module's header.
 
 mod brackets;
+pub mod comments;
 mod cursor_columns;
 mod edit_ops;
 mod editor;
 mod editor_folding;
+pub mod indentation;
 mod move_ops;
 mod replace_ops;
 mod save_ops;
 mod selection;
+mod typing;
 mod undo;
 mod word_ops;
 pub mod folding;
@@ -29,4 +32,5 @@ pub use editor::{Editor, EditorOptions};
 pub use editor_folding::{FoldAction, FoldInfo, FoldingParams, line_map};
 pub use word_ops::USUAL_WORD_SEPARATORS;
 pub use selection::Selection;
+pub use typing::{AutoClosing, AutoClosingEdit, AutoIndentStrategy, AutoSurround, LineTokens, PlainTokens, StandardTokenType, TokenSource, TypingOptions};
 pub use vsr_text::{Position, Range};

@@ -175,6 +175,27 @@ impl DocumentTokens {
         lines.map(|l| self.tokens(l)).collect()
     }
 
+    /// The type of the token a `ch` inserted at byte `at` of the 0-based `line` would be in, from
+    /// the line's start state (upstream `getTokenTypeIfInsertingCharacter`). `None` when the line
+    /// is not accurate or too long. Typing a quote asks this to tell whether it ends a string.
+    pub fn token_type_if_inserting(&self, line: usize, at: usize, ch: char) -> Option<TokenType> {
+        if !self.is_accurate(line) {
+            return None;
+        }
+        let start = if line == 0 { StateStack::initial() } else { self.lines[line - 1].end_state.clone()? };
+        let text = &self.lines.get(line)?.text;
+        if at > text.len() || !text.is_char_boundary(at) || text.len() + ch.len_utf8() > self.max_line_length {
+            return None;
+        }
+        let mut modified = String::with_capacity(text.len() + ch.len_utf8());
+        modified.push_str(&text[..at]);
+        modified.push(ch);
+        modified.push_str(&text[at..]);
+        let r = self.grammar.tokenize_line(&modified, &start);
+        let ix = r.tokens.partition_point(|t| t.start as usize <= at).saturating_sub(1);
+        r.tokens.get(ix).map(|t| self.grammar.token_type(t.scope))
+    }
+
     /// The standard token type at a byte offset of a line (`Other` when not tokenized).
     pub fn token_type_at(&self, line: usize, byte: usize) -> TokenType {
         let Some(tokens) = self.tokens(line) else { return TokenType::Other };

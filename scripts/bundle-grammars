@@ -7,6 +7,11 @@ Writes:
   data/languages.json   every `contributes.languages` entry of every built-in extension, in
                         extension-directory order (the order upstream registers them in), with the
                         `folding` rules of its language configuration (ADR-0042)
+  data/language-configurations.json
+                        the editing-relevant parts of every language-configuration.json (comments,
+                        brackets, autoClosingPairs, surroundingPairs, autoCloseBefore,
+                        indentationRules, onEnterRules, wordPattern, colorizedBracketPairs), keyed by
+                        the `configuration` path in languages.json (ADR-0046)
   data/grammars.json    the `contributes.grammars` entries of the bundled extensions
   data/grammars/<scopeName>.json   the grammar files (strict JSON copies)
   data/themes/*.json    dark_vs, dark_plus, dark_modern (comments and trailing commas stripped)
@@ -24,6 +29,8 @@ BUNDLED_EXTENSIONS = [
     "rust", "javascript", "typescript-basics", "json", "markdown-basics", "python",
     "shellscript", "css", "html", "yaml", "xml", "cpp", "go", "java",
 ]
+CONFIG_KEYS = ["comments", "brackets", "autoClosingPairs", "surroundingPairs", "autoCloseBefore",
+               "indentationRules", "onEnterRules", "wordPattern", "colorizedBracketPairs"]
 THEMES = ["dark_vs.json", "dark_plus.json", "dark_modern.json"]
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -73,6 +80,7 @@ def main():
     ext_root = os.path.join(args.clone, "extensions")
 
     languages, grammars, provenance = [], [], []
+    configurations = {}
     for ext in sorted(os.listdir(ext_root)):
         pkg_path = os.path.join(ext_root, ext, "package.json")
         if not os.path.isfile(pkg_path):
@@ -89,6 +97,9 @@ def main():
                 cfg_path = os.path.join(ext_root, ext, lang["configuration"])
                 if os.path.isfile(cfg_path):
                     cfg = load_jsonc(cfg_path)
+                    keep = {k: cfg[k] for k in CONFIG_KEYS if k in cfg}
+                    if keep:
+                        configurations[entry["configuration"]] = keep
                     if cfg.get("folding"):
                         entry["folding"] = cfg["folding"]
                     # The block comment tokens, for the minimap's mark section headers.
@@ -124,6 +135,8 @@ def main():
 
     with open(os.path.join(OUT, "languages.json"), "w", encoding="utf-8") as f:
         json.dump(languages, f, ensure_ascii=False, indent=1)
+    with open(os.path.join(OUT, "language-configurations.json"), "w", encoding="utf-8") as f:
+        json.dump(configurations, f, ensure_ascii=False, indent=1, sort_keys=True)
     with open(os.path.join(OUT, "grammars.json"), "w", encoding="utf-8") as f:
         json.dump(grammars, f, ensure_ascii=False, indent=1)
 

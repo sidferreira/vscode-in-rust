@@ -193,7 +193,8 @@ fn status_texts_follow_the_caret(cx: &mut TestAppContext) {
             (super::cursor_status(e), super::indent_status(e))
         })
     };
-    assert_eq!(status(&wb, cx), ("Ln 1, Col 1".to_string(), "Spaces: 4".to_string()));
+    // `editor.detectIndentation`: a file that is indented with a tab opens with tabs.
+    assert_eq!(status(&wb, cx), ("Ln 1, Col 1".to_string(), "Tab Size: 4".to_string()));
     cx.simulate_keystrokes("right"); // after the tab: visual column 5
     assert_eq!(status(&wb, cx).0, "Ln 1, Col 5");
     cx.simulate_keystrokes("shift-down");

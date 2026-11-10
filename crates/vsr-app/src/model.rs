@@ -125,10 +125,43 @@ impl OpenEditor {
     pub fn set_language(&mut self, service: &Arc<SyntaxService>, id: &str, explicit: bool, max_line_length: usize) {
         self.language = id.to_string();
         self.language_explicit = explicit;
+        self.editor.set_language_support(Some(vsr_languages::config::language_support(id)));
         self.syntax = service
             .tokenizer_for(id, max_line_length)
             .map(|tokenizer| crate::syntax::SyntaxDoc { service: service.clone(), tokenizer });
         self.syntax_synced.set(None);
+    }
+
+    /// Types `text` with the language's rules: auto closing, over typing, surrounding a selection,
+    /// auto indentation (ADR-0046).
+    pub fn type_text(&mut self, text: &str) {
+        let tokens = crate::syntax::SyntaxTokens(self.syntax.as_ref());
+        self.editor.type_text_with(text, &tokens);
+    }
+
+    /// Enter, with the language's indentation rules.
+    pub fn enter(&mut self) {
+        let tokens = crate::syntax::SyntaxTokens(self.syntax.as_ref());
+        self.editor.enter_with(&tokens);
+    }
+
+    /// Toggle Line Comment, Add Line Comment, Remove Line Comment (`editor.comments.*`).
+    pub fn line_comment(&mut self, kind: vsr_editor::comments::CommentType, insert_space: bool, ignore_empty_lines: bool) -> bool {
+        self.editor.line_comment(kind, insert_space, ignore_empty_lines)
+    }
+
+    /// Tabs or spaces and the indent size: `configured` (`editor.tabSize`, `editor.insertSpaces`), or
+    /// what the text says when `editor.detectIndentation` is on (upstream `detectIndentation`).
+    pub fn apply_indentation(&mut self, configured: EditorOptions, detect: bool) {
+        let options = if detect {
+            let g = vsr_editor::indentation::guess_indentation(self.editor.buffer(), configured.tab_size, configured.insert_spaces);
+            EditorOptions { tab_size: g.tab_size, insert_spaces: g.insert_spaces }
+        } else {
+            configured
+        };
+        if options != self.editor.options() {
+            self.editor.set_options(options);
+        }
     }
 
     /// Brings the tokens up to date with the buffer (cheap when nothing changed).
@@ -162,6 +195,8 @@ impl OpenEditor {
         let options = self.editor.options();
         let caret = self.editor.selection();
         let mut editor = Editor::new(TextBuffer::new(text, default_eol, true), options);
+        editor.set_typing_options(self.editor.typing_options());
+        editor.set_language_support(self.editor.language_support().cloned());
         let buffer = editor.buffer();
         let selection = Selection {
             anchor: buffer.validate_position(caret.anchor),
@@ -295,6 +330,10 @@ pub struct Editors {
     pub syntax: Arc<SyntaxService>,
     /// `editor.maxTokenizationLineLength`.
     pub max_tokenization_line_length: usize,
+    /// The typing rules (`editor.autoClosing*`, `autoIndent`, ...), for every editor (ADR-0046).
+    pub typing: vsr_editor::TypingOptions,
+    /// `editor.detectIndentation`.
+    pub detect_indentation: bool,
 }
 
 impl Default for Editors {
@@ -311,6 +350,8 @@ impl Default for Editors {
             read_only: ReadonlyRules::default(),
             syntax: Arc::new(SyntaxService::new()),
             max_tokenization_line_length: vsr_syntax::DEFAULT_MAX_TOKENIZATION_LINE_LENGTH,
+            typing: Default::default(),
+            detect_indentation: true,
         }
     }
 }
@@ -343,6 +384,8 @@ impl Editors {
         let text = String::from_utf8_lossy(&bytes);
         let mut editor = OpenEditor::from_text(path, &text, self.options, self.default_eol, self.read_only.is_read_only(path));
         self.init_language(&mut editor, &text);
+        editor.editor.set_typing_options(self.typing);
+        editor.apply_indentation(self.options, self.detect_indentation);
 
         let target = self.target_index();
         let preview_index = self.preview.as_deref().and_then(|p| self.index_of(p));
@@ -405,6 +448,19 @@ impl Editors {
                 let syntax = self.syntax.clone();
                 self.open[i].set_language(&syntax, &id, false, max);
             }
+        }
+    }
+
+    /// The editor settings changed: tab size, spaces or tabs (guessed from each file when
+    /// `editor.detectIndentation` is on) and the typing rules, for the editors open now and the ones
+    /// opened later.
+    pub fn apply_editor_settings(&mut self, settings: &crate::config::settings::EditorSettings) {
+        self.options = settings.editor_options();
+        self.typing = settings.typing;
+        self.detect_indentation = settings.detect_indentation;
+        for e in &mut self.open {
+            e.editor.set_typing_options(settings.typing);
+            e.apply_indentation(settings.editor_options(), settings.detect_indentation);
         }
     }
 

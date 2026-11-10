@@ -466,6 +466,10 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
                 }
                 Command::Copy => {
                     let text = e.editor.selected_text();
+                    // `editor.emptySelectionClipboard`: without a selection, the current line.
+                    if text.is_empty() && !view.cfg.empty_selection_clipboard {
+                        return;
+                    }
                     let text = if text.is_empty() {
                         format!("{}\n", e.buffer().line_content(e.editor.selection().active.line))
                     } else {
@@ -474,8 +478,18 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
                     cx.write_to_clipboard(ClipboardItem::new_string(text));
                 }
                 Command::Cut => {
+                    if e.editor.selection().is_empty() && !view.cfg.empty_selection_clipboard {
+                        return;
+                    }
                     let text = e.editor.cut();
                     cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+                Command::Enter => e.enter(),
+                Command::LineComment(kind) => {
+                    e.line_comment(kind, view.cfg.comments_insert_space, view.cfg.comments_ignore_empty_lines);
+                }
+                Command::BlockComment => {
+                    e.editor.block_comment(view.cfg.comments_insert_space);
                 }
                 Command::Paste => {
                     if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
@@ -684,6 +698,7 @@ impl<T: EditorHost> EditorInput<T> {
             if e.is_read_only() {
                 return;
             }
+            let plain_key = range.is_none() && view.marked.is_none() && !mark;
             let buf = e.buffer();
             let range = range
                 .or_else(|| view.marked.clone())
@@ -692,7 +707,13 @@ impl<T: EditorHost> EditorInput<T> {
             let end = buf.position_at(range.end);
             e.editor.set_cursor(start, false);
             e.editor.set_cursor(end, true);
-            e.editor.type_text(text);
+            if plain_key {
+                // A key press: the language's rules (auto closing, surrounding a selection...).
+                e.type_text(text);
+            } else {
+                // An IME composition or a replacement of a given range: the text as it is.
+                e.editor.type_raw(text);
+            }
             let len = text.encode_utf16().count();
             view.marked = (mark && len > 0).then(|| range.start..range.start + len);
             if let Some(sel) = selected.filter(|_| mark) {

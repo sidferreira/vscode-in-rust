@@ -446,6 +446,16 @@ pub struct EditorSettings {
     pub minimap: MinimapSettings,
     /// Folding, sticky scroll and minimap section headers (ADR-0042).
     pub folding: super::folding::FoldingSettings,
+    /// Typing rules: `editor.autoClosing*`, `autoSurround`, `autoIndent`, `useTabStops`,
+    /// `trimAutoWhitespace`, `trimWhitespaceOnDelete`, `indentSize` (ADR-0046).
+    pub typing: vsr_editor::TypingOptions,
+    /// `editor.comments.insertSpace` and `editor.comments.ignoreEmptyLines`.
+    pub comments_insert_space: bool,
+    pub comments_ignore_empty_lines: bool,
+    /// `editor.detectIndentation`: tabs or spaces and the indent size come from the file.
+    pub detect_indentation: bool,
+    /// `editor.emptySelectionClipboard`: copy and cut without a selection use the current line.
+    pub empty_selection_clipboard: bool,
 }
 
 impl Default for EditorSettings {
@@ -501,7 +511,63 @@ impl Default for EditorSettings {
             find: FindSettings::default(),
             minimap: MinimapSettings::default(),
             folding: Default::default(),
+            typing: Default::default(),
+            comments_insert_space: true,
+            comments_ignore_empty_lines: true,
+            detect_indentation: true,
+            empty_selection_clipboard: true,
         }
+    }
+}
+
+/// `editor.autoClosingBrackets`, `Quotes` and `Comments`.
+fn parse_auto_closing(c: &Configuration, key: &str) -> vsr_editor::AutoClosing {
+    use vsr_editor::AutoClosing::*;
+    match c.get_str(key) {
+        Some("always") => Always,
+        Some("beforeWhitespace") => BeforeWhitespace,
+        Some("never") => Never,
+        _ => LanguageDefined,
+    }
+}
+
+/// `editor.autoClosingDelete` and `autoClosingOvertype`.
+fn parse_auto_closing_edit(c: &Configuration, key: &str) -> vsr_editor::AutoClosingEdit {
+    use vsr_editor::AutoClosingEdit::*;
+    match c.get_str(key) {
+        Some("always") => Always,
+        Some("never") => Never,
+        _ => Auto,
+    }
+}
+
+/// The typing options of the `editor.*` settings (ADR-0046).
+pub fn typing_options(c: &Configuration) -> vsr_editor::TypingOptions {
+    use vsr_editor::{AutoIndentStrategy, AutoSurround};
+    vsr_editor::TypingOptions {
+        auto_closing_brackets: parse_auto_closing(c, "editor.autoClosingBrackets"),
+        auto_closing_quotes: parse_auto_closing(c, "editor.autoClosingQuotes"),
+        auto_closing_comments: parse_auto_closing(c, "editor.autoClosingComments"),
+        auto_closing_delete: parse_auto_closing_edit(c, "editor.autoClosingDelete"),
+        auto_closing_overtype: parse_auto_closing_edit(c, "editor.autoClosingOvertype"),
+        auto_surround: match c.get_str("editor.autoSurround") {
+            Some("quotes") => AutoSurround::Quotes,
+            Some("brackets") => AutoSurround::Brackets,
+            Some("never") => AutoSurround::Never,
+            _ => AutoSurround::LanguageDefined,
+        },
+        auto_indent: match c.get_str("editor.autoIndent") {
+            Some("none") => AutoIndentStrategy::None,
+            Some("keep") => AutoIndentStrategy::Keep,
+            Some("brackets") => AutoIndentStrategy::Brackets,
+            Some("advanced") => AutoIndentStrategy::Advanced,
+            _ => AutoIndentStrategy::Full,
+        },
+        use_tab_stops: c.get_bool("editor.useTabStops").unwrap_or(true),
+        trim_whitespace_on_delete: c.get_bool("editor.trimWhitespaceOnDelete").unwrap_or(false),
+        trim_auto_whitespace: c.get_bool("editor.trimAutoWhitespace").unwrap_or(true),
+        // `"tabSize"` (the default) or a number of spaces.
+        indent_size: c.get_f64("editor.indentSize").map(|n| n.round().max(1.0) as usize),
     }
 }
 
@@ -578,6 +644,11 @@ impl EditorSettings {
             find: FindSettings::from_configuration(c),
             minimap: MinimapSettings::from_configuration(c),
             folding: super::folding::FoldingSettings::from_configuration(c),
+            typing: typing_options(c),
+            comments_insert_space: c.get_bool("editor.comments.insertSpace").unwrap_or(true),
+            comments_ignore_empty_lines: c.get_bool("editor.comments.ignoreEmptyLines").unwrap_or(true),
+            detect_indentation: c.get_bool("editor.detectIndentation").unwrap_or(true),
+            empty_selection_clipboard: c.get_bool("editor.emptySelectionClipboard").unwrap_or(true),
         }
     }
 

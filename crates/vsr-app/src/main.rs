@@ -236,6 +236,8 @@ impl Workbench {
         let editor_settings = EditorSettings::from_configuration(configuration);
         let editors = Editors {
             options: editor_settings.editor_options(),
+            typing: editor_settings.typing,
+            detect_indentation: editor_settings.detect_indentation,
             settings: EditorGroupSettings::from_configuration(configuration),
             default_eol: editor_settings.eol,
             read_only: ReadonlyRules::from_configuration(configuration, &root),
@@ -348,7 +350,6 @@ impl Workbench {
         self.editors.apply_read_only(ReadonlyRules::from_configuration(configuration, &self.root));
         self.apply_language_settings(cx);
 
-        let old_options = self.editor_settings.editor_options();
         if new_settings.font_families != self.editor_settings.font_families {
             self.editor_settings = new_settings;
             self.resolve_editor_font(cx);
@@ -356,13 +357,7 @@ impl Workbench {
             let family = self.editor_settings.font_family.clone();
             self.editor_settings = EditorSettings { font_family: family, ..new_settings };
         }
-        let options = self.editor_settings.editor_options();
-        if options != old_options {
-            self.editors.options = options;
-            for e in &mut self.editors.open {
-                e.editor.set_options(options);
-            }
-        }
+        self.editors.apply_editor_settings(&self.editor_settings);
         self.apply_explorer_settings(cx);
         // The listed folders are read again when their exclusions change (files.exclude or
         // explorer.excludeGitIgnore; `list` applies both).

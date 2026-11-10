@@ -68,6 +68,61 @@ impl SyntaxDoc {
     }
 }
 
+/// The tokens of an editor for the typing rules (`vsr_editor::TokenSource`, ADR-0046): the type of
+/// each token of a line (string, comment, regex), so a quote or bracket is not auto closed inside one.
+/// No tokenizer (plain text) means one `Other` token per line; a line that is not tokenized yet
+/// gives `None` (auto closing and auto indentation leave it alone, like upstream's
+/// `isCheapToTokenize`).
+pub struct SyntaxTokens<'a>(pub Option<&'a SyntaxDoc>);
+
+impl vsr_editor::TokenSource for SyntaxTokens<'_> {
+    fn line_tokens(&self, buffer: &TextBuffer, line: usize) -> Option<vsr_editor::LineTokens> {
+        use vsr_editor::{LineTokens, StandardTokenType};
+        let text = buffer.line_content(line);
+        let units = |s: &str| s.encode_utf16().count();
+        let Some(doc) = self.0 else {
+            return Some(LineTokens::plain(units(text)));
+        };
+        doc.sync(buffer);
+        doc.tokenizer.with(|d| {
+            if !d.is_accurate(line - 1) {
+                return None;
+            }
+            let tokens = d.tokens(line - 1)?;
+            let mut out: Vec<(usize, StandardTokenType)> = Vec::with_capacity(tokens.len());
+            for (i, t) in tokens.iter().enumerate() {
+                let end_byte = tokens.get(i + 1).map_or(text.len(), |n| (n.start as usize).min(text.len()));
+                let start_byte = (t.start as usize).min(text.len());
+                if end_byte <= start_byte {
+                    continue;
+                }
+                let ty = match d.token_type_at(line - 1, start_byte) {
+                    vsr_textmate::TokenType::Other => StandardTokenType::Other,
+                    vsr_textmate::TokenType::Comment => StandardTokenType::Comment,
+                    vsr_textmate::TokenType::String => StandardTokenType::String,
+                    vsr_textmate::TokenType::RegEx => StandardTokenType::RegEx,
+                };
+                out.push((units(&text[..end_byte]), ty));
+            }
+            Some(LineTokens::new(&out))
+        })
+    }
+
+    fn token_type_if_inserting(&self, buffer: &TextBuffer, line: usize, column: usize, ch: char) -> Option<vsr_editor::StandardTokenType> {
+        use vsr_editor::StandardTokenType;
+        let doc = self.0?;
+        doc.sync(buffer);
+        let text = buffer.line_content(line);
+        let byte = byte_of_utf16(text, column - 1);
+        doc.tokenizer.with(|d| d.token_type_if_inserting(line - 1, byte, ch)).map(|t| match t {
+            vsr_textmate::TokenType::Other => StandardTokenType::Other,
+            vsr_textmate::TokenType::Comment => StandardTokenType::Comment,
+            vsr_textmate::TokenType::String => StandardTokenType::String,
+            vsr_textmate::TokenType::RegEx => StandardTokenType::RegEx,
+        })
+    }
+}
+
 fn hsla(c: vsr_textmate::Rgba) -> Hsla {
     let [r, g, b, a] = c.0;
     rgba(u32::from_be_bytes([r, g, b, a])).into()

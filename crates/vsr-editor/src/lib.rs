@@ -14,6 +14,7 @@ mod cursor_columns;
 mod edit_ops;
 mod editor;
 mod editor_folding;
+pub mod indentation;
 mod move_ops;
 mod replace_ops;
 mod save_ops;

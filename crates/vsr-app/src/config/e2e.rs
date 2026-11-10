@@ -377,7 +377,8 @@ fn control_characters_follow_the_setting_live(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn indent_guides_follow_the_settings_live(cx: &mut TestAppContext) {
-    let (wb, cx, f) = workbench(cx, "guides", None, &[("a.txt", "a\n  b\n      c\n")]);
+    // The file has no clear indent size, so detection (`editor.detectIndentation`) is off: the guides follow `editor.tabSize`.
+    let (wb, cx, f) = workbench(cx, "guides", Some(r#"{ "editor.detectIndentation": false }"#), &[("a.txt", "a\n  b\n      c\n")]);
     open_file(&wb, cx, &f.dir.join("a.txt"));
     cx.run_until_parked(); // the list lays out its visible rows on the frame after the first
     assert!(cx.debug_bounds("guide:1:0").is_none() && cx.debug_bounds("guide-active:1:0").is_none(), "no guide on a top-level line");

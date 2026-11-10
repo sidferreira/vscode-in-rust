@@ -22,6 +22,8 @@ mod e2e;
 mod e2e_files;
 #[cfg(test)]
 mod e2e_syntax;
+#[cfg(test)]
+mod e2e_typing;
 pub mod files;
 pub mod folding;
 pub mod glob;

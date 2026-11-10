@@ -759,8 +759,9 @@ pub struct LayoutSettings {
 }
 
 /// `workbench.startupEditor`: what opens when the app starts with no editor restored. `WelcomePage`
-/// opens the Welcome page (ADR-0040) and `Readme` the folder's README when there is one. rscode has
-/// no untitled files and no terminal yet, so the other values open nothing (ADR-0035).
+/// opens the Welcome page (ADR-0040), `Readme` the folder's README when there is one and
+/// `NewUntitledFile` an empty untitled text (ADR-0058). rscode has no terminal yet, so the other
+/// values open nothing (ADR-0035).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum StartupEditor {

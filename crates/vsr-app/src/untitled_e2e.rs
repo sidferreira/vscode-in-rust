@@ -296,3 +296,29 @@ fn cmd_n_and_cmd_s_reach_the_untitled_commands(cx: &mut TestAppContext) {
     let kind = wb.read_with(cx, |wb, _| wb.explorer.inline.as_ref().map(|e| e.kind));
     assert_eq!(kind, Some(InlineKind::SaveUntitled));
 }
+
+#[gpui::test]
+fn startup_editor_new_untitled_file_opens_an_untitled_text(cx: &mut TestAppContext) {
+    let env = env("startup", r#"{ "workbench.startupEditor": "newUntitledFile" }"#);
+    let (wb, cx) = start(cx, &env);
+    assert_eq!(active_key(&wb, cx), untitled_key("Untitled-1"));
+    assert!(!with_untitled(&wb, cx, &untitled_key("Untitled-1"), |e| e.is_dirty()));
+}
+
+#[gpui::test]
+fn files_eol_is_the_line_break_of_a_new_untitled_text(cx: &mut TestAppContext) {
+    let env = env("eol", r#"{ "files.eol": "\r\n" }"#);
+    let (wb, cx) = start(cx, &env);
+    new_untitled(&wb, cx);
+    type_in_active(&wb, cx, "one");
+    wb.update(cx, |wb, _| {
+        let i = wb.editors.active.unwrap();
+        wb.editors.open[i].enter();
+    });
+    type_in_active(&wb, cx, "two");
+    let key = active_key(&wb, cx);
+    let target = env.root.join("eol.txt");
+    let (k, t) = (key.clone(), target.clone());
+    wb.update(cx, |wb, cx| wb.save_untitled_to(&k, &t, cx)).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"one\r\ntwo");
+}

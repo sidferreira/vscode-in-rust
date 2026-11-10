@@ -172,15 +172,15 @@ match = ["workbench.editor.mouseBackForwardToNavigate", "workbench.editor.swipeT
 
 [[rule]]
 status = "blocked"
-reason = "needs untitled, binary, custom and large-file editors"
-comment = "rscode has no untitled files, binary editor, custom editor associations or large-file confirmation dialog yet."
-match = ["workbench.editor.untitled.labelFormat", "workbench.editor.defaultBinaryEditor", "workbench.editorAssociations",
+reason = "needs binary, custom and large-file editors"
+comment = "rscode has no binary editor, custom editor associations or large-file confirmation dialog yet. Untitled texts exist (ADR-0058); workbench.editor.untitled.labelFormat is wired (ADR-0059)."
+match = ["workbench.editor.defaultBinaryEditor", "workbench.editorAssociations",
          "workbench.editorLargeFileConfirmation", "workbench.editor.hiddenEditorTypes", "workbench.editor.useModal"]
 
 [[rule]]
 status = "blocked"
 reason = "needs language detection for untitled and unknown files"
-comment = "No language detection service. Needs the untitled editors above."
+comment = "No language detection service. Untitled texts exist (ADR-0058), but rscode detects no language from their contents or from the files it opens."
 match = ["workbench.editor.languageDetection", "workbench.editor.historyBasedLanguageDetection",
          "workbench.editor.preferHistoryBasedLanguageDetection", "workbench.editor.languageDetectionHints"]
 
@@ -414,12 +414,6 @@ match = ["editor.foldingImportsByDefault"]
 # files.* (ADR-0034). The files settings that are wired live in config/wired.rs. The ones below are
 # status `blocked`: each needs a feature rscode does not have yet. Delete the rule when the feature
 # lands. The reasons say what is missing.
-
-[[rule]]
-status = "blocked"
-reason = "needs untitled editors (new files)"
-comment = "files.defaultLanguage is the language of a new untitled file. The language registry exists (ADR-0038, files.associations is wired), but rscode has no untitled editors yet."
-match = ["files.defaultLanguage"]
 
 [[rule]]
 status = "blocked"

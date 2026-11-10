@@ -709,6 +709,7 @@ impl Workbench {
                 }
             }
             StartupEditor::WelcomePage => self.open_welcome(cx),
+            StartupEditor::NewUntitledFile => self.open_untitled_text(cx),
             _ => {}
         }
     }

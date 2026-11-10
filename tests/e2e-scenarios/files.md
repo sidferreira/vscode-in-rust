@@ -45,6 +45,8 @@ call the same commit path with the path they choose, and no file dialog opens.
 | 12 | a closed Untitled-N number is used again by the next new text | - | ready | `a_closed_untitled_number_is_reused` |
 | 13 | hot exit keeps the untitled text; a restart brings it back dirty, as an untitled text | files.hotExit | ready | `hot_exit_brings_the_untitled_text_back_as_an_untitled_text` |
 | 14 | the missing-file check never closes an untitled text | - | ready | `an_untitled_text_is_not_closed_as_a_missing_file` |
+| 15 | `workbench.startupEditor: newUntitledFile` opens an untitled text when nothing is restored | workbench.startupEditor | ready | `startup_editor_new_untitled_file_opens_an_untitled_text` |
+| 16 | files.eol is the line break of a new untitled text, so its saved file has CRLF | files.eol | ready | `files_eol_is_the_line_break_of_a_new_untitled_text` |
 
 Blocked settings (no scenario until the feature lands) are listed with their reasons in
 `upstream/settings.toml`.

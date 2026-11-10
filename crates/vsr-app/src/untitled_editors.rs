@@ -19,13 +19,18 @@ impl Workbench {
     /// File: New Untitled Text File (Cmd+N): an empty text, pinned and focused. Its language is
     /// `files.defaultLanguage` (`${activeEditorLanguage}` is the active editor's language), else plain text.
     pub(crate) fn new_untitled(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_untitled_text(cx);
+        self.editor_view.focus(window, cx);
+    }
+
+    /// An empty untitled text, shown and not focused: Cmd+N, and `workbench.startupEditor: newUntitledFile`.
+    pub(crate) fn open_untitled_text(&mut self, cx: &mut Context<Self>) {
         let active = self.editors.active_editor().map(|e| e.language_id().to_string());
         let default = AppConfig::get(cx).configuration().get_str("files.defaultLanguage").map(str::to_string);
         let language = new_language(None, default.as_deref(), active.as_deref());
         self.settings_active = false;
         self.welcome_active = false;
         self.editors.open_untitled("", &language, OpenOptions::PINNED);
-        self.editor_view.focus(window, cx);
         cx.notify();
     }
 

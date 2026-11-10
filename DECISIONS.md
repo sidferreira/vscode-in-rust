@@ -2145,3 +2145,39 @@ which other work edits at the same time. rscode also has no file dialog, and tes
 - Working-copy events, encodings and `files.encoding` for untitled texts are not modelled (ADR-0057).
 - Search editor, binary and custom editors stay blocked (`upstream/settings.toml`).
 
+## ADR-0059 — Untitled settings: labelFormat, defaultLanguage and newUntitledFile wired; the rules split (2026-11-10)
+
+**Context.** With untitled texts (ADR-0058) three settings have an effect that a user can see:
+`workbench.editor.untitled.labelFormat` (the title of an untitled text), `files.defaultLanguage` (the
+language of a new one) and the `newUntitledFile` value of `workbench.startupEditor`. They were blocked
+by a shared rule ("needs untitled, binary, custom and large-file editors") and by a rule for
+`files.defaultLanguage` ("needs untitled editors (new files)"). The binary, custom and large-file
+editors are still missing, and the language detection service is still missing.
+
+**Decision.**
+
+- `workbench.editor.untitled.labelFormat` is read into `EditorGroupSettings::untitled_label_format` and
+  used by `Editors::title_of` (ADR-0057's rule). Wired in `wired.rs`, "Editor management".
+- `files.defaultLanguage` is read by `Workbench::open_untitled_text` through `new_language`, with
+  `${activeEditorLanguage}` meaning the active editor's language. Wired in "Languages". Its rule is
+  deleted, not kept as an alias.
+- `workbench.startupEditor: newUntitledFile` opens an untitled text when nothing is restored
+  (`Workbench::open_untitled_text`). The key was already wired; the value now does something.
+- The untitled rule in `upstream/settings.toml` is split. The five binary, custom and large-file
+  settings stay blocked with the reason "needs binary, custom and large-file editors". The language
+  detection rule stays blocked, with a comment that names what is still missing. The untitled
+  workspace rule (`window.confirmSaveUntitledWorkspace`) is unchanged: it needs multi-root workspaces.
+- `files.eol` also applies to a new untitled text. It was already wired, so the note in `wired.rs`
+  changes and a headless test proves the saved file has CRLF (scenario 16 in `files.md`).
+
+**Counts** (`scripts/settings-port status`, 2,062 settings): wired 183 → 185 (+labelFormat,
++defaultLanguage); blocked 344 → 342 (the two rules' settings left blocked). Todo, n/a and exthost are
+unchanged. `workbench.editor.untitled.hint` is not in this VS Code export, so there is nothing to wire.
+
+**Tests.** Headless, in `untitled_e2e.rs`: labelFormat `name` (and the default), `files.defaultLanguage`
+(a named language, and `${activeEditorLanguage}`), `workbench.startupEditor: newUntitledFile`, and
+`files.eol`. Scenarios 3 to 6 and 15 to 16 in `tests/e2e-scenarios/files.md`.
+
+**Not done.** `files.defaultLanguage` does not change a language after content detection (none exists).
+The default file extension of the Save As name box is not suggested from the language.
+

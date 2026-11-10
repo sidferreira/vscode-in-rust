@@ -296,7 +296,7 @@ impl Workbench {
         if let Some(name) = untitled_name_of(&path).map(str::to_string) {
             // An untitled text has no file: its text comes back as the untitled text it was (ADR-0058).
             if self.editors.index_of(&path).is_none() {
-                self.editors.restore_untitled(&name, &backup.text);
+                self.editors.restore_untitled(&name, &backup.text, backup.language.as_deref());
             }
             if let Some(i) = self.editors.index_of(&path) {
                 self.session.backed_up.insert(path, self.editors.open[i].editor.version());
@@ -417,7 +417,7 @@ impl Workbench {
                     continue;
                 }
                 if flush || self.session.seen.get(&e.path) == Some(&version) {
-                    match backups.write(&e.path, &e.buffer().value()) {
+                    match backups.write_with(&e.path, &e.buffer().value(), Some(e.language_id())) {
                         Ok(()) => {
                             self.session.backed_up.insert(e.path.clone(), version);
                         }
@@ -575,7 +575,7 @@ impl Workbench {
         if let Some(backups) = self.session.backups.clone() {
             for e in self.editors.open.iter().filter(|e| e.is_dirty()) {
                 // Make sure the text is on disk first, then move it aside.
-                if !backups.exists(&e.path) && backups.write(&e.path, &e.buffer().value()).is_err() {
+                if !backups.exists(&e.path) && backups.write_with(&e.path, &e.buffer().value(), Some(e.language_id())).is_err() {
                     self.error = Some(format!("Could not keep the changes of {}", e.path.display()));
                     self.session.dropping = false;
                     cx.notify();

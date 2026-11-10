@@ -504,15 +504,15 @@ impl Editors {
         self.enforce_limit();
     }
 
-    /// Bring back an untitled text from its hot exit backup (ADR-0058). It opens as a pinned tab
-    /// with its saved name and text, without taking the focus. Its language is plain text, since the
-    /// backup does not keep one.
-    pub fn restore_untitled(&mut self, name: &str, text: &str) -> PathBuf {
+    /// Bring back an untitled text from its hot exit backup (ADR-0058, ADR-0074). It opens as a pinned
+    /// tab with its saved name, text and language (plain text for a backup that recorded none), without
+    /// taking the focus.
+    pub fn restore_untitled(&mut self, name: &str, text: &str, language: Option<&str>) -> PathBuf {
         let mut editor = OpenEditor::from_untitled(name, text, self.options, self.default_eol);
         editor.editor.set_typing_options(self.typing);
         editor.apply_indentation(self.options, self.detect_indentation);
         let max = self.max_tokenization_line_length;
-        editor.set_language(&self.syntax, vsr_languages::PLAINTEXT_LANGUAGE_ID, false, max);
+        editor.set_language(&self.syntax, language.unwrap_or(vsr_languages::PLAINTEXT_LANGUAGE_ID), false, max);
         let key = editor.path.clone();
         self.place(editor, OpenOptions { pinned: true, active: false });
         self.mru.retain(|p| *p != key);

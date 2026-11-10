@@ -12,7 +12,8 @@
 //!   "text": "...the whole buffer, with its own line breaks...",
 //!   "checksum": "<64 hex digits>",      // SHA-256 of text; a mismatch means a damaged file
 //!   "base": { "mtime_ms": 1700000000000, "size": 1234 },  // the file on disk when the backup was made
-//!   "saved_at_ms": 1700000001234
+//!   "saved_at_ms": 1700000001234,
+//!   "language": "rust"                  // optional: the language id of the editor (an untitled text keeps it)
 //! }
 //! ```
 //!
@@ -56,6 +57,10 @@ pub struct Backup {
     pub checksum: String,
     pub base: Option<Baseline>,
     pub saved_at_ms: u128,
+    /// The language of the editor when the backup was made. Missing in backups written before it was
+    /// recorded; an untitled text then comes back as plain text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 pub fn checksum(text: &str) -> String {
@@ -74,7 +79,7 @@ pub fn baseline_of(path: &Path) -> Option<Baseline> {
 }
 
 impl Backup {
-    pub fn new(path: &Path, text: &str) -> Self {
+    pub fn new(path: &Path, text: &str, language: Option<&str>) -> Self {
         Self {
             format: BACKUP_FORMAT,
             path: path.to_string_lossy().into_owned(),
@@ -82,6 +87,7 @@ impl Backup {
             checksum: checksum(text),
             base: baseline_of(path),
             saved_at_ms: now_ms(),
+            language: language.map(str::to_string),
         }
     }
 
@@ -117,9 +123,14 @@ impl BackupStore {
         self.file_of(path).is_file()
     }
 
-    /// Writes (replaces) the backup of `path` atomically.
+    /// Writes (replaces) the backup of `path` atomically, without a language.
     pub fn write(&self, path: &Path, text: &str) -> io::Result<()> {
-        let backup = Backup::new(path, text);
+        self.write_with(path, text, None)
+    }
+
+    /// Writes (replaces) the backup of `path` atomically, with the editor's language id.
+    pub fn write_with(&self, path: &Path, text: &str, language: Option<&str>) -> io::Result<()> {
+        let backup = Backup::new(path, text, language);
         let bytes = serde_json::to_vec(&backup).map_err(io::Error::other)?;
         write_atomic(&self.file_of(path), &bytes)
     }
@@ -181,6 +192,20 @@ impl BackupStore {
 mod tests {
     use super::super::store::testing::unique_dir;
     use super::*;
+
+    #[test]
+    fn a_backup_keeps_its_language_and_an_old_one_without_it_still_loads() {
+        let store = BackupStore::new(unique_dir("backup-language").join("b"));
+        store.write_with(Path::new("untitled:Untitled-1"), "fn x() {}", Some("rust")).unwrap();
+        let loaded = store.load_all();
+        assert_eq!(loaded.backups[0].language.as_deref(), Some("rust"));
+        // A backup written before the language was recorded has no `language` key.
+        let old = Backup { language: None, ..loaded.backups[0].clone() };
+        let json = serde_json::to_string(&old).unwrap();
+        assert!(!json.contains("language"));
+        let parsed: Backup = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.language, None);
+    }
 
     #[test]
     fn a_backup_round_trips_with_unicode_and_line_breaks() {

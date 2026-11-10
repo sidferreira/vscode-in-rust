@@ -268,7 +268,7 @@ fn an_untitled_text_is_not_closed_as_a_missing_file(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn hot_exit_brings_the_untitled_text_back_as_an_untitled_text(cx: &mut TestAppContext) {
-    let env = env("hot-exit", "{}");
+    let env = env("hot-exit", r#"{ "files.defaultLanguage": "rust" }"#);
     {
         let (wb, cx) = start(cx, &env);
         new_untitled(&wb, cx);
@@ -280,7 +280,7 @@ fn hot_exit_brings_the_untitled_text_back_as_an_untitled_text(cx: &mut TestAppCo
     let (wb, cx) = start(cx, &env);
     let key = untitled_key("Untitled-1");
     assert!(with_untitled(&wb, cx, &key, |e| e.is_dirty() && e.buffer().value() == "draft\nnotes"));
-    assert_eq!(with_untitled(&wb, cx, &key, |e| e.language_id().to_string()), "plaintext");
+    assert_eq!(with_untitled(&wb, cx, &key, |e| e.language_id().to_string()), "rust", "the backup keeps the language");
 }
 
 #[gpui::test]

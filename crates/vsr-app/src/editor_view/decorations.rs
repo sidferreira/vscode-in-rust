@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use vsr_editor::{Position, matching_brackets};
 use vsr_text::TextBuffer;
 
-use crate::config::settings::{MatchBrackets, RenderWhitespace};
+use crate::config::settings::{MatchBrackets, RenderFinalNewline, RenderWhitespace};
 
 /// The bracket pair to highlight, cached per document state and caret: the scan can cover the
 /// whole document (`editor.matchBrackets: always` searches for the enclosing pair), and the view
@@ -277,6 +277,62 @@ pub fn active_indent_guide(lines: &impl Lines, caret: usize, tab: usize) -> Opti
     Some((k, lo..=hi))
 }
 
+/// Whether a character is one `editor.renderControlCharacters` shows (`isControlCharacter` in
+/// viewLineRenderer.ts, its ASCII part): a C0 control other than tab, and DEL. The bidi formatting
+/// characters upstream also shows are multi-byte and are left alone.
+fn is_control(c: char) -> bool {
+    (c < ' ' && c != '\t') || c == '\u{7f}'
+}
+
+/// The control characters of a line as `(1-based column, character)`.
+pub fn control_marks(text: &str) -> Vec<(usize, char)> {
+    text.chars().enumerate().filter(|&(_, c)| is_control(c)).map(|(i, c)| (i + 1, c)).collect()
+}
+
+/// The picture drawn for a control character: the Control Pictures block (U+2400 plus the code,
+/// DEL is U+2421).
+pub fn control_glyph(c: char) -> char {
+    if c == '\u{7f}' { '\u{2421}' } else { char::from_u32(0x2400 + c as u32).unwrap_or('\u{fffd}') }
+}
+
+/// `text` with each control character replaced by a space. Each one is a single byte, so byte
+/// offsets and columns of the line do not move.
+pub fn hide_controls(text: &str) -> String {
+    text.chars().map(|c| if is_control(c) { ' ' } else { c }).collect()
+}
+
+/// The number shown in the gutter for a line: `label` (`line_number_label`), except that the empty
+/// line after a final line break shows nothing when `editor.renderFinalNewline` is `off`.
+pub fn gutter_number(label: String, final_newline: bool, mode: RenderFinalNewline) -> String {
+    if final_newline && mode == RenderFinalNewline::Off { String::new() } else { label }
+}
+
+/// Whether `line` is the empty line after a final line break, the last line of a document that
+/// ends with a newline (`editor.renderFinalNewline` acts on it).
+pub fn is_final_newline_line(lines: &impl Lines, line: usize) -> bool {
+    line > 1 && line == lines.line_count() && lines.line_text(line).is_empty()
+}
+
+/// The first row of the viewport that keeps caret row `row` `lead` rows below the top edge and
+/// `trail` rows above the bottom edge (`editor.cursorSurroundingLines`). `None` when the viewport
+/// (starting at row `top`, `page` rows high) already keeps both margins. Each margin is capped at
+/// half the page, as `getViewRangeWithCursorPadding` does.
+pub fn scroll_top_with_margin(top: usize, page: usize, row: usize, lead: usize, trail: usize) -> Option<usize> {
+    if page == 0 {
+        return None;
+    }
+    let cap = page.saturating_sub(1) / 2;
+    let (lead, trail) = (lead.min(cap), trail.min(cap));
+    if row < top + lead {
+        return Some(row.saturating_sub(lead));
+    }
+    let bottom = top + page - 1;
+    if row + trail > bottom {
+        return Some((row + trail + 1).saturating_sub(page));
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::MarkKind::{Space, Tab};
@@ -496,5 +552,54 @@ mod tests {
         for mode in [RenderWhitespace::All, RenderWhitespace::Boundary, RenderWhitespace::Trailing] {
             assert!(cols("", mode, None).is_empty());
         }
+    }
+
+    #[test]
+    fn control_characters_are_the_ascii_controls_but_tab() {
+        assert_eq!(control_marks("a\tb\u{1}\u{7f}\u{1b}"), [(4, '\u{1}'), (5, '\u{7f}'), (6, '\u{1b}')]);
+        assert!(control_marks("tab\tonly").is_empty());
+        assert_eq!(control_glyph('\u{1}'), '\u{2401}');
+        assert_eq!(control_glyph('\u{7f}'), '\u{2421}');
+    }
+
+    #[test]
+    fn final_newline_number_follows_the_setting() {
+        use crate::config::settings::RenderFinalNewline::{Dimmed, Off, On};
+        assert_eq!(gutter_number("2".into(), true, On), "2");
+        assert_eq!(gutter_number("2".into(), true, Dimmed), "2");
+        assert_eq!(gutter_number("2".into(), true, Off), "");
+        // Other lines keep their number whatever the setting says.
+        assert_eq!(gutter_number("1".into(), false, Off), "1");
+    }
+
+    #[test]
+    fn hidden_controls_keep_the_byte_length() {
+        let text = "a\u{1}\tb\u{7f}";
+        let hidden = hide_controls(text);
+        assert_eq!(hidden, "a \tb ");
+        assert_eq!(hidden.len(), text.len());
+    }
+
+    #[test]
+    fn the_empty_line_after_a_final_newline_is_recognised() {
+        let doc = Doc(vec!["a", ""]);
+        assert!(is_final_newline_line(&doc, 2));
+        assert!(!is_final_newline_line(&doc, 1));
+        // A one-line document with no text is not "a file that ends with a newline".
+        assert!(!is_final_newline_line(&Doc(vec![""]), 1));
+        assert!(!is_final_newline_line(&Doc(vec!["a", "", "b"]), 2));
+    }
+
+    #[test]
+    fn surrounding_lines_keep_a_margin_at_both_edges() {
+        // Visible rows 0..10: a caret well inside needs no scroll.
+        assert_eq!(scroll_top_with_margin(0, 10, 5, 2, 2), None);
+        // Caret at row 8 with a trailing margin of 2: row 10 has to be visible, so the top moves to 1.
+        assert_eq!(scroll_top_with_margin(0, 10, 8, 2, 2), Some(1));
+        // Caret at row 5 with a leading margin of 2, while the view starts at row 4: move up to row 3.
+        assert_eq!(scroll_top_with_margin(4, 10, 5, 2, 2), Some(3));
+        // Margins are capped at half the page: a page of 4 rows keeps one row on each side.
+        assert_eq!(scroll_top_with_margin(0, 4, 3, 5, 5), Some(1));
+        assert_eq!(scroll_top_with_margin(0, 0, 3, 5, 5), None);
     }
 }

@@ -470,6 +470,48 @@ reason = "needs Unicode word segmentation (UAX #29 / ICU) in the editing core"
 comment = "editor.wordSegmenterLocales picks the Intl.Segmenter locales for word moves and double-click in CJK text. vsr-editor classifies characters by editor.wordSeparators only; a segmenter dependency (unicode-segmentation or ICU4X) has to land first."
 match = ["editor.wordSegmenterLocales"]
 
+[[rule]]
+status = "blocked"
+reason = "needs formatting providers from the extension host"
+comment = "Format on paste, type and save run a document or range formatter. Formatters are language extensions on the Node extension host (ADR-0020); rscode has no formatter of its own yet, so these settings have nothing to run."
+match = ["editor.formatOnPaste", "editor.formatOnType", "editor.formatOnSave", "editor.formatOnSaveMode"]
+
+[[rule]]
+status = "blocked"
+reason = "needs font variation axes in gpui text shaping"
+comment = "gpui-pre 0.3.11 applies font features (OpenType tags) and the weight, not variable font axes. fontVariations: true would set wght from editor.fontWeight, and a string is font-variation-settings."
+match = ["editor.fontVariations"]
+
+[[rule]]
+status = "n/a"
+reason = "only with editor.editContext (the browser EditContext API)"
+comment = "Rich screen reader content is the DOM mirror that the EditContext text input needs. rscode does not use EditContext: its text input is the platform input handler (ADR-0012), so the setting has no meaning here."
+match = ["editor.renderRichScreenReaderContent"]
+
+[[rule]]
+status = "blocked"
+reason = "needs ctrl+click (go to definition, multi-cursor) and link detection"
+comment = "Middle click opens a link (openLink) or acts as ctrl+click (ctrlLeftClick). Links need link detection and ctrl+click needs go to definition or multi-cursor."
+match = ["editor.mouseMiddleClickAction"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a scroll capture on the editor surface"
+comment = "mouseWheelZoom (Cmd+wheel zooms the font) and mouseWheelScrollSensitivity (scales the wheel delta) must see the wheel before the list scrolls. gpui only offers bubble-phase scroll listeners, and the list scrolls itself first, so Cmd+wheel would also scroll."
+match = ["editor.mouseWheelZoom", "editor.mouseWheelScrollSensitivity"]
+
+[[rule]]
+status = "blocked"
+reason = "needs bracket pair guides (a pair model over the whole buffer)"
+comment = "guides.bracketPairs, bracketPairsHorizontal and highlightActiveBracketPair draw the pairs of the whole document, skipping brackets in strings and comments. vsr-editor matches only the pair at the caret (matchBrackets, ADR-0032), so these need a pair scan driven by the syntax tokens (ADR-0038)."
+match = ["editor.guides.bracketPairs", "editor.guides.bracketPairsHorizontal", "editor.guides.highlightActiveBracketPair"]
+
+[[rule]]
+status = "blocked"
+reason = "needs caret animation (a tween of the caret across frames)"
+comment = "cursorSmoothCaretAnimation moves the caret from its old position to the new one over a short time. The caret jumps now, and the blink timer is the only per-frame work."
+match = ["editor.cursorSmoothCaretAnimation"]
+
 [[component]]
 match = ["editor", "editor.*", "diffEditor*", "multiDiffEditor*"]
 path = "crates/vsr-app/src/editor_view.rs (and crates/vsr-editor / vsr-text for behaviour)"

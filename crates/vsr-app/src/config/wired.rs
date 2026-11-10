@@ -65,6 +65,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.lineHeight",
             "editor.tabSize",
             "editor.insertSpaces",
+            "editor.tabFocusMode",
         ],
     ),
     (
@@ -75,7 +76,12 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.cursorStyle",
             "editor.cursorBlinking",
             "editor.cursorWidth",
+            "editor.cursorHeight",
+            "editor.cursorSurroundingLines",
+            "editor.cursorSurroundingLinesStyle",
             "editor.renderWhitespace",
+            "editor.renderControlCharacters",
+            "editor.renderFinalNewline",
             "editor.rulers",
             "editor.guides.indentation",
             "editor.guides.highlightActiveIndentation",
@@ -269,6 +275,10 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- Word wrap: `editor.wrappingStrategy: advanced` breaks like `simple` (the monospace computer; the advanced strategy measures text in the browser). `editor.wordWrapIndicator` draws a return arrow after the last column of a row that continues. Alt+Z wraps at the viewport width or turns wrapping off for that editor only (it does not write the setting). `editor.wordSeparators` drives word moves, double-click and the whole-word check of selection highlights; the Find widget still uses `\\b`, and the word at the caret for occurrence highlights uses the default separators (upstream: the language's word definition). `editor.wordSegmenterLocales` (CJK word segmentation) is not implemented.\n");
     out.push_str("- Themes (ADR-0037): the ten built-in themes of VS Code (Dark Modern, Light Modern, Dark+, Light+, Dark (Visual Studio), Light (Visual Studio), Dark High Contrast, Light High Contrast, Dark 2026, Light 2026) are bundled; other names in the `workbench.colorTheme` dropdown (Abyss, Monokai, ...) belong to extensions rscode has not got and fall back to the default theme of that colour mode. The default theme is Dark Modern, not Dark 2026 as upstream (the Settings editor still shows the upstream default text for the `workbench.*ColorTheme` settings).\n");
     out.push_str("- `workbench.preferred*ColorTheme` apply with `window.autoDetectColorScheme`, which follows the window appearance (macOS light/dark). `window.autoDetectHighContrast` and `workbench.preferredHighContrast*ColorTheme` are not wired: there is no OS high contrast signal in gpui. `workbench.colorCustomizations` supports global keys and `[Theme Name]` blocks (with `*` wildcards) and the value `default`; `editor.tokenColorCustomizations` (the simple keys and `textMateRules`, global and `[Theme Name]`) apply to the syntax highlighter's token colours (ADR-0038). `editor.semanticTokenColorCustomizations` is read by the theme service but changes nothing on screen (there are no semantic tokens yet). Icon themes stay unsupported (no file icons).\n");
+    out.push_str("- Caret (ADR-0043): `editor.cursorHeight` centres the line caret (`line` and `line-thin` only). `editor.cursorSurroundingLines` keeps the margin when the caret scrolls into view: the top margin is the setting, the bottom one is at least one row (upstream's \"trailing lines (minimum 1)\"), each capped at half the page. With `cursorSurroundingLinesStyle: default` a click does not enforce it. `cursorSmoothCaretAnimation` is not implemented (the caret jumps).\n");
+    out.push_str("- Rendering (ADR-0043): `editor.renderControlCharacters` draws the C0 controls (but tab) and DEL as Control Pictures (U+2400 block) over a cell; the bidi formatting characters are not drawn. `editor.renderFinalNewline: dimmed` dims the number at half opacity.\n");
+    out.push_str("- `editor.tabFocusMode`: Tab moves focus instead of typing a tab, but rscode has no focus tab stops outside the editor yet, so the focus stays in the editor. The Ctrl+Shift+M toggle is not implemented.\n");
+    out.push_str("- Not wired (blocked, see `upstream/settings.toml`): `mouseWheelZoom` and `mouseWheelScrollSensitivity` need a scroll capture on the editor surface; `guides.bracketPairs`, `bracketPairsHorizontal` and `highlightActiveBracketPair` need a whole-document bracket pair model; `fontVariations` needs font variation axes; `mouseMiddleClickAction` needs ctrl+click and links; `editor.format*` need formatting providers.\n");
     out
 }
 

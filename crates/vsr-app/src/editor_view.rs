@@ -47,7 +47,8 @@ use gpui_kit::InteractiveElement;
 use vsr_editor::Position;
 
 use crate::config::settings::{
-    CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers, OccurrencesHighlight, WordWrap,
+    CursorBlinking, CursorStyle, EditorSettings, LineHighlight, LineNumbers, OccurrencesHighlight, RenderFinalNewline,
+    WordWrap,
 };
 use crate::keymap::{self, BINDINGS, Command};
 use crate::model::{Editors, OpenEditor};
@@ -168,19 +169,44 @@ impl EditorView {
         (since.as_millis() / BLINK.as_millis()).is_multiple_of(2)
     }
 
-    /// Caret moved or text changed: show the caret solid and bring it into view.
-    fn after_change(&mut self, e: &OpenEditor, edited: bool, window: &mut Window) {
+    /// Caret moved or text changed: show the caret solid and bring it into view. `by_pointer` is a
+    /// click or a drag (`editor.cursorSurroundingLinesStyle: default` does not enforce the margin
+    /// for those).
+    fn after_change(&mut self, e: &OpenEditor, edited: bool, by_pointer: bool, window: &mut Window) {
         self.activity = Some(Instant::now());
         let line = e.editor.selection().active.line;
         let row = e.editor.caret_view_position().map_or(line - 1, |(vline, _)| vline);
         if let Some(s) = self.scrolls.get(&e.path) {
-            s.scroll_to_item(row, ScrollStrategy::Nearest);
+            let margin = self.cfg.cursor_surrounding_lines;
+            if margin > 0 && (self.cfg.cursor_surrounding_lines_all || !by_pointer) {
+                self.keep_margin(s, row, margin);
+            } else {
+                s.scroll_to_item(row, ScrollStrategy::Nearest);
+            }
         }
         if let Some(f) = &self.focus {
             if edited {
                 window.notify_text_input_changed(f);
             }
             window.notify_text_selection_changed(f);
+        }
+    }
+
+    /// Scrolls so that caret row `row` keeps `margin` rows above it and `margin` (at least one) below
+    /// it (`editor.cursorSurroundingLines`). A caret inside the margin scrolls the view by the amount
+    /// that restores it, even when the caret itself is visible.
+    fn keep_margin(&self, scroll: &UniformListScrollHandle, row: usize, margin: usize) {
+        // The top the list will show: a pending scroll (not yet painted) counts; otherwise the scroll
+        // offset in rows (every row is one line height, as `hit_test` assumes).
+        let top = {
+            let state = scroll.0.borrow();
+            match state.deferred_scroll_to_item {
+                Some(d) => d.item_index,
+                None => (-f32::from(state.base_handle.offset().y) / self.cfg.line_height).floor().max(0.0) as usize,
+            }
+        };
+        if let Some(target) = decorations::scroll_top_with_margin(top, self.rows_per_page(), row, margin, margin.max(1)) {
+            scroll.scroll_to_item_strict(target, ScrollStrategy::Top);
         }
     }
 
@@ -385,6 +411,12 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
         }
         return;
     }
+    // `editor.tabFocusMode`: Tab moves focus instead of inserting a tab. rscode has no focus tab
+    // stops outside the editor yet, so the focus stays where it is; the tab is not typed.
+    if matches!(cmd, Command::Tab) && this.editor_host().1.cfg.tab_focus_mode {
+        window.focus_next(cx);
+        return;
+    }
     let (editors, view) = this.editor_host();
     let Some(i) = editors.active else { return };
     if let Some(e) = editors.open.get_mut(i) {
@@ -438,7 +470,7 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
                 }
             }
             view.marked = None;
-            view.after_change(e, keymap::is_edit(cmd), window);
+            view.after_change(e, keymap::is_edit(cmd), false, window);
         }
     }
     cx.notify();
@@ -538,7 +570,7 @@ fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Win
     }
     view.dragging = true;
     view.marked = None;
-    view.after_change(e, false, window);
+    view.after_change(e, false, true, window);
     cx.notify();
 }
 
@@ -555,7 +587,7 @@ fn mouse_move<T: EditorHost>(this: &mut T, ev: &MouseMoveEvent, window: &mut Win
     let (pos, trailing) = hit_test(view, e, ev.position, window);
     if pos != e.editor.selection().active {
         e.editor.set_cursor_with_affinity(pos, true, trailing);
-        view.after_change(e, false, window);
+        view.after_change(e, false, true, window);
         cx.notify();
     }
 }
@@ -612,7 +644,7 @@ impl<T: EditorHost> EditorInput<T> {
                 e.editor.set_cursor(a, false);
                 e.editor.set_cursor(z, true);
             }
-            view.after_change(e, true, window);
+            view.after_change(e, true, false, window);
         });
         if changed.is_some() {
             self.view.update(cx, |_, cx| cx.notify());
@@ -841,9 +873,12 @@ fn caret_element(
     let lh = cfg.line_height;
     let base = div().absolute().left(px(x));
     let cursor = to_gpui(t.cursor);
+    // `editor.cursorHeight`: the line caret is centred on the line (viewCursor.ts, `lineHeightAdjustment`).
+    let line_h = cfg.line_cursor_height();
+    let line_top = (lh - line_h) / 2.0;
     match cfg.cursor_style {
-        CursorStyle::Line => base.top_0().w(px(cfg.line_cursor_width())).h(px(lh)).bg(cursor),
-        CursorStyle::LineThin => base.top_0().w(px(1.)).h(px(lh)).bg(cursor),
+        CursorStyle::Line => base.top(px(line_top)).w(px(cfg.line_cursor_width())).h(px(line_h)).bg(cursor),
+        CursorStyle::LineThin => base.top(px(line_top)).w(px(1.)).h(px(line_h)).bg(cursor),
         CursorStyle::Block => base
             .top_0()
             .w(px(cell_w))
@@ -919,7 +954,15 @@ fn rows(
             };
             let line = seg.line;
             let text = buf.line_content(line);
+            // `editor.renderControlCharacters`: each control character is a space in the text (one byte
+            // for one byte) and a picture drawn over its cell.
+            let controls: Vec<(usize, char)> = if cfg.render_control_characters {
+                decorations::control_marks(text).into_iter().filter(|(c, _)| (seg.start..seg.end).contains(c)).collect()
+            } else {
+                Vec::new()
+            };
             let display = row_text(text, &seg);
+            let display = if cfg.render_control_characters { decorations::hide_controls(&display) } else { display };
             let is_caret_row = caret_view.map_or(line == caret_line, |(vline, _)| vline == ix);
             let is_active = line == caret_line && seg.first;
             let expanded = expand_tabs(&display, tab);
@@ -949,7 +992,7 @@ fn rows(
                     .filter_map(|(from, to)| seg.clip(from, to))
                     .collect()
             });
-            let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty() || !bracket_cols.is_empty() || !occurrence_cols.is_empty())
+            let shaped = (selected.is_some() || has_caret || !found.is_empty() || !markers.is_empty() || !bracket_cols.is_empty() || !occurrence_cols.is_empty() || !controls.is_empty())
                 .then(|| shape(window, cfg, &expanded))
                 .flatten();
             // The x of model column `col` (clamped to this row's part of the line).
@@ -1003,6 +1046,20 @@ fn rows(
                     decorations::MarkKind::Space => mark.text_center(),
                     decorations::MarkKind::Tab => mark.text_left(),
                 });
+            }
+            for (col, c) in controls {
+                let (x0, x1) = (x_at(col), x_at(col + 1));
+                text_box = text_box.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(px(x0))
+                        .w(px((x1 - x0).max(0.0)))
+                        .h(px(lh))
+                        .text_color(to_gpui(t.whitespace_fg))
+                        .debug_selector(|| format!("ctrl:{line}:{col}"))
+                        .child(decorations::control_glyph(c).to_string()),
+                );
             }
             let occurrence_color = match occurrences.as_ref() {
                 Some(o) if o.is_selection => t.selection_highlight_bg,
@@ -1062,7 +1119,9 @@ fn rows(
                 let glyph = display.chars().nth(col - 1).filter(|c| *c != '\t').map(|c| c.to_string());
                 let cell = (x_next - x).max(0.0);
                 let cell = if glyph.is_some() && cell > 0.5 { cell } else { space_w };
-                text_box = text_box.child(caret_element(cfg, t, x, cell, glyph.as_deref()));
+                text_box = text_box.child(
+                    caret_element(cfg, t, x, cell, glyph.as_deref()).debug_selector(|| format!("caret:{line}")),
+                );
             }
 
             let mut row = div()
@@ -1132,6 +1191,9 @@ fn rows(
             }
             // The line number is shown on the first row of a wrapped line only.
             let number = if seg.first { line_number_label(cfg.line_numbers, line, caret_line) } else { String::new() };
+            // `editor.renderFinalNewline`: the empty line after a final line break is hidden (`off`) or dimmed.
+            let final_newline = seg.first && decorations::is_final_newline_line(buf, line);
+            let number = decorations::gutter_number(number, final_newline, cfg.render_final_newline);
             let mut number_box = div()
                 .flex_none()
                 .w(px(gutter))
@@ -1139,6 +1201,9 @@ fn rows(
                 .text_right()
                 .text_color(to_gpui(if is_active { t.line_number_active_fg } else { t.line_number_fg }))
                 .child(number);
+            if final_newline && cfg.render_final_newline == RenderFinalNewline::Dimmed {
+                number_box = number_box.opacity(0.5);
+            }
             if seg.first {
                 number_box = number_box.debug_selector(|| format!("gutter:{line}"));
             }
@@ -1178,3 +1243,5 @@ mod e2e;
 mod find_e2e;
 #[cfg(test)]
 mod wrap_e2e;
+#[cfg(test)]
+mod cursor_e2e;

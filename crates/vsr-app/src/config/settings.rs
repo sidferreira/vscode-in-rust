@@ -127,6 +127,15 @@ pub enum RenderWhitespace {
     All,
 }
 
+/// `editor.renderFinalNewline`: the line number of the empty line after a final line break.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RenderFinalNewline {
+    On,
+    Off,
+    Dimmed,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActivityBarLocation {
@@ -375,7 +384,20 @@ pub struct EditorSettings {
     pub cursor_style: CursorStyle,
     pub cursor_blinking: CursorBlinking,
     pub cursor_width: f32,
+    /// `editor.cursorHeight`: the line caret's height, 0 for the full line height.
+    pub cursor_height: f32,
+    /// `editor.cursorSurroundingLines`: rows kept above and below the caret when it scrolls into view.
+    pub cursor_surrounding_lines: usize,
+    /// `editor.cursorSurroundingLinesStyle: all` (`default` enforces the margin for keyboard and API
+    /// moves only, not for a click).
+    pub cursor_surrounding_lines_all: bool,
     pub render_whitespace: RenderWhitespace,
+    /// `editor.renderControlCharacters`: C0 controls and DEL are drawn as pictures.
+    pub render_control_characters: bool,
+    /// `editor.renderFinalNewline`.
+    pub render_final_newline: RenderFinalNewline,
+    /// `editor.tabFocusMode`: Tab moves focus out of the editor instead of inserting a tab.
+    pub tab_focus_mode: bool,
     pub rulers: Vec<Ruler>,
     /// `editor.guides.indentation`.
     pub guides_indentation: bool,
@@ -440,7 +462,13 @@ impl Default for EditorSettings {
             cursor_style: CursorStyle::Line,
             cursor_blinking: CursorBlinking::Blink,
             cursor_width: 0.0,
+            cursor_height: 0.0,
+            cursor_surrounding_lines: 0,
+            cursor_surrounding_lines_all: false,
             render_whitespace: RenderWhitespace::Selection,
+            render_control_characters: true,
+            render_final_newline: RenderFinalNewline::On,
+            tab_focus_mode: false,
             rulers: Vec::new(),
             guides_indentation: true,
             guides_highlight_active: true,
@@ -505,7 +533,13 @@ impl EditorSettings {
             cursor_style: c.get_enum("editor.cursorStyle").unwrap_or(CursorStyle::Line),
             cursor_blinking: c.get_enum("editor.cursorBlinking").unwrap_or(CursorBlinking::Blink),
             cursor_width: c.get_f64("editor.cursorWidth").unwrap_or(0.0) as f32,
+            cursor_height: c.get_f64("editor.cursorHeight").unwrap_or(0.0).max(0.0) as f32,
+            cursor_surrounding_lines: c.get_f64("editor.cursorSurroundingLines").unwrap_or(0.0).max(0.0) as usize,
+            cursor_surrounding_lines_all: c.get_str("editor.cursorSurroundingLinesStyle") == Some("all"),
             render_whitespace: c.get_enum("editor.renderWhitespace").unwrap_or(RenderWhitespace::Selection),
+            render_control_characters: c.get_bool("editor.renderControlCharacters").unwrap_or(true),
+            render_final_newline: c.get_enum("editor.renderFinalNewline").unwrap_or(RenderFinalNewline::On),
+            tab_focus_mode: c.get_bool("editor.tabFocusMode").unwrap_or(false),
             rulers: parse_rulers(c.get_value("editor.rulers")),
             guides_indentation: c.get_bool("editor.guides.indentation").unwrap_or(true),
             guides_highlight_active: parse_highlight_active(c.get_value("editor.guides.highlightActiveIndentation")),
@@ -586,6 +620,12 @@ impl EditorSettings {
     /// Width of the line cursor: `editor.cursorWidth`, or 2 when it is 0 (viewCursor.ts).
     pub fn line_cursor_width(&self) -> f32 {
         if self.cursor_width > 0.0 { self.cursor_width.min(self.char_width()) } else { 2.0 }
+    }
+
+    /// Height of the line caret: `editor.cursorHeight`, at most one line; 0 means the full line
+    /// (viewCursor.ts, `lineCursorHeight`).
+    pub fn line_cursor_height(&self) -> f32 {
+        if self.cursor_height > 0.0 { self.cursor_height.min(self.line_height) } else { self.line_height }
     }
 }
 
@@ -897,6 +937,20 @@ mod tests {
         assert_eq!(p.breaks.word_break, vsr_editor::wrap::WordBreak::KeepAll);
         let bad = EditorSettings::from_configuration(&config(r#"{"editor.wordWrap":"sideways"}"#));
         assert_eq!(bad.word_wrap, WordWrap::Off, "an invalid value falls back to the default");
+    }
+
+    #[test]
+    fn cursor_height_and_surrounding_lines_are_read() {
+        let e = EditorSettings::from_configuration(&config("{}"));
+        assert_eq!((e.cursor_height, e.cursor_surrounding_lines, e.cursor_surrounding_lines_all), (0.0, 0, false));
+        assert_eq!(e.line_cursor_height(), e.line_height, "0 is the full line");
+        let e = EditorSettings::from_configuration(&config(
+            r#"{ "editor.cursorHeight": 6, "editor.cursorSurroundingLines": 3, "editor.cursorSurroundingLinesStyle": "all" }"#,
+        ));
+        assert_eq!((e.cursor_height, e.cursor_surrounding_lines, e.cursor_surrounding_lines_all), (6.0, 3, true));
+        assert_eq!(e.line_cursor_height(), 6.0);
+        let tall = EditorSettings::from_configuration(&config(r#"{ "editor.cursorHeight": 500 }"#));
+        assert_eq!(tall.line_cursor_height(), tall.line_height, "at most one line");
     }
 
     #[test]

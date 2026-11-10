@@ -1,0 +1,12 @@
+{
+  "name": "lang-features-fixture",
+  "displayName": "Language features fixture",
+  "publisher": "rscode-test",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./extension.js",
+  "activationEvents": ["*"],
+  "contributes": {
+    "languages": [{ "id": "fakelang", "extensions": [".fk"] }]
+  }
+}

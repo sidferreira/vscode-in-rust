@@ -2071,3 +2071,109 @@ workbench needs an `ExtensionHost` owned by the app, `pump` driven from its even
 view reading `editors.decorations_for` / `diagnostics.markers_for`. Also open: ESM extensions, extension
 scanning of `~/.vscode/extensions`, `$activateByEvent` for `onLanguage:`/`workspaceContains:` from the
 document model, bundling the Code-OSS host (ADR-0060), activation timing out.
+
+## ADR-0072 — Language provider registry on the main side: selector scoring, `LanguageFeatureRegistry<T>`, `MainThreadLanguageFeatures` (2026-11-10)
+
+Lives in `vsr-exthost::language_features` (UI-free; no new crate, because the handler must be reachable
+from `MainThread::handle` and the queries need `ExtensionHost`).
+
+- **`selector`**: `score(selector, uri, language, is_synchronized, notebook_uri, notebook_type)` ported from
+  `languageSelector.ts` (10 exact, 5 wildcard, 0 none), with `LanguageFilter` / `LanguageSelector`
+  (string | filter | list), `targets_notebooks`, `select_language_ids` and `LanguageFilter::from_dto`
+  (`IDocumentFilterDto`; a relative pattern's `baseUri` becomes `base`). `languageSelector.test.ts`
+  is ported test by test (12 tests, `tests/upstream_language_selector.rs`). Globs use `globset` (already in
+  the tree through `vsr-languages`/`vsr-search`) with `literal_separator`; a pattern without `/` also
+  matches the base name, as VS Code's glob does. `uri::Uri` is the part of `URI` needed (components,
+  `parse`, `fs_path` with the drive-letter rule, `to_uri_string`); it does not percent-decode.
+- **`registry`**: `LanguageFeatureRegistry<T: Clone>` ported from `languageFeatureRegistry.ts`: `register`
+  returns a `RegistrationId` (the disposable), `ordered` / `ordered_groups` / `all` / `all_no_model` /
+  `registered_language_ids`, exclusive selectors (score 1000, every other zeroed; ignored in a recursive
+  query), built-in providers after user ones of equal score, newest first on ties, and the
+  `_lastCandidate` cache. Differences: no `onDidChange` emitter (poll `version()`), queries take
+  `&mut self` (scoring is cached) and return clones, `ModelInfo { uri, language_id, synchronized }`
+  stands in for `ITextModel`. Upstream has no test file for the registry: `tests/language_registry.rs`
+  is new.
+- **`main_thread::LanguageFeatures`** (field `MainThread::language_features`): every `$register*` method
+  of `MainThreadLanguageFeaturesShape` that takes a selector (a table maps method -> `Kind` + the names
+  of the extra arguments), `$registerNavigateTypeSupport` (no selector), `$unregister`,
+  `$setLanguageConfiguration` (recorded per handle) and `$emit*Event` (recorded as `FeatureEvent`s,
+  attributed to the registration whose `eventHandle` it is). One registry per `Kind` holds the host's
+  handle; `Registration { handle, kind, selector, meta }` keeps the arguments after `(handle, selector)`
+  under their protocol names (`triggerCharacters`, `supportsResolveDetails`, `extensionId`,
+  `displayName`, `eventHandle`, code action and signature help metadata, ...). Registering a handle again
+  replaces it. Not handled (so they land in `unhandled`): the inline completion emit calls, paste/drop
+  resolve calls, `$setWordDefinitions` direction (host to main only).
+- **Registered but not yet queryable**: evaluatable expressions, inline values, multi-document highlights,
+  linked editing ranges, paste/drop edit providers, new symbol names, semantic tokens, inline completions,
+  colors, selection ranges, call and type hierarchy, workspace symbols. The registry holds them so the app
+  can see them; the `$provide*` side and DTOs are not written.
+
+## ADR-0073 — Language feature queries: `$provide*` on `ExtensionHost`, typed DTOs, and what the UI layer needs (2026-11-10)
+
+`language_features::query` adds typed calls to `ExtensionHost` (an inherent `impl` in the new module, so
+`host.rs` only gained `begin_call` and `cancel_request`); `language_features::dto` holds the result
+types, ported from `languages.ts` and read from the DTOs of `extHostTypeConverters.ts`.
+
+**Cancellation (verified in `rpcProtocol.ts`):** the host only appends a `CancellationToken` to the
+arguments of a request sent with the "with cancellation" message type; most `$provide*` methods read
+`token.isCancellationRequested`, so every provider call is sent cancellable (`begin_call(.., true)`) and the
+token is *not* part of the arguments. `cancel_query` sends the host's `Cancel`.
+
+**Shape.** `begin_provide(kind, path, method, args, convert) -> Query<T>` starts one call per provider the
+registry orders for the open document (`begin_provide_to` takes explicit handles); `poll_query` applies
+what arrived without blocking (the app calls it from its loop, no runtime is needed); `finish_query` blocks
+up to a timeout (pumping the host) and cancels the stragglers. The typed methods (`provide_hover`,
+`provide_definition`, `provide_document_symbols`, ...) are `begin` + `finish`. The answer is
+`Provided<T> { results: Vec<(handle, T)>, errors: Vec<(handle, message)> }`, in registry order: one failing
+provider does not hide the others (the fixture has a definition provider that throws). `undefined` and
+unreadable answers are left out. The document must be open (`open_document`); its language comes from
+`Documents`.
+
+**Supported end to end (real host, `tests/language_features_real_host.rs`):** completion (trigger
+characters, groups of equal score, resolve), hover, definition / declaration / implementation / type
+definition, references, document symbols, document highlights, code lens (+ resolve), inlay hints
+(+ resolve), signature help, code actions (+ resolve), rename (+ resolve location), folding ranges,
+document links (+ resolve), formatting (document, range, on type). DTO conversion is unit-tested without
+a host (`tests/language_features_dto.rs`).
+
+**Decisions.**
+- Completion follows `provideSuggestionItems`: providers are asked group by group (equal score), best
+  group first, and asking stops at the first group that offered items; for a character trigger only the
+  providers that registered it. Other kinds ask every provider; formatting returns every provider's
+  edits and the caller picks one (the registration's metadata has `extensionId` / `displayName` for the
+  default-formatter setting).
+- Commands with arguments stay in the host: a lens, completion item or code action carries a delegating
+  command whose `ident` keys the real one. The UI runs `Command::id` with `Command::arguments` through
+  `ExtensionHost::execute_contributed_command`.
+- Results the host caches (`cache_id` on lists, `Hover::id`, `SignatureHelp::id`) stay cached until
+  `ExtensionHost::release(kind, handle, id)`; releasing is fire and forget.
+- Positions are 1-based `IPosition`/`IRange`; columns count UTF-16 units in the protocol while
+  `Documents` still counts `char`s (ADR-0065 follow-up).
+- Kinds stay numeric (`SymbolKind`, `CompletionItemKind`, `InlayHintKind`, ...) with `symbol_kind_name` and
+  `completion_item_kind_name` for display.
+
+**What the UI layer needs next (out of scope here):**
+1. *Plumbing:* own an `ExtensionHost` (ADR-0065's wiring work), keep documents in sync (`open_document`,
+   `edit_document`) and call `poll_query` from the event loop; cancel the previous query when the user
+   types on; send `onLanguage:` activation so the providers register at all.
+2. *Suggest widget:* trigger on typing, trigger characters (`Registration::meta_strings("triggerCharacters")`),
+   commit characters, `Incomplete` re-trigger when `CompletionList::is_incomplete`; filter and rank with
+   `filter_text` / `sort_text` (a fuzzy scorer is a separate port); on focus call
+   `resolve_completion_item` and show `detail` / `documentation` (Markdown rendering is needed); accept =
+   apply `range` (`Single`, or insert/replace chosen by `editor.suggest.insertMode`) + `additional_text_edits`,
+   expand as a snippet when `is_snippet()` (a snippet engine is needed), then run `command`; release
+   the list when the widget closes.
+3. *Hover widget:* `provide_hover` on mouse dwell, merge all providers' `contents`, highlight `range`,
+   Markdown rendering with trusted commands; release ids on dismissal.
+4. *Outline / breadcrumbs / sticky scroll:* `provide_document_symbols` per document version, flatten with
+   `DocumentSymbol::flatten`; refresh on edit with debounce. `go to symbol` quick pick reuses it.
+5. *Navigation:* go to definition & co. (`LocationLink`s: open the file, select `target_selection_range`,
+   peek when several); references list; highlights on cursor move (`DocumentHighlight` kinds).
+6. *Decorations:* code lens (`$emitCodeLensEvent` -> `LanguageFeatures::events`), inlay hints, links,
+   folding ranges (feed the existing folding model), all refreshed on edit and on `FeatureEvent`s.
+7. *Edits:* formatting (format on save/paste/type: pick the provider by default formatter, apply
+   `TextEdit`s as one undo step), rename and code actions (apply `WorkspaceEdit`: text entries per file,
+   file create/delete/rename entries, versions), signature help widget.
+8. *Needed from the host side later:* `$tryApplyWorkspaceEdit` (MainThreadBulkEdits), `$executeCommand`
+   results back into editors, and the remaining provider kinds listed in ADR-0072 (semantic tokens first:
+   it unblocks `editor.semanticHighlighting`).

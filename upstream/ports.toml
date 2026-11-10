@@ -959,6 +959,9 @@ upstream = [
   "src/vs/editor/common/languageFeatureRegistry.ts",
   "src/vs/workbench/api/browser/mainThreadLanguageFeatures.ts",
   "src/vs/base/common/uri.ts",
+  "src/vs/editor/common/languages.ts",
+  "src/vs/workbench/api/common/extHostLanguageFeatures.ts",
+  "src/vs/workbench/api/common/extHostTypeConverters.ts",
 ]
 rust = [
   "crates/vsr-exthost/src/language_features/mod.rs",
@@ -966,7 +969,11 @@ rust = [
   "crates/vsr-exthost/src/language_features/selector.rs",
   "crates/vsr-exthost/src/language_features/registry.rs",
   "crates/vsr-exthost/src/language_features/main_thread.rs",
+  "crates/vsr-exthost/src/language_features/dto.rs",
+  "crates/vsr-exthost/src/language_features/query.rs",
   "crates/vsr-exthost/tests/upstream_language_selector.rs",
+  "crates/vsr-exthost/tests/language_features_real_host.rs",
+  "crates/vsr-exthost/tests/fixtures/lang-features-fixture/extension.js",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "The main-thread language provider registry (ADR-0072, ADR-0073): LanguageSelector scoring and LanguageFeatureRegistry<T> (UI-free), the MainThreadLanguageFeatures register/unregister handler and the typed $provide* queries. Only the URI parts the registry needs are ported. Tests: languageSelector.test.ts ported; the registry has no upstream test file (tests/language_registry.rs is new)."

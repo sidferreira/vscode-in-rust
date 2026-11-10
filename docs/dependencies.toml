@@ -246,23 +246,23 @@ note = "findFiles is the reason for search.experimental.useIgnoreFilesInFindFile
 [[node]]
 id = "text-decorations"
 title = "TextEditorDecorationType (after and before text, gutter)"
-status = "todo"
+status = "done"
 effort = "M"
 effort_source = "guess"
 needs = ["ext-host-p1"]
-note = "Part of the P1 scope (TextEditorDecorations). ErrorLens depends on it; no settings reason names it."
+note = "Done for ErrorLens's needs (ADR-0067): background, border, whole line, after contentText. Not yet: color, before, outline/textDecoration, gutter icons, overview ruler marks, hover messages."
 
 [[node]]
 id = "diagnostics-model"
 title = "Diagnostics store (problems reported by language features)"
-status = "todo"
+status = "done"
 effort = "S"
 effort_source = "guess"
 needs = ["ext-host-p1"]
 reasons = [
   "needs diagnostics (problems reported by language features)",
 ]
-note = "Part of the P1 scope (Diagnostics). ErrorLens reads it."
+note = "Done (ADR-0065, ADR-0067): MainThreadDiagnostics store, squiggles and status bar counts. The settings behind this reason can now be wired; the Problems view is its own node."
 
 [[node]]
 id = "file-participants"
@@ -425,12 +425,12 @@ scenarios = ["editing, problems view", "problems view (language diagnostics)", "
 [[node]]
 id = "ext-errorlens"
 title = "ErrorLens"
-status = "todo"
+status = "in-progress"
 kind = "extension"
 effort = "M"
 effort_source = "extensions-compat §4 (P1)"
 needs = ["ext-host-p1", "text-decorations", "diagnostics-model"]
-note = "First milestone. Smallest surface: commands, configuration, status bar, decorations, diagnostics. No webviews, no LSP."
+note = "First milestone. Smallest surface: commands, configuration, status bar, decorations, diagnostics. No webviews, no LSP. Everything it uses works with an ErrorLens-like fixture (ADR-0064..0069); not yet tried with the real ErrorLens package."
 
 [[node]]
 id = "ext-oxc"

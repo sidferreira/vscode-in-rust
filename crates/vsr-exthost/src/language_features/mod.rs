@@ -11,6 +11,7 @@
 
 pub mod dto;
 pub mod main_thread;
+pub mod outline;
 pub mod query;
 pub mod registry;
 pub mod selector;

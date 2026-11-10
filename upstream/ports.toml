@@ -991,3 +991,18 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Untitled text editors (ADR-0057, ADR-0058): naming, dirty rules, first-line titles and the new file's language are the pure rules in vsr-editor. The service, input and working copy tests are covered headlessly in the workbench. Working copy events and encodings are not modelled."
+
+[[port]]
+id = "outline-model"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/documentSymbols/browser/outlineModel.ts",
+  "src/vs/editor/contrib/documentSymbols/test/browser/outlineModel.test.ts",
+  "src/vs/workbench/contrib/codeEditor/browser/outline/documentSymbolsTree.ts",
+]
+rust = [
+  "crates/vsr-exthost/src/language_features/outline.rs",
+  "crates/vsr-exthost/tests/upstream_outline_model.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "The outline model (ADR-0085): groups per provider, ids, compaction, enclosing symbol, markers (outlineModel.ts), kind filter and sort (documentSymbolsTree.ts), and a per-document OutlineService. The two service tests in outlineModel.test.ts run against OutlineService with a fake provider. Not ported: the async OutlineModel.create retry on provider change, the adaptive debounce, and the Intl.Collator (natural_cmp approximates it)."

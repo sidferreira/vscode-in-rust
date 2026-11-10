@@ -307,7 +307,7 @@ impl Workbench {
             focus: None,
             auto_save: Default::default(),
             ext: Default::default(),
-            outline: Default::default(),
+            outline: outline::OutlineState::with_focus(cx.focus_handle()),
             branch: git_branch(&root),
             error: None,
         };

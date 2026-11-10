@@ -2678,3 +2678,29 @@ container of its own.
 Tests: `outline/view.rs` unit tests (rows, collapse, the kind filter, groups, status, glyphs) and
 `outline/e2e_tests.rs` headless tests through the workbench (rows after the debounce, the section's
 header, the selection by click, the chevron and collapseItems, the empty states, a refresh after an edit).
+
+## ADR-0093 — The Outline view's follow cursor, sort and filter on type, kept per workspace (2026-11-10)
+
+Upstream: `outlinePane.ts` (the view state: `followCursor`, `sortBy`, `filterOnType`, kept with the
+workspace), `outlineTree.ts` (the sorter). Upstream puts the three in the view's menu; here they are icon
+actions in the section header, shown while the section is open (sort, follow cursor, filter on type).
+
+- **One row function.** `rows` takes a `RowView` (the toggled ids, the sort order, the caret's symbol, the
+  filter text). The sort is `position`, `name` (natural order, case-insensitive: `m` sorts between `C` and
+  `X`) or `category` (by kind, upstream's `type`). Every mode is asserted on the rows.
+- **Follow cursor.** The caret of the active editor, read in the model's 1-based positions, picks the
+  enclosing symbol (`item_enclosing`, as the breadcrumbs). That row is selected, and its ancestors are
+  shown open even when `collapseItems` closes them, so the symbol is visible. The ancestors open on every
+  refresh while follow is on; a manual collapse of one of them is undone by the next caret move (upstream
+  reveals on every change too).
+- **Filter on type.** While the filter is on, the section's keys edit the filter text (printable keys;
+  Backspace takes one back, Escape clears). The rows are the names that contain the text, case-insensitively,
+  with their ancestors, all shown open (upstream filters with fuzzy matching; a substring is used here).
+  The text is not kept between sessions; the toggle is. Turning the filter on focuses the section.
+- **Persistence.** `WorkspaceState.outline` (`OutlineViewState`: `follow_cursor`, `sort_by`, `filter_on_type`),
+  saved with the session and restored at its start. `#[serde(default)]` keeps older session files
+  loading. The section's open state is not kept (it starts closed, as upstream's `collapsed: true`).
+
+Tests: `outline/view.rs` (follow cursor with its ancestors, sort by name and category, the filter's matches
+and ancestors, the empty filter); `outline/e2e_tests.rs` (follow through the caret, the header's sort cycle,
+typing into the filter and Escape). The session's round trip covers the new fields.

@@ -57,6 +57,13 @@ pub(crate) fn key(path: &Path) -> String {
 }
 
 impl OutlineState {
+    /// The state of a new workbench: the section's keys go to `focus`.
+    pub fn with_focus(focus: gpui_kit::FocusHandle) -> Self {
+        let mut state = Self::default();
+        state.view.focus = Some(focus);
+        state
+    }
+
     /// The active document is at `version`: a change restarts the debounce.
     pub fn observe(&mut self, path: &Path, version: u64, now: Instant) {
         if self

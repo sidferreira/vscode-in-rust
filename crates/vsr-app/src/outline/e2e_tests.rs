@@ -454,3 +454,69 @@ fn an_edit_refreshes_the_rows_after_the_debounce(cx: &mut TestAppContext) {
     ask(&wb, cx);
     assert_eq!(view_rows(&wb, cx).len(), 3, "the new answer replaces the rows");
 }
+
+/// The names of the rows of the Outline view that are selected (follow cursor).
+fn view_selected(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> Vec<String> {
+    wb.read_with(cx, |wb, app| wb.outline_rows(app).into_iter().filter(|r| r.selected).map(|r| r.name).collect())
+}
+
+#[gpui::test]
+fn follow_cursor_selects_the_symbol_at_the_caret_and_opens_its_parent(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench_with(cx, "view-follow", r#"{"outline.collapseItems": "alwaysCollapse"}"#);
+    fs::write(proj.join("src/main.rs"), "struct Point {\n    x: u8,\n}\n\nfn main() {}\n").unwrap();
+    open(&wb, cx, &proj.join("src/main.rs"));
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    ask(&wb, cx);
+    click(cx, "outline-header");
+    assert_eq!(view_rows(&wb, cx), [("Point".to_string(), 0), ("main".to_string(), 0)]);
+
+    click(cx, "outline-follow");
+    // The caret inside `x` (line 2, columns 3..8): `x` is selected, and `Point`, its parent, opens.
+    wb.update(cx, |wb, _| {
+        let i = wb.editors.active.expect("a file is open");
+        wb.editors.open[i].editor.set_cursor(vsr_editor::Position::new(2, 4), false);
+    });
+    cx.run_until_parked();
+    assert_eq!(view_selected(&wb, cx), ["x"]);
+    assert_eq!(view_rows(&wb, cx), [("Point".to_string(), 0), ("x".to_string(), 1), ("main".to_string(), 0)]);
+}
+
+#[gpui::test]
+fn sort_by_cycles_position_name_and_category_from_the_header(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-sort");
+    open(&wb, cx, &proj.join("src/main.rs"));
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    ask(&wb, cx);
+    click(cx, "outline-header");
+    assert_eq!(view_rows(&wb, cx), [("Point".to_string(), 0), ("x".to_string(), 1), ("main".to_string(), 0)], "position");
+    click(cx, "outline-sort");
+    assert_eq!(view_rows(&wb, cx), [("main".to_string(), 0), ("Point".to_string(), 0), ("x".to_string(), 1)], "name");
+    click(cx, "outline-sort");
+    assert_eq!(view_rows(&wb, cx), [("Point".to_string(), 0), ("x".to_string(), 1), ("main".to_string(), 0)], "category: class before function");
+    click(cx, "outline-sort");
+    assert_eq!(wb.read_with(cx, |wb, _| wb.outline.view.sort_by), view::SortBy::Position, "and back to position");
+}
+
+#[gpui::test]
+fn filter_on_type_narrows_the_rows_as_you_type_and_escape_clears_them(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-filter");
+    open(&wb, cx, &proj.join("src/main.rs"));
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    ask(&wb, cx);
+    click(cx, "outline-header");
+    click(cx, "outline-filter");
+    assert!(wb.read_with(cx, |wb, _| wb.outline.view.filter_on_type));
+
+    cx.simulate_keystrokes("m");
+    cx.run_until_parked();
+    assert_eq!(view_rows(&wb, cx), [("main".to_string(), 0)], "the rows whose name contains m");
+    cx.simulate_keystrokes("backspace");
+    cx.run_until_parked();
+    assert_eq!(view_rows(&wb, cx).len(), 3, "backspace takes the text back");
+    cx.simulate_keystrokes("x");
+    cx.run_until_parked();
+    assert_eq!(view_rows(&wb, cx), [("Point".to_string(), 0), ("x".to_string(), 1)], "a match keeps its parent");
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert_eq!(view_rows(&wb, cx).len(), 3, "escape clears the text");
+}

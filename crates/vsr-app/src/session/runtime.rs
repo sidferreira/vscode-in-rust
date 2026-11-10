@@ -30,7 +30,7 @@
 //! upstream: src/vs/workbench/services/workingCopy/common/workingCopyBackupTracker.ts @ 50e1350fc78df67b11049b903d96b530f28d26a5
 //! upstream: src/vs/workbench/services/workingCopy/electron-browser/workingCopyBackupTracker.ts @ 50e1350fc78df67b11049b903d96b530f28d26a5
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -130,9 +130,11 @@ pub struct Runtime {
     /// The tabs the user is closing while the "save the changes?" bar of a close is showing
     /// (ADR-0040), in tab order. Set by `request_close` (close.rs).
     pub close_prompt: Option<Vec<PathBuf>>,
-    /// The untitled text whose Save As the close prompt started: its tab closes once the file is
-    /// written (ADR-0058). Set after the name box opens; a plain Save clears it.
-    pub close_after_save: Option<PathBuf>,
+    /// Untitled texts waiting for their Save As, in order: each name box takes the first (ADR-0074).
+    /// The flag: the tab closes once its file is written (the close prompt, ADR-0058).
+    pub save_as_queue: VecDeque<(PathBuf, bool)>,
+    /// A quit waits for the names: it goes on when the queue is empty (ADR-0074).
+    pub save_as_quit: bool,
     /// The user chose at the prompt: the next quit goes through.
     pub confirmed: bool,
     /// Don't Save: no backups are written from now on.
@@ -543,17 +545,22 @@ impl Workbench {
     /// Save All, then quit (ADR-0040). Each dirty file is saved as Cmd+S saves it (ADR-0039): a file
     /// changed on disk is not overwritten while `files.saveConflictResolution` is `askUser`, and a failed
     /// save is an error. The other files are still saved. When any file is refused the app stays open:
-    /// the first refused editor is activated and shows its conflict bar (or the error).
+    /// the first refused editor is activated and shows its conflict bar (or the error). Each dirty
+    /// untitled text then gets its name box in turn; the quit goes on once every name is given, and
+    /// Cancel on a name box aborts the quit (upstream asks for each name through the save dialog, ADR-0074).
     pub(crate) fn quit_prompt_save_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let transforms = self.editor_settings.save_transforms(false);
         let ask_on_conflict = self.editor_settings.save_conflict_ask;
         let mut shown: Option<usize> = None;
+        let mut untitled: Vec<(PathBuf, bool)> = Vec::new();
         for i in 0..self.editors.open.len() {
             let e = &mut self.editors.open[i];
             if !e.is_dirty() {
                 continue;
             }
-            if e.disk_changed() && ask_on_conflict {
+            if e.is_untitled() {
+                untitled.push((e.path.clone(), false));
+            } else if e.disk_changed() && ask_on_conflict {
                 if shown.is_none() {
                     self.editor_view.save_conflict = Some(e.path.clone());
                 }
@@ -564,6 +571,14 @@ impl Workbench {
             } else if self.editor_view.save_conflict.as_deref() == Some(e.path.as_path()) {
                 self.editor_view.save_conflict = None;
             }
+        }
+        if shown.is_none() && !untitled.is_empty() {
+            self.session.prompt = false;
+            self.session.confirmed = false;
+            self.settings_active = false;
+            self.welcome_active = false;
+            self.start_save_as_queue(untitled, true, window, cx);
+            return;
         }
         let Some(i) = shown else {
             self.finish_quit(cx);
@@ -598,7 +613,7 @@ impl Workbench {
         self.finish_quit(cx);
     }
 
-    fn finish_quit(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn finish_quit(&mut self, cx: &mut Context<Self>) {
         self.session.prompt = false;
         self.session.confirmed = true;
         self.session.quit_requested = true;

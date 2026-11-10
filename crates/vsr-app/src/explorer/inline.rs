@@ -96,7 +96,14 @@ impl Workbench {
 
     /// Save As of the untitled editor `key` (ADR-0058): the name box opens in `parent` (the folder of
     /// the last active file, ADR-0074), with `name` typed in and its name part selected.
-    pub(crate) fn start_save_untitled_inline(&mut self, key: PathBuf, name: &str, parent: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn start_save_untitled_inline(
+        &mut self,
+        key: PathBuf,
+        name: &str,
+        parent: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.expand_to(&parent);
         let selection = rename_selection(name, false);
         self.open_inline(InlineKind::SaveUntitled, parent, Some(key), name.to_string(), selection, window, cx);
@@ -162,10 +169,12 @@ impl Workbench {
 
     /// Escape: close the box, nothing is created or renamed.
     pub(crate) fn cancel_inline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.explorer.inline.take().is_some() {
-            window.focus(&self.explorer.focus, cx);
-            cx.notify();
+        let Some(edit) = self.explorer.inline.take() else { return };
+        if edit.kind == InlineKind::SaveUntitled {
+            self.abandon_save_as();
         }
+        window.focus(&self.explorer.focus, cx);
+        cx.notify();
     }
 
     /// Losing focus: commit a valid name, cancel an invalid one (focus is already elsewhere, so the
@@ -175,6 +184,7 @@ impl Workbench {
         let Some(edit) = self.explorer.inline.as_ref() else { return };
         if edit.kind == InlineKind::SaveUntitled {
             self.explorer.inline = None;
+            self.abandon_save_as();
             cx.notify();
         } else if edit.has_error() {
             self.explorer.inline = None;
@@ -186,6 +196,7 @@ impl Workbench {
 
     fn commit_inline(&mut self, refocus_tree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(edit) = self.explorer.inline.take() else { return };
+        let save_as = edit.kind == InlineKind::SaveUntitled;
         let name = edit.value(cx);
         let result = match (edit.kind, edit.target.clone()) {
             (InlineKind::NewFile, _) => self.create_entry(&edit.parent, &name, false, cx),
@@ -198,6 +209,7 @@ impl Workbench {
             }
             (InlineKind::SaveUntitled, None) => Err("nothing to save".to_string()),
         };
+        let saved = result.is_ok();
         match result {
             Ok(path) => {
                 self.explorer.selected = Some(path);
@@ -210,6 +222,10 @@ impl Workbench {
                 let message = NameMessage { severity: Severity::Error, text };
                 self.explorer.inline = Some(InlineEdit { message: Some(message), ..edit });
             }
+        }
+        // A saved untitled text: the next one of the Save As queue gets its name box (ADR-0074).
+        if saved && save_as {
+            self.next_save_as(window, cx);
         }
         cx.notify();
     }

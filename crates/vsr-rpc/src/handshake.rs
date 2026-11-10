@@ -234,11 +234,11 @@ impl From<std::io::Error> for HandshakeError {
 
 /// One connection to a host: the socket, the framing state and the RPC bookkeeping.
 pub struct Connection {
-    stream: UnixStream,
-    reader: FrameReader,
+    pub(crate) stream: UnixStream,
+    pub(crate) reader: FrameReader,
     pub protocol: Protocol,
     pub rpc: RpcPeer,
-    inbox: std::collections::VecDeque<Vec<u8>>,
+    pub(crate) inbox: std::collections::VecDeque<Vec<u8>>,
 }
 
 impl Connection {
@@ -323,13 +323,67 @@ pub struct Report {
     pub stdout: String,
 }
 
-/// A running host and the connection to it.
-pub struct Host {
-    pub conn: Connection,
+/// The host's operating-system process and what it printed. Separate from the connection so a
+/// [`crate::session::Session`] can own both.
+pub struct HostProcess {
     child: Child,
     socket_path: PathBuf,
     out: Arc<Mutex<String>>,
     err: Arc<Mutex<String>>,
+}
+
+impl HostProcess {
+    /// The host's stderr so far.
+    pub fn stderr(&self) -> String {
+        self.err.lock().unwrap().clone()
+    }
+
+    /// `Some(status text)` once the process has exited.
+    pub fn try_exit(&mut self) -> std::io::Result<Option<String>> {
+        Ok(self.child.try_wait()?.map(|s| s.to_string()))
+    }
+
+    /// Wait up to `grace` for the process to exit by itself (after `Terminate`), kill it
+    /// otherwise, and remove the socket file.
+    pub fn finish(mut self, grace: Duration) -> Exit {
+        let deadline = Instant::now() + grace;
+        let mut exited_cleanly = false;
+        while Instant::now() < deadline {
+            if let Ok(Some(_)) = self.child.try_wait() {
+                exited_cleanly = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        if !exited_cleanly {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+        let _ = std::fs::remove_file(&self.socket_path);
+        std::thread::sleep(Duration::from_millis(50));
+        Exit {
+            exited_cleanly,
+            stdout: self.out.lock().unwrap().clone(),
+            stderr: self.err.lock().unwrap().clone(),
+        }
+    }
+}
+
+impl Drop for HostProcess {
+    fn drop(&mut self) {
+        // Never leave a Node process behind (a no-op after `finish`).
+        if let Ok(None) = self.child.try_wait() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            let _ = std::fs::remove_file(&self.socket_path);
+        }
+    }
+}
+
+/// A running host and the connection to it.
+pub struct Host {
+    pub conn: Connection,
+    process: HostProcess,
 }
 
 fn pump<R: Read + Send + 'static>(mut r: R, into: Arc<Mutex<String>>) {
@@ -408,10 +462,12 @@ impl Host {
         stream.set_nonblocking(false)?;
         Ok(Host {
             conn: Connection::new(stream),
-            child,
-            socket_path: socket_path.to_path_buf(),
-            out,
-            err,
+            process: HostProcess {
+                child,
+                socket_path: socket_path.to_path_buf(),
+                out,
+                err,
+            },
         })
     }
 
@@ -452,10 +508,10 @@ impl Host {
             match self.conn.recv(left.min(Duration::from_millis(200))) {
                 Ok(Some(m)) => return Ok(m),
                 Ok(None) => {
-                    if let Some(status) = self.child.try_wait()? {
+                    if let Some(status) = self.process.child.try_wait()? {
                         return Err(HandshakeError::HostExited(format!(
                             "{status}; stderr: {}",
-                            self.err.lock().unwrap()
+                            self.process.err.lock().unwrap()
                         )));
                     }
                     if Instant::now() >= deadline {
@@ -465,7 +521,7 @@ impl Host {
                 Err(e) => {
                     return Err(HandshakeError::HostExited(format!(
                         "{e}; stderr: {}",
-                        self.err.lock().unwrap()
+                        self.process.err.lock().unwrap()
                     )));
                 }
             }
@@ -565,26 +621,12 @@ impl Host {
     /// Send `Terminate` and wait for the host to exit; kill it after `grace`.
     pub fn terminate(mut self, grace: Duration) -> Exit {
         let _ = self.conn.send(vec![MSG_TERMINATE]);
-        let deadline = Instant::now() + grace;
-        let mut exited_cleanly = false;
-        while Instant::now() < deadline {
-            if let Ok(Some(_)) = self.child.try_wait() {
-                exited_cleanly = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        if !exited_cleanly {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-        let _ = std::fs::remove_file(&self.socket_path);
-        std::thread::sleep(Duration::from_millis(50));
-        Exit {
-            exited_cleanly,
-            stdout: self.out.lock().unwrap().clone(),
-            stderr: self.err.lock().unwrap().clone(),
-        }
+        self.process.finish(grace)
+    }
+
+    /// Split into the connection and the process (see [`crate::session::Session`]).
+    pub fn into_parts(self) -> (Connection, HostProcess) {
+        (self.conn, self.process)
     }
 }
 

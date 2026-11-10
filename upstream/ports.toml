@@ -839,6 +839,8 @@ rust = [
   "crates/vsr-rpc/tests/handshake_real_host.rs",
   "crates/vsr-rpc/tests/handshake_fake_host.rs",
   "crates/vsr-rpc/tests/start_extension_host.rs",
+  "crates/vsr-rpc/src/session.rs",
+  "crates/vsr-rpc/tests/session.rs",
   "crates/vsr-rpc/tests/fixtures/fake_host.js",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"

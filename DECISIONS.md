@@ -1878,3 +1878,33 @@ the descriptions and we know when "eager extensions activated" is done (the repl
 
 `handshake` gained `InitParams::auto_start`, `workspace_data`, `configuration_data` and `empty_delta`
 helpers. Tests: `crates/vsr-rpc/tests/start_extension_host.rs` (hang, answered, already-started).
+
+## ADR-0063 — `vsr-rpc::session`: a long-lived connection with async replies (2026-11-10)
+
+`Session::start(Connection, Option<HostProcess>)` (or `Session::from_host(Host)` after the handshake)
+returns the session and an `mpsc::Receiver<Event>`. A reader thread owns the read half of the socket,
+cuts frames, runs `Protocol::receive`, answers replay requests, sends an explicit `Ack` when nothing
+piggybacked ours, and a `KeepAlive` after 5 s of silence (`Protocol::keepalive_frame`). The write half,
+the `Protocol` and the `RpcPeer` sit behind one mutex, so numbering and writes stay in order from any
+thread.
+
+- **Host requests** arrive as `Event::Request(Call, Responder)`. The `Acknowledged` is written by the
+  reader at once (like `_receiveRequest`); the reply is written when the owner calls
+  `Responder::reply`, from any thread, in any order. The app drains the channel on its own event loop
+  and answers from app state: no handler object has to live inside the transport. `RpcPeer::receive` /
+  `rpc::reply_message` are the split of `handle` (which keeps its synchronous `Handler` form for the
+  P0 tests).
+- **Our requests**: `Session::request` returns a `Pending` (its own channel); `wait(timeout)` gives the
+  `Completed`, `WaitError::Timeout`, or `WaitError::Closed` when the socket closed first. Any number
+  can be in flight; `cancel(req)` sends `Cancel`.
+- **Shutdown**: `Session::shutdown(grace)` sends `Terminate`, waits for the process to exit by itself,
+  kills it after the grace, removes the socket file and joins the reader; the events channel then ends
+  with `Event::Closed`. The same `Closed` arrives when the host dies by itself. `HostProcess::drop`
+  kills a still-running Node so a panicking test cannot leave one behind.
+- `Event::BadMessage` reports a message that does not decode; the connection carries on.
+
+Tests (`tests/session.rs`): loopback between two sessions over `UnixStream::pair` (out-of-order and
+cross-thread replies, timeout, close, undecodable message), and against the real host (workspace and
+configuration init, `$startExtensionHost` and five `$test_latency` in flight waited on in reverse,
+`MainThread*` requests served on another thread, clean exit). `Host` was split into `Host` +
+`HostProcess` for this.

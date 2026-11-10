@@ -709,3 +709,21 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Code folding, sticky scroll and minimap section headers (ADR-0042). Also 19 of 19 findSectionHeaders.test.ts. Sticky scroll pins the folding regions' headers (no outline provider; stickyScroll tests are DOM tests and not ported), the minimap draws the titles as labels. Folding: folding regions, the merge of provider and manual regions, indentation and region-marker ranges with the cap on regions, the collapse operations by level, and the hidden line ranges. 26 of 26 indentRangeProvider.test.ts and indentFold.test.ts, 7 of 7 foldingRanges.test.ts, 1 of 1 hiddenRangeModel.test.ts and 21 of 22 foldingModel.test.ts. Regions follow edits through a line map instead of tracked decorations (the decoration test is not ported). Not ported: syntaxRangeProvider.ts (needs language server folding providers, syntaxFold.test.ts), the memento that restores folds on reopen, import folding."
+
+[[port]]
+id = "breadcrumbs"
+status = "partial"
+upstream = [
+  "src/vs/workbench/browser/parts/editor/breadcrumbs.ts",
+  "src/vs/workbench/browser/parts/editor/breadcrumbsControl.ts",
+  "src/vs/workbench/browser/parts/editor/breadcrumbsModel.ts",
+  "src/vs/workbench/browser/parts/editor/breadcrumbsPicker.ts",
+  "src/vs/workbench/browser/parts/editor/media/breadcrumbscontrol.css",
+]
+rust = [
+  "crates/vsr-app/src/breadcrumbs/mod.rs",
+  "crates/vsr-app/src/breadcrumbs/model.rs",
+  "crates/vsr-app/src/breadcrumbs/e2e_tests.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Breadcrumbs (ADR-0047): the file path part of breadcrumbsModel.ts (workspace-relative segments, absolute outside the workspace, filePath on/off/last), the bar of breadcrumbsControl.ts and breadcrumbscontrol.css (22px, the four breadcrumb colours), the dropdown of breadcrumbsPicker.ts on the Quick Pick (siblings, folders open in place, files open), and the focus commands breadcrumbs.focus, focusAndSelect and toggle with Left, Right, Enter and Escape. Not ported: the symbol path (needs document symbols), the outline filters breadcrumbs.show<Kind>, the editor type dropdown (custom editors), the picker's type-to-filter folder navigation and the Quick Pick's own styling."

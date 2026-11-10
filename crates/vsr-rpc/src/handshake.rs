@@ -79,6 +79,50 @@ fn uri(path: &Path) -> Value {
     json!({ "$mid": 1, "scheme": "file", "authority": "", "path": path.to_string_lossy(), "query": "", "fragment": "" })
 }
 
+/// `IWorkspaceData` for a single-folder workspace: what `ExtHostWorkspace.$initializeWorkspace`
+/// takes (and what the init data carries).
+pub fn workspace_data(name: &str, path: &Path) -> Value {
+    json!({ "id": name, "name": name, "configuration": null, "isUntitled": false, "transient": false, "folders": [{ "uri": uri(path), "name": name, "index": 0 }] })
+}
+
+/// An empty `IExtensionDescriptionDelta` (nothing to add or remove): the argument of
+/// `$startExtensionHost` for a host with no extensions.
+pub fn empty_delta() -> Value {
+    json!({ "versionId": 0, "toRemove": [], "toAdd": [], "addActivationEvents": {}, "myToRemove": [], "myToAdd": [] })
+}
+
+/// `IConfigurationInitData` with empty layers: the argument of `ExtHostConfiguration.$initializeConfiguration`.
+/// The host's `initialize()` (`_beforeAlmostReadyToRunExtensions`) waits for that call. Pass
+/// `user` as the contents of the user settings layer.
+pub fn configuration_data(user: Value) -> Value {
+    let empty = json!({ "contents": {}, "keys": [], "overrides": [] });
+    let keys: Vec<String> = flatten_keys("", &user);
+    json!({
+        "defaults": empty, "policy": empty, "application": empty,
+        "userLocal": { "contents": user, "keys": keys, "overrides": [] },
+        "userRemote": empty, "workspace": empty, "folders": [],
+        "configurationScopes": [],
+    })
+}
+
+fn flatten_keys(prefix: &str, v: &Value) -> Vec<String> {
+    match v {
+        Value::Object(m) if !m.is_empty() => m
+            .iter()
+            .flat_map(|(k, v)| {
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                flatten_keys(&key, v)
+            })
+            .collect(),
+        _ if prefix.is_empty() => vec![],
+        _ => vec![prefix.to_string()],
+    }
+}
+
 /// What the init data needs from us. Storage folders must exist and be writable.
 #[derive(Debug, Clone)]
 pub struct InitParams {
@@ -87,6 +131,10 @@ pub struct InitParams {
     pub storage_root: PathBuf,
     /// The workspace folder, when one is open.
     pub workspace: Option<(String, PathBuf)>,
+    /// `IExtensionHostInitData.autoStart`: when true the host calls its own `_startExtensionHost()`
+    /// as soon as the workspace is initialised, and a later `$startExtensionHost` is an error
+    /// ("Extension host is already started!"). Use false and send `$startExtensionHost` yourself.
+    pub auto_start: bool,
 }
 
 /// `IExtensionHostInitData` (`extensionHostProtocol.ts`) for a host with no extensions: what the
@@ -108,13 +156,13 @@ pub fn init_data(p: &InitParams) -> Value {
             "globalStorageHome": uri(&p.storage_root.join("globalStorage")),
             "workspaceStorageHome": uri(&p.storage_root.join("workspaceStorage")),
         },
-        "workspace": p.workspace.as_ref().map(|(name, path)| json!({ "id": name, "name": name, "configuration": null, "isUntitled": false, "transient": false, "folders": [{ "uri": uri(path), "name": name, "index": 0 }] })),
+        "workspace": p.workspace.as_ref().map(|(name, path)| workspace_data(name, path)),
         "extensions": { "versionId": 0, "allExtensions": [], "activationEvents": {}, "myExtensions": [] },
         "telemetryInfo": { "sessionId": "rscode-session", "machineId": "rscode-machine", "sqmId": "", "devDeviceId": "", "firstSessionDate": "2026-01-01T00:00:00.000Z" },
         "logLevel": 3,
         "loggers": [],
         "logsLocation": uri(&p.storage_root.join("logs")),
-        "autoStart": true,
+        "autoStart": p.auto_start,
         "remote": { "isRemote": false, "authority": null, "connectionData": null },
         "consoleForward": { "includeStack": false, "logNative": false },
         "uiKind": 1,

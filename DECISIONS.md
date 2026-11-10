@@ -1849,3 +1849,32 @@ as `exthost-rpc-wire`, `exthost-proxy-ids`, `exthost-handshake`.
 app), cancellation tokens, URI transformers (remote only), `MessagePort`/`process.send` connection
 types, reconnection, the `IExtensionDescription` list and activation (`$startExtensionHost`,
 `$activate`), the `MainThread*` implementations themselves.
+
+## ADR-0062 — Why `$startExtensionHost` never answered: the host waits for the workspace and configuration (2026-11-10)
+
+Context: ADR-0060 saw `$startExtensionHost` acknowledged but never replied to (empty extension list,
+`autoStart: true`).
+
+**Root cause.** Not the empty list and not `autoStart` by itself. `ExtHostExtensionService.initialize()`
+(run from the `ExtensionHostMain` constructor) awaits two things the *main thread* must send before it
+opens `_readyToStartExtensionHost`:
+
+1. `ExtHostConfiguration.$initializeConfiguration(IConfigurationInitData)`: `_beforeAlmostReadyToRunExtensions`
+   (node `extHostExtensionService.ts`) awaits `getConfigProvider()`, a barrier opened only by that call;
+2. `ExtHostWorkspace.$initializeWorkspace(IWorkspaceData | null, trusted)`: `waitForInitializeCall()`.
+
+`_startExtensionHost()` (called by `$startExtensionHost`) waits on `_readyToStartExtensionHost`, so the
+request is acknowledged (the RPC layer acks on receipt) and then parked forever. The workspace in the
+init data is not what opens the barrier. Verified against the real host: no reply without the two calls,
+reply (`undefined`) with them.
+
+**`autoStart` interaction.** With `autoStart: true` the host calls `_startExtensionHost()` itself the
+moment both barriers open and sets `_started`; a later `$startExtensionHost` then fails with
+"Extension host is already started!". So the main thread picks one: `autoStart: true` and send the two
+initialisers (the extension list then comes from the init data / `$deltaExtensions`), or `autoStart:
+false` and send the two initialisers followed by `$startExtensionHost(delta)`. upstream's local process
+host uses `autoStart = (startup === EagerAutoStart)`. rscode uses the second form: the delta carries
+the descriptions and we know when "eager extensions activated" is done (the reply).
+
+`handshake` gained `InitParams::auto_start`, `workspace_data`, `configuration_data` and `empty_delta`
+helpers. Tests: `crates/vsr-rpc/tests/start_extension_host.rs` (hang, answered, already-started).

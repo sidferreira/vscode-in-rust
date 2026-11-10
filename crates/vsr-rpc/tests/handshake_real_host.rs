@@ -53,6 +53,7 @@ fn real_extension_host_completes_the_handshake() {
         app_root: launch.code_oss.clone(),
         storage_root: storage,
         workspace: Some(("ws".into(), workspace)),
+        auto_start: true,
     });
     let mut report = host
         .handshake(&init, Duration::from_secs(30))

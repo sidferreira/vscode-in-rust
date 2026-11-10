@@ -832,11 +832,13 @@ upstream = [
   "src/vs/workbench/api/node/extensionHostProcess.ts",
   "src/vs/workbench/services/extensions/common/extensionHostProtocol.ts",
   "src/vs/workbench/services/extensions/common/extensionHostEnv.ts",
+  "src/vs/workbench/api/common/extHostExtensionService.ts",
 ]
 rust = [
   "crates/vsr-rpc/src/handshake.rs",
   "crates/vsr-rpc/tests/handshake_real_host.rs",
   "crates/vsr-rpc/tests/handshake_fake_host.rs",
+  "crates/vsr-rpc/tests/start_extension_host.rs",
   "crates/vsr-rpc/tests/fixtures/fake_host.js",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"

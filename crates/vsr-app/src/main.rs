@@ -825,7 +825,14 @@ impl Workbench {
     fn activity_bar(&self, cx: &mut Context<Self>, side: SideBarLocation, location: ActivityBarLocation) -> impl IntoElement {
         let t = &self.theme;
         let horizontal = location != ActivityBarLocation::Default;
-        let (cell_w, cell_h) = if horizontal { (40., 35.) } else { (m::ACTIVITY_BAR_WIDTH, m::ACTIVITY_BAR_WIDTH) };
+        let compact = !horizontal && self.layout(cx).activity_bar_compact;
+        let (cell_w, cell_h, icon_size) = if horizontal {
+            (40., 35., 24.)
+        } else if compact {
+            (m::ACTIVITY_BAR_COMPACT_WIDTH, m::ACTIVITY_BAR_COMPACT_ITEM_HEIGHT, m::ACTIVITY_BAR_COMPACT_ICON_SIZE)
+        } else {
+            (m::ACTIVITY_BAR_WIDTH, m::ACTIVITY_BAR_WIDTH, 24.)
+        };
         let cell = |id: &'static str, ix: usize, glyph: char, tip: &'static str, active: bool| {
             let fg = if active { t.activity_fg } else { t.activity_inactive_fg };
             div()
@@ -839,7 +846,8 @@ impl Workbench {
                 .justify_center()
                 .cursor_pointer()
                 .font_family(icons::FAMILY)
-                .text_size(px(24.))
+                .text_size(px(icon_size))
+                .debug_selector(move || format!("{id}:{ix}"))
                 .text_color(to_gpui(fg))
                 .hover(|s| s.text_color(to_gpui(t.activity_fg)))
                 .when(active, |d| {
@@ -870,9 +878,13 @@ impl Workbench {
             let active = self.sidebar_visible && self.view == view;
             top = top.child(cell("activity", i, glyph, tip, active).on_click(cx.listener(
                 move |this, _, window, cx| {
-                    // Clicking the active view toggles the side bar, like VS Code.
+                    let click_focus = this.layout(cx).activity_bar_click_focus;
+                    // Clicking the active view toggles the side bar, like VS Code (`toggle`); with
+                    // `focus` the view stays shown.
                     if this.sidebar_visible && this.view == view {
-                        this.sidebar_visible = false;
+                        if !click_focus {
+                            this.sidebar_visible = false;
+                        }
                     } else {
                         this.view = view;
                         this.sidebar_visible = true;
@@ -901,7 +913,7 @@ impl Workbench {
         let bar = div().flex_none().flex().justify_between().bg(to_gpui(t.activity_bar_bg)).border_color(to_gpui(t.activity_bar_border));
         match location {
             ActivityBarLocation::Default => {
-                let bar = bar.w(px(m::ACTIVITY_BAR_WIDTH)).h_full().flex_col();
+                let bar = bar.w(px(cell_w)).h_full().flex_col();
                 match side {
                     SideBarLocation::Left => bar.border_r_1(),
                     SideBarLocation::Right => bar.border_l_1(),
@@ -1347,7 +1359,7 @@ impl Render for Workbench {
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {
                         let layout = this.layout(cx);
-                        let activity = if layout.activity_bar == ActivityBarLocation::Default { m::ACTIVITY_BAR_WIDTH } else { 0. };
+                        let activity = if layout.activity_bar == ActivityBarLocation::Default { activity_bar_width(&layout) } else { 0. };
                         let x = match layout.side_bar {
                             SideBarLocation::Left => f32::from(ev.position.x) - activity,
                             SideBarLocation::Right => f32::from(window.viewport_size().width) - f32::from(ev.position.x) - activity,
@@ -1403,4 +1415,10 @@ fn folder_name(p: &Path) -> String {
     p.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| p.display().to_string())
+}
+
+/// The width of the activity bar when it sits on the side bar's outer edge (location `default`):
+/// 48px, or 36px with `workbench.activityBar.compact`.
+fn activity_bar_width(layout: &LayoutSettings) -> f32 {
+    if layout.activity_bar_compact { m::ACTIVITY_BAR_COMPACT_WIDTH } else { m::ACTIVITY_BAR_WIDTH }
 }

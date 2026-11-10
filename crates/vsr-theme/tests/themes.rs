@@ -261,26 +261,26 @@ fn selection_follows_the_system_only_when_asked() {
     let dark = HostColorScheme { dark: true, high_contrast: false };
     let light = HostColorScheme { dark: false, high_contrast: false };
     let mut s = ThemeSettings::default();
-    assert_eq!(s.resolve(&catalog, light).unwrap().settings_id, DEFAULT_DARK, "the default theme is Dark Modern");
+    assert_eq!(s.resolve(&catalog, light).unwrap().settings_id, DEFAULT_DARK, "the default theme is Dark 2026");
     s.color_theme = Some("Light Modern".into());
     assert_eq!(s.resolve(&catalog, dark).unwrap().settings_id, "Light Modern");
     s.detect_color_scheme = true;
     s.preferred_light = Some("Light+".into());
     assert_eq!(s.resolve(&catalog, light).unwrap().settings_id, "Light+");
     assert_eq!(s.color_theme_setting_id(light), "workbench.preferredLightColorTheme");
-    assert_eq!(s.resolve(&catalog, dark).unwrap().settings_id, "Dark Modern", "the dark default");
+    assert_eq!(s.resolve(&catalog, dark).unwrap().settings_id, "Dark 2026", "the dark default");
     // high contrast wins over the colour scheme
     let hc = HostColorScheme { dark: true, high_contrast: true };
     assert_eq!(s.resolve(&catalog, hc).unwrap().settings_id, "Default High Contrast");
     s.detect_high_contrast = false;
-    assert_eq!(s.resolve(&catalog, hc).unwrap().settings_id, "Dark Modern");
+    assert_eq!(s.resolve(&catalog, hc).unwrap().settings_id, "Dark 2026");
 }
 
 #[test]
 fn an_unknown_theme_falls_back_to_the_default_of_the_scheme() {
     let catalog = ThemeCatalog::builtin();
     let s = ThemeSettings { color_theme: Some("Monokai".into()), ..ThemeSettings::default() };
-    assert_eq!(s.resolve(&catalog, HostColorScheme::default()).unwrap().settings_id, "Dark Modern");
+    assert_eq!(s.resolve(&catalog, HostColorScheme::default()).unwrap().settings_id, "Dark 2026");
     let s = ThemeSettings { detect_color_scheme: true, preferred_light: Some("Abyss".into()), ..ThemeSettings::default() };
     assert_eq!(s.resolve(&catalog, HostColorScheme { dark: false, high_contrast: false }).unwrap().settings_id, "Light Modern");
     // legacy ids are migrated

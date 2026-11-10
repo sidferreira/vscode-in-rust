@@ -7,7 +7,7 @@
 //!
 //! The layout follows `gettingStarted.css` (heading 2.7em, subtitle 2em in the description colour,
 //! section headings 1.5em, links in `textLink.foreground`, the recent list with the folder dimmed,
-//! the "Show welcome page on startup" checkbox at the bottom) with the Dark Modern colours of the
+//! the "Show welcome page on startup" checkbox at the bottom) with the colours of the active
 //! theme. What upstream has and this page leaves out, and why:
 //!
 //! - New File...: there are no untitled files yet.

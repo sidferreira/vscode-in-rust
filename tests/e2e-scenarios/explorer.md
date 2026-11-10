@@ -45,3 +45,15 @@ window; the keys themselves are not driven by a gpui test yet, so those rows say
 | 25 | Copy Path and Copy Relative Path use `/` or `\` between folders (auto is the platform's) | explorer.copyPathSeparator, explorer.copyRelativePathSeparator | unit | `copied_paths_follow_the_separator_setting`, `defaults_and_values_are_read` (explorer/settings.rs) |
 | 26 | Alt+Cmd+C and Shift+Alt+Cmd+C copy to the clipboard; a Command Palette pick works from any focus | explorer.copyPathSeparator | pending | the keys are bound (explorer/actions.rs) and the handler is on the workbench root, but no test presses them yet |
 | 27 | drag and drop, undo, multi-root single folder, file decorations | explorer.enableDragAndDrop, explorer.enableUndo, explorer.expandSingleFolderWorkspaces, explorer.decorations.* | blocked (needs drag and drop, undo, multi-root workspaces, file decorations) | none; see the `[[rule]]`s in upstream/settings.toml |
+
+### File nesting (ADR-0052)
+
+Headless (`crates/vsr-app/src/explorer/e2e_tree.rs`, the trie in `explorer/nesting.rs`).
+
+| scenario | status | test |
+|---|---|---|
+| `explorer.fileNesting.enabled` nests `a.js` under `a.ts` and `package-lock.json` under `package.json`, live; off lists every file | ready | `file_nesting_shows_nests_under_their_parent_live` |
+| `explorer.fileNesting.expand: false` hides the nests until the parent's chevron opens them; the chevron does not open the file | ready | `file_nesting_shows_nests_under_their_parent_live` |
+| `explorer.fileNesting.patterns` replaces the defaults; an empty child list nests nothing | ready | `file_nesting_patterns_are_the_setting` |
+| the trie's matching rules (star, `${capture}`, `${basename}`, `${extname}`, `${dirname}`, loops) | ready | `explorer::nesting::tests` (26 upstream tests) |
+

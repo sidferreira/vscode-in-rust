@@ -841,3 +841,15 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "The main-thread side of the extension host start-up over the IPC pipe connection (VSCODE_EXTHOST_IPC_HOOK): Ready -> IExtensionHostInitData -> Initialized, then serving the host's MainThread* requests. Only the IPC (Unix socket) connection type; not the Socket (process.send handle) or MessagePort ones. The init data is the minimum for a host with no extensions and no remote. The real-host test needs a Code-OSS build (scripts/build-codeoss-exthost, RSCODE_CODE_OSS); the Node stand-in test needs only node."
+
+[[port]]
+id = "explorer-file-nesting"
+status = "partial"
+upstream = [
+  "src/vs/workbench/contrib/files/common/explorerFileNestingTrie.ts",
+  "src/vs/workbench/contrib/files/test/browser/explorerFileNestingTrie.test.ts",
+]
+rust = ["crates/vsr-app/src/explorer/nesting.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "explorer.fileNesting.enabled, expand and patterns (ADR-0052): the trie (SufTrie, PreTrie, ExplorerFileNestingTrie) and its 26 upstream tests in nesting.rs, with the nests shown in the tree (explorer/view.rs flatten, chevron per parent). Not ported: the `is fast` test (skipped upstream), the tree's nested item model (nestedParent/nestedChildren) and keyboard behaviour of nests beyond the rows, and the file-nesting sort of nested files."
+

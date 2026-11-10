@@ -141,6 +141,44 @@ fn activity_bar_hidden_and_top_strip(cx: &mut TestAppContext) {
     assert!(strip.size.width > strip.size.height, "horizontal");
 }
 
+#[gpui_kit::test]
+fn activity_bar_compact_narrows_the_bar_live(cx: &mut TestAppContext) {
+    // Upstream source: activitybarPart.test.ts "toggling compact via config changes width constraints" (not ported).
+    let (_wb, cx, _f) = workbench(cx, "activity-compact", None, &[]);
+    assert_eq!(bounds(cx, "activity-bar").size.width, gpui_kit::px(48.));
+    set(cx, "workbench.activityBar.compact", json!(true));
+    assert_eq!(bounds(cx, "activity-bar").size.width, gpui_kit::px(36.), "compact: 36px wide");
+    assert_eq!(bounds(cx, "activity:0").size.height, gpui_kit::px(28.), "compact items are 28px high");
+    set(cx, "workbench.activityBar.compact", json!(false));
+    assert_eq!(bounds(cx, "activity-bar").size.width, gpui_kit::px(48.));
+    // the setting applies to the default location only: the strip keeps its height
+    set(cx, "workbench.activityBar.compact", json!(true));
+    set(cx, "workbench.activityBar.location", json!("top"));
+    assert!(bounds(cx, "activity-bar").size.width > bounds(cx, "activity-bar").size.height, "still horizontal");
+}
+
+#[gpui_kit::test]
+fn activity_bar_icon_click_focus_keeps_the_side_bar_open(cx: &mut TestAppContext) {
+    // Upstream source: activitybar part (`iconClickBehavior` in paneCompositeBar.ts); not ported as a unit test.
+    let (_wb, cx, _f) = workbench(cx, "activity-click", None, &[("a.txt", "x")]);
+    assert!(cx.debug_bounds("side-bar").is_some());
+    // toggle (the default): clicking the Explorer icon of the shown view hides the side bar
+    let icon = bounds(cx, "activity:0").center();
+    cx.simulate_click(icon, Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("side-bar").is_none(), "toggle hides the side bar");
+    // focus: the same click on the shown view keeps it open
+    let icon = bounds(cx, "activity:0").center();
+    cx.simulate_click(icon, Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("side-bar").is_some(), "the icon shows the side bar again");
+    set(cx, "workbench.activityBar.iconClickBehavior", json!("focus"));
+    let icon = bounds(cx, "activity:0").center();
+    cx.simulate_click(icon, Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("side-bar").is_some(), "focus keeps the shown view open");
+}
+
 // ---- (b) status bar visibility --------------------------------------------------------------
 
 #[gpui_kit::test]

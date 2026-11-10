@@ -369,3 +369,54 @@ fn refresh_explorer_relists_and_collapse_folders_closes_them(cx: &mut TestAppCon
     assert!(wb.read_with(cx, |wb, _| wb.expanded.is_empty()));
     assert_eq!(row_names(&wb, cx), ["src"]);
 }
+
+/// Headless: `explorer.fileNesting` (ADR-0052). `a.js` nests under `a.ts`, `package-lock.json` under
+/// `package.json` (the default patterns). Nests are shown while nesting is on; `expand: false` hides
+/// them until the parent's chevron opens them; the chevron does not open the file.
+// Upstream source: explorerModel.ts `fetchChildren` and `fileNester` (the default patterns of files.contribution.ts).
+#[gpui::test]
+fn file_nesting_shows_nests_under_their_parent_live(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("file-nesting");
+    fs::write(ws.path().join("a.ts"), "").unwrap();
+    fs::write(ws.path().join("a.js"), "").unwrap();
+    fs::write(ws.path().join("package.json"), "").unwrap();
+    fs::write(ws.path().join("package-lock.json"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    assert_eq!(row_names(&wb, cx), ["src", "a.js", "a.ts", "package-lock.json", "package.json"], "nesting is off by default");
+
+    set(cx, "explorer.fileNesting.enabled", json!(true));
+    assert_eq!(row_names(&wb, cx), ["src", "a.ts", "a.js", "package.json", "package-lock.json"], "nests follow their parent, expanded");
+    let nested_depth = wb.read_with(cx, |wb, _| wb.visible_rows().into_iter().find(|(e, _)| e.name == "a.js").map(|(_, d)| d));
+    assert_eq!(nested_depth, Some(1), "a nest is one level deeper");
+
+    set(cx, "explorer.fileNesting.expand", json!(false));
+    assert_eq!(row_names(&wb, cx), ["src", "a.ts", "package.json"], "collapsed nests are hidden");
+
+    // the chevron beside the parent shows its nests, and does not open the parent
+    let parent = ws.path().join("a.ts");
+    // debug selectors are `&'static str`; a test leaks the one string it needs
+    let key: &'static str = Box::leak(format!("nest-toggle:{}", parent.display()).into_boxed_str());
+    let chevron = cx.debug_bounds(key).expect("the parent has a chevron").center();
+    cx.simulate_click(chevron, Default::default());
+    cx.run_until_parked();
+    assert_eq!(row_names(&wb, cx), ["src", "a.ts", "a.js", "package.json"], "the chevron shows the nest");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.active_editor().is_none()), "the chevron does not open the file");
+
+    set(cx, "explorer.fileNesting.enabled", json!(false));
+    assert_eq!(row_names(&wb, cx), ["src", "a.js", "a.ts", "package-lock.json", "package.json"], "turning nesting off lists every file");
+}
+
+/// Headless: `explorer.fileNesting.patterns` (ADR-0052). A custom parent and child pattern nest, and
+/// the default patterns are replaced.
+#[gpui::test]
+fn file_nesting_patterns_are_the_setting(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("file-nesting-patterns");
+    fs::write(ws.path().join("notes.md"), "").unwrap();
+    fs::write(ws.path().join("notes.html"), "").unwrap();
+    fs::write(ws.path().join("a.ts"), "").unwrap();
+    fs::write(ws.path().join("a.js"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "explorer.fileNesting.enabled", json!(true));
+    set(cx, "explorer.fileNesting.patterns", json!({ "*.md": "${capture}.html", "*.ts": "" }));
+    assert_eq!(row_names(&wb, cx), ["src", "a.js", "a.ts", "notes.md", "notes.html"], "only the custom rule nests (expanded), and an empty rule nests nothing");
+}

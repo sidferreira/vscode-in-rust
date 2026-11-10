@@ -31,7 +31,7 @@ impl Workbench {
     /// Delete key (`moveFileToTrash`) and Cmd+Alt+Backspace (`deleteFile`, always permanent).
     pub(crate) fn request_delete(&mut self, permanent: bool, cx: &mut Context<Self>) {
         let Some(path) = self.explorer.selected.clone() else { return };
-        let settings = self.explorer.settings;
+        let settings = &self.explorer.settings;
         let pending = PendingDelete { path, use_trash: settings.enable_trash && !permanent };
         if settings.confirm_delete {
             self.explorer.confirm = Some(pending);

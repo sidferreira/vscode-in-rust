@@ -172,12 +172,22 @@ theme_fields! {
 }
 
 impl Theme {
-    /// The default theme without customisations: what a fresh install shows. Code that has an
-    /// app context uses `ThemeService::theme(cx)` instead.
-    pub fn dark_modern() -> Self {
+    /// The bundled theme with the given settings id, without customisations.
+    fn bundled(id: &str) -> Self {
         let catalog = vsr_theme::ThemeCatalog::builtin();
-        let theme = catalog.find(vsr_theme::DEFAULT_DARK, None).and_then(|t| catalog.load(t).ok()).expect("the bundled default theme loads");
+        let theme = catalog.find(id, None).and_then(|t| catalog.load(t).ok()).expect("the bundled theme loads");
         Self::from_color_theme(&theme)
+    }
+
+    /// The default dark theme without customisations: what a fresh install shows (Dark 2026,
+    /// ADR-0049). Code that has an app context uses `ThemeService::theme(cx)` instead.
+    pub fn default_dark() -> Self {
+        Self::bundled(vsr_theme::DEFAULT_DARK)
+    }
+
+    /// The bundled "Dark Modern" theme, whatever the default is.
+    pub fn dark_modern() -> Self {
+        Self::bundled("Dark Modern")
     }
 }
 
@@ -189,6 +199,11 @@ pub mod metrics {
     /// Width of the command center search box in the title bar (`window.commandCenter`).
     pub const COMMAND_CENTER_WIDTH: f32 = 420.0;
     pub const ACTIVITY_BAR_WIDTH: f32 = 48.0;
+    /// `workbench.activityBar.compact` (location `default`): width, item height and icon size
+    /// (upstream `ActivitybarPart`: 36, 28, 16; the default is 48, 48, 24).
+    pub const ACTIVITY_BAR_COMPACT_WIDTH: f32 = 36.0;
+    pub const ACTIVITY_BAR_COMPACT_ITEM_HEIGHT: f32 = 28.0;
+    pub const ACTIVITY_BAR_COMPACT_ICON_SIZE: f32 = 16.0;
     pub const SIDEBAR_WIDTH: f32 = 260.0;
     pub const TAB_HEIGHT: f32 = 35.0;
     pub const STATUS_BAR_HEIGHT: f32 = 22.0;

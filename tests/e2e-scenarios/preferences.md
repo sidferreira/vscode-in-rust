@@ -134,3 +134,12 @@ Headless (`crates/vsr-app/src/config/e2e_typing.rs`); the rules themselves are t
 | `editor.trimWhitespaceOnDelete` joins lines without the next line's indentation | ready | `trim_whitespace_on_delete_joins_lines_smartly` |
 | `editor.emptySelectionClipboard: false` copies and cuts nothing without a selection | ready | `empty_selection_clipboard_copies_the_line_unless_off` |
 | `autoIndentOnPaste*`, `stickyTabStops`, `editor.language.*`, `bracketPairColorization.*`, `columnSelection`, `copyWithSyntaxHighlighting`, `dragAndDrop`, `links`, `overtype*`, `padding.*`, `smartSelect.*`, `largeFileOptimizations`, accessibility, peek, code actions | blocked | see `upstream/settings.toml` |
+
+### Scroll beyond the last column (editor scrolling)
+
+Headless (`crates/vsr-app/src/editor_view/scroll_e2e.rs`). The check is the list's horizontal scroll extent.
+
+| scenario | status | test |
+|---|---|---|
+| `editor.scrollBeyondLastColumn` (default 4) adds that many character widths after the widest line, live; 0 removes the room | ready | `scroll_beyond_last_column_adds_room_after_the_widest_line_live` |
+| with `editor.wordWrap` on there is no horizontal room, whatever the setting | ready | `scroll_beyond_last_column_does_not_apply_with_word_wrap` |

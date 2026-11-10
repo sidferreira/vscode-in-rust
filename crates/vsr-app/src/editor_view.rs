@@ -301,6 +301,9 @@ impl EditorView {
         let list_focus = focus.clone();
         // `editor.scrollBeyondLastLine`: empty rows after the last line (the page is measured at paint).
         let rows_total = decorations::scroll_rows(view_line_count, self.rows_per_page(), cfg.scroll_beyond_last_line);
+        // `editor.scrollBeyondLastColumn`: room after the widest line, so the list scrolls past it (not
+        // with word wrap, where no line is wider than the viewport).
+        let scroll_extra = if wrapping { 0.0 } else { cfg.scroll_beyond_last_column as f32 * used_char_w };
         let list = uniform_list(
             id,
             rows_total,
@@ -317,7 +320,7 @@ impl EditorView {
                 }
                 let find = view.find.highlights(e, &theme);
                 let pair = view.brackets.get(&e.path, e.buffer(), e.editor.version(), e.editor.selection().active, cfg.match_brackets);
-                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator, fold_paint)
+                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator, fold_paint, scroll_extra)
             }),
         )
         .track_scroll(&scroll);
@@ -997,6 +1000,7 @@ fn rows(
     brackets: Option<(Position, Position)>,
     wrap_indicator: Option<usize>,
     fold_paint: folding::Paint,
+    scroll_extra: f32,
 ) -> Vec<AnyElement> {
     e.sync_syntax(); // tokens follow the buffer (ADR-0038)
     let buf = e.buffer();
@@ -1296,7 +1300,8 @@ fn rows(
             if seg.first {
                 number_box = number_box.debug_selector(|| format!("gutter:{line}"));
             }
-            let mut row = row.child(number_box).child(text_box);
+            // The room after the line (`scroll_extra`) is part of every row, so the widest row sets it.
+            let mut row = row.child(number_box).child(text_box).pr(px(scroll_extra));
             if let Some(control) = folding::control(fold_info, cfg, t, gutter, fold_paint, line) {
                 row = row.child(control);
             }
@@ -1342,3 +1347,5 @@ mod cursor_e2e;
 mod folding_e2e;
 #[cfg(test)]
 mod sticky_e2e;
+#[cfg(test)]
+mod scroll_e2e;

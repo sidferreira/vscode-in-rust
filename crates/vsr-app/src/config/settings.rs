@@ -418,6 +418,9 @@ pub struct EditorSettings {
     pub font_features: Vec<(String, u32)>,
     /// `editor.scrollBeyondLastLine`: the last line can scroll up to the top of the viewport.
     pub scroll_beyond_last_line: bool,
+    /// `editor.scrollBeyondLastColumn`: columns of room after the widest line when not wrapping
+    /// (upstream `ViewLayout`: `maxLineWidth + scrollBeyondLastColumn * typicalHalfwidthCharacterWidth`).
+    pub scroll_beyond_last_column: usize,
     /// `editor.wordWrap`, `editor.wordWrapColumn`, `editor.wrappingIndent`, `editor.wrappingStrategy`,
     /// `editor.wordWrapIndicator`, `editor.wordBreak`.
     pub word_wrap: WordWrap,
@@ -492,6 +495,7 @@ impl Default for EditorSettings {
             line_highlight_only_when_focus: false,
             font_features: parse_font_ligatures(None),
             scroll_beyond_last_line: true,
+            scroll_beyond_last_column: 4,
             word_wrap: WordWrap::Off,
             word_wrap_column: 80,
             wrapping_indent: WrappingIndentSetting::Same,
@@ -620,6 +624,7 @@ impl EditorSettings {
             line_highlight_only_when_focus: c.get_bool("editor.renderLineHighlightOnlyWhenFocus").unwrap_or(false),
             font_features: parse_font_ligatures(c.get_value("editor.fontLigatures")),
             scroll_beyond_last_line: c.get_bool("editor.scrollBeyondLastLine").unwrap_or(true),
+            scroll_beyond_last_column: c.get_f64("editor.scrollBeyondLastColumn").unwrap_or(4.0).round().max(0.0) as usize,
             word_wrap: c.get_enum("editor.wordWrap").unwrap_or(WordWrap::Off),
             word_wrap_column: c.get_f64("editor.wordWrapColumn").unwrap_or(80.0).round().max(1.0) as usize,
             wrapping_indent: c.get_enum("editor.wrappingIndent").unwrap_or(WrappingIndentSetting::Same),
@@ -718,6 +723,11 @@ pub struct LayoutSettings {
     pub command_center: bool,
     /// `window.density.editorTabHeight`: compact tabs are shorter (22px, default 35px).
     pub compact_tabs: bool,
+    /// `workbench.activityBar.compact`: smaller items and a narrower bar, location `default` only.
+    pub activity_bar_compact: bool,
+    /// `workbench.activityBar.iconClickBehavior: focus`: clicking the icon of the shown view keeps
+    /// the side bar open (`toggle`, the default, hides it).
+    pub activity_bar_click_focus: bool,
 }
 
 /// `workbench.startupEditor`: what opens when the app starts with no editor restored. `WelcomePage`
@@ -764,6 +774,8 @@ impl LayoutSettings {
             sash_size: sash_size(c),
             command_center: c.get_bool("window.commandCenter").unwrap_or(true),
             compact_tabs: c.get_enum::<TabHeight>("window.density.editorTabHeight") == Some(TabHeight::Compact),
+            activity_bar_compact: c.get_bool("workbench.activityBar.compact").unwrap_or(false),
+            activity_bar_click_focus: c.get_str("workbench.activityBar.iconClickBehavior") == Some("focus"),
         }
     }
 }
@@ -982,6 +994,8 @@ mod tests {
             sash_size: 4.0,
             command_center: true,
             compact_tabs: false,
+            activity_bar_compact: false,
+            activity_bar_click_focus: false,
         });
     }
 

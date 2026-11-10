@@ -1635,6 +1635,105 @@ missing feature, so the policy has to say what each one waits for.
   `LayoutSettings` clamp test. The sash test reads the drag area's laid-out width through a debug
   selector.
 
+## ADR-0049 — The default dark theme is Dark 2026, as upstream (2026-11-10)
+
+**Context.** ADR-0037 kept Dark Modern as rscode's default colour theme, because it was the colour set the
+app painted before the theme service existed. Upstream 1.147 defaults `workbench.colorTheme` to Dark 2026
+(`ThemeSettingDefaults.COLOR_THEME_DARK` in `workbenchThemeService.ts`). The theme file was already bundled
+(`2026-dark.json`, which `include`s Dark Modern and overrides its colours), so no porting was needed.
+
+**Decision.** `vsr_theme::DEFAULT_DARK` is `"Dark 2026"`. The colour mode fallbacks (`ThemeSettings::resolve`,
+`workbench.preferredDarkColorTheme`) follow it. `Theme::default_dark()` is the default without
+customisations; `Theme::dark_modern()` keeps meaning the bundled Dark Modern, for the legacy colour test.
+
+**Not changed.** The light default stays Light Modern (upstream: Light 2026), and so do the high contrast
+defaults (already upstream's). Switching the light default is a separate, user-visible decision; it is one
+constant (`DEFAULT_LIGHT`) when wanted.
+
+**Tests.** The default-theme golden test is `the_default_theme_is_dark_2026_with_the_colours_of_its_json`.
+Tests that check Dark Modern's token colours pin `workbench.colorTheme` to Dark Modern in their settings file
+instead of depending on the default.
+
+## ADR-0050 — Activity bar: compact layout and icon click behaviour (2026-11-10)
+
+**Context.** The Activity Bar group (`workbench.activityBar.*`) had three todo settings. `location` was wired
+already. Upstream 1.147 defines the compact layout in `ActivitybarPart` (default 48px wide with 48px items and
+24px icons; compact 36px, 28px, 16px) and the click behaviour in `paneCompositeBar.ts`
+(`iconClickBehavior`, `toggle` hides the side bar when the shown view's icon is clicked, `focus` keeps it open).
+
+**Decision.**
+
+- `workbench.activityBar.compact` applies to location `default` only (as its description says). The bar and
+  its items take the compact sizes (`metrics::ACTIVITY_BAR_COMPACT_*`); the layout's width and the sash
+  drag (`activity_bar_width`) use the same width.
+- `workbench.activityBar.iconClickBehavior: focus` keeps the side bar open when the shown view's icon is clicked.
+  rscode does not move keyboard focus into the view on that click yet (upstream focuses the view); it is a
+  follow-up with the focus handles of the side bar views.
+- `workbench.activityBar.autoHide` is `blocked`: it hides a horizontal bar when one view container is
+  shown, and rscode always has four.
+- The activity icons carry a debug selector `activity:<n>` (headless tests click them).
+
+**Tests.** `config/e2e.rs`: `activity_bar_compact_narrows_the_bar_live`,
+`activity_bar_icon_click_focus_keeps_the_side_bar_open`. The upstream test titles are cited in comments; the
+unit ports (`activitybarPart.test.ts`) are not ported, so the references are "Upstream source" comments.
+
+
+## ADR-0051 — Sash settings: size wired, grippers blocked (2026-11-10)
+
+**Context.** The sash group had `workbench.sash.size` (wired in ADR-0048), `hoverDelay` (blocked: gpui tooltips
+use a fixed delay) and `autoHideGrippers` / `autoHideGrippersDelay`. Upstream's `SashGrippersController` (sash.ts)
+hides the grippers, the dots drawn in the middle of a sash, after the mouse has been idle for the delay, and
+shows them again on a mouse move.
+
+**Decision.** `autoHideGrippers` and `autoHideGrippersDelay` are `blocked` (needs sash grippers). rscode's
+sashes are 1px borders that take the hover colour (`sidebar-resize` in `main.rs`); no dots are drawn, so there
+is nothing to fade. Drawing grippers is a visual feature of the sash itself, and it lands first. Until then the
+settings have no effect, which is what the rule says.
+
+## ADR-0052 — File nesting: the trie, and nests in the tree (2026-11-10)
+
+**Context.** `explorer.fileNesting.enabled`, `expand` and `patterns` were todo. Upstream nests related files
+under a parent (`a.ts` > `a.js`, `package.json` > `package-lock.json`). The matcher is
+`explorerFileNestingTrie.ts`, a pair of tries over pattern characters with `${capture}`, `${basename}`,
+`${extname}` and `${dirname}` substitutions.
+
+**Decision.**
+
+- `explorer/nesting.rs` is a line-by-line port of the trie (`SufTrie`, `PreTrie`, `ExplorerFileNestingTrie`) with
+  the 26 upstream tests as `// upstream:` refs. Both `$(x)` and `${x}` substitutions work. The `is fast` test
+  is skipped upstream and not ported.
+- A parent pattern that ends in `*` is malformed; upstream throws. Here it is ignored, so a bad user pattern
+  cannot break the tree.
+- `explorer.fileNesting.patterns` is read as an object (parent → comma-separated children). Empty parents
+  or children are dropped, as upstream does. The default rules are `nesting::default_rules()`, the upstream
+  defaults; `ExplorerSettings::default()` and the configuration agree (a test proves it). The object is
+  read in key order of serde_json, which is sorted; nests are the same, but a child matched by two
+  parents may be listed under either one.
+- The tree (`explorer/view.rs`): nested files are not listed in their folder. They follow their parent row,
+  one level deeper. A parent with nests shows a chevron; a click on it toggles the nests and does not open
+  the file. `expand` is the initial state; `ExplorerState::nests_toggled` holds the parents toggled away
+  from it. The nests come from the folder's file names, per listing, on every paint (cheap for the
+  patterns we have).
+- Not ported: upstream's tree model (`nestedParent`, `nestedChildren`) and nested files sorting with the
+  parent. Keyboard navigation uses the flat rows, so arrows move through nests in display order.
+
+## ADR-0053 — Editor scrollbar settings: blocked until rscode draws an editor scrollbar (2026-11-10)
+
+**Context.** The `editor.scrollbar.*` group (six todo settings, P2) describes the scrollbars of the editor:
+their visibility, their sizes, what a click on the track does, and whether the horizontal bar adds to the
+content height. Before deciding how to port them, we looked at what rscode draws. The editor's list is a gpui
+`uniform_list` that scrolls by wheel and keys (`editor_view.rs`); gpui-pre reserves layout space for a
+`scrollbar_width` but this crate paints no scrollbar, and rscode has no thumb (the only slider it draws is the
+minimap's, ADR-0042). Upstream's `scrollableElement` draws both bars.
+
+**Decision.** The six settings are `blocked` (needs an editor scrollbar). The reason is the missing scrollbar,
+not the settings: there is nothing to size, hide or click yet. Building one is a visual feature of its own
+(thumb, track, drag, visibility modes), so it is scheduled as such. Choosing `blocked` over `todo` is deliberate:
+no half-drawn scrollbar is shipped to satisfy the settings, and the policy is recorded here.
+
+**Not done.** `scrollbar_width` was not used to size the bars: gpui reserves the space but draws nothing in it,
+so the setting would change the layout without a visible bar.
+
 ## ADR-0060 — Extension host spike (P0): Option A is feasible, the handshake works (2026-11-10)
 
 Context: ADR-0020 chose Option A (run upstream's own compiled `extensionHostProcess` under Node,

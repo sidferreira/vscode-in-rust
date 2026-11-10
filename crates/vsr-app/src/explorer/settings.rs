@@ -76,7 +76,7 @@ impl PathSeparator {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExplorerSettings {
     pub sort_order: SortOrder,
     pub lexicographic: Lexicographic,
@@ -91,6 +91,12 @@ pub struct ExplorerSettings {
     pub exclude_git_ignore: bool,
     pub copy_path_separator: PathSeparator,
     pub copy_relative_path_separator: PathSeparator,
+    /// `explorer.fileNesting.enabled`: related files are shown under their parent (ADR-0052).
+    pub file_nesting: bool,
+    /// `explorer.fileNesting.expand`: the nests of a parent are shown until it is collapsed.
+    pub file_nesting_expand: bool,
+    /// `explorer.fileNesting.patterns`: parent pattern and its child patterns (see `nesting.rs`).
+    pub file_nesting_patterns: Vec<(String, Vec<String>)>,
 }
 
 impl Default for ExplorerSettings {
@@ -106,6 +112,9 @@ impl Default for ExplorerSettings {
             exclude_git_ignore: false,
             copy_path_separator: PathSeparator::Auto,
             copy_relative_path_separator: PathSeparator::Auto,
+            file_nesting: false,
+            file_nesting_expand: true,
+            file_nesting_patterns: super::nesting::default_rules(),
         }
     }
 }
@@ -151,6 +160,9 @@ impl ExplorerSettings {
             exclude_git_ignore: c.get_bool("explorer.excludeGitIgnore").unwrap_or(d.exclude_git_ignore),
             copy_path_separator: PathSeparator::from_value(c.get_str("explorer.copyPathSeparator")),
             copy_relative_path_separator: PathSeparator::from_value(c.get_str("explorer.copyRelativePathSeparator")),
+            file_nesting: c.get_bool("explorer.fileNesting.enabled").unwrap_or(d.file_nesting),
+            file_nesting_expand: c.get_bool("explorer.fileNesting.expand").unwrap_or(d.file_nesting_expand),
+            file_nesting_patterns: super::nesting::rules_from_value(c.get_value("explorer.fileNesting.patterns")),
         }
     }
 }

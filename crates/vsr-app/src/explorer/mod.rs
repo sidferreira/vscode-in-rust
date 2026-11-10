@@ -8,6 +8,7 @@ pub mod inline; // the inline name input: New File, New Folder, Rename (ADR-0041
 // Incremental naming waits for copy, paste and duplicate (ADR-0041); until then only validation runs.
 #[allow(dead_code)]
 pub mod names; // validation and incremental naming (explorer.incrementalNaming)
+pub mod nesting; // explorer.fileNesting.*: the nesting rules and their matcher (ADR-0052)
 pub mod ops; // create, rename, delete on the disk
 pub mod settings; // explorer.* settings (ADR-0041)
 pub mod sort; // explorer.sortOrder

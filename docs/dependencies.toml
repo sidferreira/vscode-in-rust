@@ -224,12 +224,12 @@ note = "Done (ADR-0056): the sidebar sash grip; autoHideGrippers and autoHideGri
 
 [[node]]
 id = "child-process-main"
-title = "Child processes on the main side (spawn, stdio)"
+title = "Shell environment for the extension host (PATH for spawned servers)"
 status = "todo"
 effort = "S"
 effort_source = "guess"
 needs = ["ext-host-p1"]
-note = "Needed by the LSP client (roadmap P2), tsserver (P2b), the native claude binary (P6) and php validation."
+note = "ADR-0078: extensions spawn their language servers themselves inside the Node ext host, so no main-side spawning is needed for LSP over stdio. What remains is passing the user's shell environment (upstream getShellEnv) so a Finder-launched rscode resolves java, node and the like. Not a prerequisite of the LSP extensions themselves (they work from a terminal-launched rscode)."
 
 [[node]]
 id = "workspace-fs-api"
@@ -291,7 +291,7 @@ title = "LSP client over stdio (vscode-languageclient)"
 status = "todo"
 effort = "L"
 effort_source = "extensions-compat §4 (P2)"
-needs = ["child-process-main", "workspace-fs-api", "lang-providers-main"]
+needs = ["workspace-fs-api", "lang-providers-main"]
 note = "Roadmap P2 (oxc). Also needed by the built-in CSS, HTML and JSON features and by XML and Kotlin."
 
 [[node]]
@@ -468,7 +468,7 @@ status = "todo"
 kind = "extension"
 effort = "M"
 effort_source = "extensions-compat §4 (P2b)"
-needs = ["lang-providers-main", "child-process-main"]
+needs = ["lang-providers-main"]
 sources = ["vscode.typescript-language-features"]
 
 [[node]]
@@ -478,7 +478,7 @@ status = "todo"
 kind = "extension"
 effort = "M"
 effort_source = "extensions-compat §4 (P3)"
-needs = ["lsp-client", "lang-providers-main", "child-process-main"]
+needs = ["lsp-client", "lang-providers-main"]
 
 [[node]]
 id = "ext-kotlin"
@@ -487,7 +487,7 @@ status = "todo"
 kind = "extension"
 effort = "L"
 effort_source = "extensions-compat §4 (P4)"
-needs = ["lsp-client", "lang-providers-main", "child-process-main", "debugger-dap"]
+needs = ["lsp-client", "lang-providers-main", "debugger-dap"]
 
 [[node]]
 id = "builtin-lsp-css-html-json"
@@ -517,7 +517,7 @@ status = "todo"
 kind = "extension"
 effort = "M"
 effort_source = "guess"
-needs = ["lang-providers-main", "child-process-main"]
+needs = ["lang-providers-main"]
 sources = ["vscode.php-language-features"]
 
 [[node]]
@@ -567,7 +567,7 @@ status = "todo"
 kind = "extension"
 effort = "XL"
 effort_source = "extensions-compat §4 (P6)"
-needs = ["ext-host-p1", "webview-service", "integrated-terminal", "child-process-main", "uri-handler"]
+needs = ["ext-host-p1", "webview-service", "integrated-terminal", "uri-handler"]
 note = "Needs webviews, a terminal with shell integration, and the native claude binary spawned from the ext host."
 
 [[node]]
@@ -746,7 +746,7 @@ title = "Debugger: debug adapter protocol and debug views"
 status = "todo"
 effort = "XL"
 effort_source = "guess"
-needs = ["ext-host-p1", "child-process-main"]
+needs = ["ext-host-p1"]
 sources = ["ms-vscode.js-debug"]
 todo_globs = ["debug*"]
 

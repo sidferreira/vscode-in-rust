@@ -234,14 +234,14 @@ note = "ADR-0078: extensions spawn their language servers themselves inside the 
 [[node]]
 id = "workspace-fs-api"
 title = "workspace.fs and file system provider API (ext host)"
-status = "todo"
+status = "done"
 effort = "M"
 effort_source = "guess"
 needs = ["ext-host-p1"]
 reasons = [
   "needs the extension host's findFiles API (extensions)",
 ]
-note = "findFiles is the reason for search.experimental.useIgnoreFilesInFindFiles. workspace.fs is P2 in extensions-compat §4."
+note = "Done (ADR-0088..0090): MainThreadFileSystem, findFiles, watchers. The setting behind the findFiles reason can now be wired. App saves/renames do not yet feed file_changed (ADR-0090)."
 
 [[node]]
 id = "text-decorations"

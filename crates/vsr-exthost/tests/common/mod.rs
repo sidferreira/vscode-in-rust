@@ -30,6 +30,27 @@ pub fn boot(
     env: &[(&str, &str)],
     user_settings: serde_json::Value,
 ) -> Option<ExtensionHost> {
+    boot_with(name, env, serde_json::json!({}), user_settings)
+}
+
+/// Pump the host's events until `done` holds (20 s at most).
+pub fn wait_until(host: &mut ExtensionHost, done: impl Fn(&ExtensionHost) -> bool) {
+    let deadline = std::time::Instant::now() + T;
+    while !done(host) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for the host"
+        );
+        host.pump(Duration::from_millis(20));
+    }
+}
+
+pub fn boot_with(
+    name: &str,
+    env: &[(&str, &str)],
+    default_settings: serde_json::Value,
+    user_settings: serde_json::Value,
+) -> Option<ExtensionHost> {
     let launch = match Launch::from_env() {
         Ok(l) => l,
         Err(why) => {
@@ -46,7 +67,7 @@ pub fn boot(
         storage_root: base.join("storage"),
         workspace: Some(("ws".into(), workspace)),
         extensions: vec![ExtensionDescription::from_dir(&fixture_dir()).unwrap()],
-        default_settings: serde_json::json!({}),
+        default_settings,
         user_settings,
         env: env
             .iter()

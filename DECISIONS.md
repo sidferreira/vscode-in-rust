@@ -1948,3 +1948,47 @@ crates). `vsr-rpc` stays the wire; `vsr-exthost` is the meaning of the `MainThre
 Tests (`tests/extension_service.rs`, real host, skip without `RSCODE_CODE_OSS`): description shape (no
 host), activation by event + command round trip + contributed default reaches `getConfiguration`, activation
 error surfaced, clean shutdown.
+
+## ADR-0065 — `MainThread*` shapes for ErrorLens: commands, configuration, status bar, editors, diagnostics, documents (2026-11-10)
+
+All in `vsr-exthost`, UI-free: each shape is a plain model on `MainThread` that the app reads and paints;
+`MainThread::handle` routes by proxy id and method (the rest is recorded in `unhandled` and answered
+`undefined`). Only what the fixture (a stand-in for ErrorLens) triggers is implemented.
+
+- **Commands** (`MainThreadCommands`): `registered` (the ids the app can run with
+  `ExtensionHost::execute_contributed_command`), `$fireCommandActivationEvent`, and `$executeCommand`
+  for an extension running an app command, answered by an `Executor` closure the app sets
+  (`set_executor`; without one the command rejects "not found").
+- **Configuration**: `configuration::layers(registry, conf)` builds the nested defaults and user layers
+  from `vsr-settings`; the extension-contributed defaults (`contributes.configuration`) are merged under
+  `defaults` by `boot` and by `configuration_changed` (`$acceptConfigurationChanged`, which fires
+  `onDidChangeConfiguration`). `$updateConfigurationOption` / `$removeConfigurationOption` are recorded as
+  `ConfigUpdate`s for the app to write to settings.json (the app owns the file). `ConfigurationTarget` is
+  `platform/configuration`'s enum (`update(.., true)` arrives as 2, USER), not the extension API's.
+- **Status bar** (`$setEntry`, `$disposeEntry`): `StatusBar.entries` keyed by item id, `sorted()` in display
+  order (left first; priority nearer the edge). Note the host batches item updates, so text changes arrive
+  a tick after the API call.
+- **Text editors**: decoration types (`$registerTextEditorDecorationType`) and per-editor decorations from
+  both `$trySetDecorations` (with hover / `renderOptions`) and the compact `$trySetDecorationsFast` (four
+  1-based numbers per range); an empty set removes the entry. The other `$try*` editor calls fall through
+  to `undefined`.
+- **Diagnostics** (`$changeMany`, `$clear`): per owner and resource (`scheme://authority/path` key),
+  `markers_for(resource)` adds owners up, `counts()` for the problem counters. `MarkerSeverity` constants
+  exported.
+- **Documents and editors mirror**: `Documents` is the main thread's model of open documents and editors
+  and makes the host's messages (`$acceptDocumentsAndEditorsDelta`, `$acceptModelChanged`) through
+  `ExtensionHost::open_document` / `show_editor` / `close_editor` / `edit_document`; it answers
+  `$tryOpenDocument` (only already-open documents) and `$trySaveDocument`. Columns count `char`s: equal to
+  UTF-16 units on the BMP only (follow-up for astral characters). Untitled documents are not supported.
+
+The real-host test drives a full ErrorLens-style loop: open a document with `ERROR` lines, show an editor,
+the extension (reacting to `onDidChangeActiveTextEditor`) sets diagnostics, decorations with
+`after.contentText` and the status bar count; an edit (`onDidChangeTextDocument`) updates all three; a
+settings change flips the status prefix; the extension saves the document and updates a setting.
+
+**Not done (stretch):** wiring into the gpui workbench (painting the status bar entries, decorations and
+diagnostics in `vsr-app`, headless with `TestAppContext`). The models are the integration surface; the
+workbench needs an `ExtensionHost` owned by the app, `pump` driven from its event loop, and the editor
+view reading `editors.decorations_for` / `diagnostics.markers_for`. Also open: ESM extensions, extension
+scanning of `~/.vscode/extensions`, `$activateByEvent` for `onLanguage:`/`workspaceContains:` from the
+document model, bundling the Code-OSS host (ADR-0060), activation timing out.

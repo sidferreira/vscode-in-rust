@@ -140,6 +140,12 @@ pub struct Unhandled {
 #[derive(Debug, Default)]
 pub struct MainThread {
     pub extensions: ExtensionService,
+    pub commands: crate::commands::Commands,
+    pub configuration: crate::configuration::ConfigurationService,
+    pub status_bar: crate::status_bar::StatusBar,
+    pub editors: crate::editors::Editors,
+    pub diagnostics: crate::diagnostics::Diagnostics,
+    pub documents: crate::documents::Documents,
     /// `MainThreadConsole.$logExtensionHostMessage` payloads (the host's own warnings land here,
     /// for example `Could not identify extension for 'vscode' require`).
     pub console: Vec<Value>,
@@ -155,6 +161,12 @@ impl MainThread {
     pub fn handle(&mut self, call: &Call) -> Result<Reply, HandlerError> {
         let handled = match call.rpc_id {
             main::MAIN_THREAD_EXTENSION_SERVICE => self.extensions.handle(call),
+            main::MAIN_THREAD_COMMANDS => self.commands.handle(call),
+            main::MAIN_THREAD_CONFIGURATION => self.configuration.handle(call),
+            main::MAIN_THREAD_STATUS_BAR => self.status_bar.handle(call),
+            main::MAIN_THREAD_TEXT_EDITORS => self.editors.handle(call),
+            main::MAIN_THREAD_DIAGNOSTICS => self.diagnostics.handle(call),
+            main::MAIN_THREAD_DOCUMENTS => self.documents.handle(call),
             main::MAIN_THREAD_CONSOLE if call.method == "$logExtensionHostMessage" => {
                 self.console.push(arg(call, 0).clone());
                 Some(Ok(Reply::Empty))

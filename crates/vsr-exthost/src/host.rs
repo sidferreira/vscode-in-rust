@@ -8,9 +8,10 @@
 //! are applied to [`MainThread`] on the caller's thread, so models need no locking.
 
 use crate::description::{ExtensionDescription, delta_adding, identifier, nest};
+use crate::documents::TextEdit;
 use crate::main_thread::MainThread;
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
@@ -70,6 +71,8 @@ pub struct ExtensionHost {
     pub main_thread: MainThread,
     start: Option<Pending>,
     closed: bool,
+    /// The defaults extensions contribute (nested), re-sent with every configuration change.
+    extension_defaults: Value,
 }
 
 impl ExtensionHost {
@@ -113,7 +116,8 @@ impl ExtensionHost {
         for e in &p.extensions {
             defaults.extend(e.configuration_defaults());
         }
-        let defaults = merge(p.default_settings.clone(), nest(defaults));
+        let extension_defaults = nest(defaults);
+        let defaults = merge(p.default_settings.clone(), extension_defaults.clone());
 
         let codec = |e: vsr_rpc::codec::CodecError| HostError::Codec(e.to_string());
         let ws = session
@@ -152,6 +156,7 @@ impl ExtensionHost {
             main_thread,
             start: Some(start),
             closed: false,
+            extension_defaults,
         };
         me.wait(&ws, Duration::from_secs(30))?;
         me.wait(&cfg, Duration::from_secs(30))?;
@@ -236,6 +241,93 @@ impl ExtensionHost {
             Ok(_) => Ok(()),
             Err(e) => Err(HostError::Remote(e)),
         }
+    }
+
+    /// `ExtHostDocumentsAndEditors.$acceptDocumentsAndEditorsDelta`.
+    fn send_delta(&mut self, delta: Value, timeout: Duration) -> Result<(), HostError> {
+        self.call(
+            ext_host::EXT_HOST_DOCUMENTS_AND_EDITORS,
+            "$acceptDocumentsAndEditorsDelta",
+            &[Arg::Json(delta)],
+            timeout,
+        )
+        .map(|_| ())
+    }
+
+    /// Tell the host a document is open (the main thread's model gets it too).
+    pub fn open_document(
+        &mut self,
+        path: &Path,
+        text: &str,
+        language: &str,
+        timeout: Duration,
+    ) -> Result<(), HostError> {
+        let delta = self
+            .main_thread
+            .documents
+            .add_document(path, text, language);
+        self.send_delta(delta, timeout)
+    }
+
+    /// Show an editor on an open document and make it active; returns the editor id.
+    pub fn show_editor(&mut self, path: &Path, timeout: Duration) -> Result<String, HostError> {
+        let (id, delta) = self.main_thread.documents.add_editor(path).ok_or_else(|| {
+            HostError::Codec(format!("{} is not an open document", path.display()))
+        })?;
+        self.send_delta(delta, timeout)?;
+        Ok(id)
+    }
+
+    pub fn close_editor(&mut self, id: &str, timeout: Duration) -> Result<(), HostError> {
+        let delta = self.main_thread.documents.remove_editor(id);
+        self.send_delta(delta, timeout)
+    }
+
+    /// Edit an open document: `ExtHostDocuments.$acceptModelChanged`, which fires
+    /// `onDidChangeTextDocument` in extensions.
+    pub fn edit_document(
+        &mut self,
+        path: &Path,
+        edits: &[TextEdit],
+        timeout: Duration,
+    ) -> Result<(), HostError> {
+        let (uri, event, dirty) =
+            self.main_thread
+                .documents
+                .edit(path, edits)
+                .ok_or_else(|| {
+                    HostError::Codec(format!("{} is not an open document", path.display()))
+                })?;
+        self.call(
+            ext_host::EXT_HOST_DOCUMENTS,
+            "$acceptModelChanged",
+            &[Arg::Json(uri), Arg::Json(event), Arg::Json(json!(dirty))],
+            timeout,
+        )
+        .map(|_| ())
+    }
+
+    /// `ExtHostConfiguration.$acceptConfigurationChanged`: new layers (see
+    /// [`crate::configuration::layers`]) and the keys that changed. Extensions see
+    /// `onDidChangeConfiguration`.
+    pub fn configuration_changed(
+        &mut self,
+        defaults: Value,
+        user: Value,
+        changed_keys: &[&str],
+        timeout: Duration,
+    ) -> Result<(), HostError> {
+        let data = configuration_data(merge(defaults, self.extension_defaults.clone()), user);
+        self.call(
+            ext_host::EXT_HOST_CONFIGURATION,
+            "$acceptConfigurationChanged",
+            &[
+                Arg::Json(data),
+                Arg::Json(json!({ "keys": changed_keys, "overrides": [] })),
+            ],
+            timeout,
+        )
+        .map(|_| ())
     }
 
     /// `ExtHostExtensionService.$activateByEvent(event, ActivationKind.Normal)`.

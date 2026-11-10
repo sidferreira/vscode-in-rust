@@ -16,6 +16,12 @@
 //! No UI crate is used here: the app reads the models (status bar entries, decorations,
 //! diagnostics, registered commands) and paints them.
 
+pub mod commands;
+pub mod configuration;
 pub mod description;
+pub mod diagnostics;
+pub mod documents;
+pub mod editors;
 pub mod host;
 pub mod main_thread;
+pub mod status_bar;

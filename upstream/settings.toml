@@ -887,3 +887,9 @@ match = ["workbench.sash.autoHideGrippers", "workbench.sash.autoHideGrippersDela
 
 comment = "breadcrumbs.symbolPath, symbolSortOrder and symbolPathSeparator order and show the symbols of the file. breadcrumbs.show<Kind> (showFiles, showModules, ... showTypeParameters) filter the same symbol kinds in the outline, so they change nothing without symbols (documentSymbolsTree.ts)."
 match = ["breadcrumbs.symbol*", "breadcrumbs.show*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs an Open Editors pane in the Explorer"
+comment = "explorer.openEditors.visible, minVisible and sortOrder size and sort the Open Editors list at the top of the Explorer view. rscode's Explorer shows the file tree only; the open editors are tabs (model.rs). The list is a feature of its own, so these wait for it."
+match = ["explorer.openEditors.visible", "explorer.openEditors.minVisible", "explorer.openEditors.sortOrder"]

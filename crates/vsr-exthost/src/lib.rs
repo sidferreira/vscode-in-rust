@@ -25,6 +25,8 @@ pub mod discovery;
 pub mod diagnostics;
 pub mod documents;
 pub mod editors;
+pub mod file_system;
+pub mod file_watcher;
 pub mod host;
 pub mod language_features;
 pub mod main_thread;

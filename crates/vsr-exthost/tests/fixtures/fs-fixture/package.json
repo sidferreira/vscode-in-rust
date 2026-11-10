@@ -1,0 +1,12 @@
+{
+  "name": "fs-fixture",
+  "displayName": "workspace.fs fixture",
+  "publisher": "rscode-test",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onCommand:fixture.fsRun"],
+  "contributes": {
+    "commands": [{ "command": "fixture.fsRun", "title": "Fixture: workspace.fs" }]
+  }
+}

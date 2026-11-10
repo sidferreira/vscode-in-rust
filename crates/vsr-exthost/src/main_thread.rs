@@ -147,6 +147,7 @@ pub struct MainThread {
     pub diagnostics: crate::diagnostics::Diagnostics,
     pub documents: crate::documents::Documents,
     pub language_features: crate::language_features::main_thread::LanguageFeatures,
+    pub file_system: crate::file_system::FileSystem,
     /// `MainThreadConsole.$logExtensionHostMessage` payloads (the host's own warnings land here,
     /// for example `Could not identify extension for 'vscode' require`).
     pub console: Vec<Value>,
@@ -169,12 +170,15 @@ impl MainThread {
             main::MAIN_THREAD_DIAGNOSTICS => self.diagnostics.handle(call),
             main::MAIN_THREAD_DOCUMENTS => self.documents.handle(call),
             main::MAIN_THREAD_LANGUAGE_FEATURES => self.language_features.handle(call),
+            main::MAIN_THREAD_FILE_SYSTEM => self.file_system.handle(call),
             main::MAIN_THREAD_CONSOLE if call.method == "$logExtensionHostMessage" => {
                 self.console.push(arg(call, 0).clone());
                 Some(Ok(Reply::Empty))
             }
             _ => None,
         };
+        // No file watcher yet (ADR-0090 next step): the changes this call made are dropped.
+        self.file_system.changes.clear();
         if let Some(r) = handled {
             return r;
         }

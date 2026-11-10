@@ -2644,3 +2644,49 @@ lives on the worker:
   `breadcrumbs.showEditorType` stays blocked as before (custom editors).
 - **Not done**: the Outline view in the Explorer (follow cursor, sort and filter actions, refresh with
   the debounce, the empty state), symbol icons in the bar, and the `Go to Symbol` 'outline view' sync.
+
+## ADR-0088 — `workspace.fs` on the main side: the file scheme, what the Node host keeps, and the delete guards (2026-11-10)
+
+- **What runs where.** The Node ext host registers its own disk provider for the `file` scheme
+  (`src/vs/workbench/api/node/extHostDiskFileSystemProvider.ts`, always, in `ExtHostExtensionService`).
+  `vscode.workspace.fs` then shortcuts to that provider for `stat`, `readDirectory`, `readFile`,
+  `writeFile`, `createDirectory` and plain `delete`, sending only `$ensureActivation` to the main side.
+  The main side is asked for `rename`, `copy` (no shortcut), and `delete` with `useTrash` (the consumer
+  forwards it, because the host's adapter forces `useTrash: false`). Measured: a fixture run of every
+  operation reaches `MainThreadFileSystem` for exactly those. `MainThreadFileSystem` in
+  `vsr-exthost/src/file_system.rs` implements the rest too (`$stat`, `$readdir`, `$readFile`,
+  `$writeFile`, `$mkdir`, plain `$delete`), as upstream's contract, for hosts that do not register the
+  local provider; they are tested through `MainThread::handle` (`tests/file_system_main_thread.rs`).
+- **Scheme support: `file` only.** Any other scheme is `Unavailable` (`ENOPRO: no file system provider
+  found for scheme …`), which the host turns into `FileSystemError.Unavailable`. `$ensureActivation`
+  is a no-op.
+- **Error encoding.** Errors cross the wire with the bare `FileSystemProviderErrorCode` value as the name
+  (`EntryNotFound`, `EntryExists`, `EntryIsADirectory`, `EntryNotADirectory`, `NoPermissions`,
+  `Unavailable`, `Unknown`), never the `… (FileSystemError)` form. The host maps the name to
+  `FileSystemError.FileNotFound` and so on (`extHostFileSystemConsumer.ts`, `_handleError`). io errors map
+  `NotFound`, `AlreadyExists`, `PermissionDenied`, EISDIR, ENOTDIR, else `Unknown`. A plain `Error` (name
+  `Error`) is kept where upstream throws one (`mkdirp` over a file). `rename` and `copy` refuse an existing
+  target unless `overwrite`; `writeFile` creates the parents and `mkdir` is recursive (upstream's
+  `mkdirp`). `stat` times are milliseconds; `type` is 1 file, 2 folder, plus 64 for a symbolic link.
+- **Delete guards (the safety rules).** Destructive operations happen only under a root the app allows
+  (`FileSystem::allow_destructive_under`, canonicalised; the list is empty in the app, and the tests allow
+  their own scratch folder):
+  1. a non-recursive delete of a file or an empty folder is allowed anywhere;
+  2. `recursive: true` on a folder, and any overwrite of a folder by `rename` or `copy`, is allowed only
+     under an allowed root, else `NoPermissions`;
+  3. `useTrash: true` is never sent to the Trash: outside an allowed root it is `Unavailable` with the
+     message `trash not supported`; inside one it is a permanent delete (there is no trash in the tests).
+  `..` and symbolic-link parents cannot step out of a root (the parent is canonicalised).
+- **Gap, stated plainly: the guards cover what the host forwards.** Operations the Node host runs itself
+  (plain and recursive `delete`, writes, creates) are not seen by the main side, so a recursive delete an
+  extension makes outside the workspace is not refused. That is the same as any VS Code extension on
+  disk. Closing it means changing the Code-OSS build (no local `file` provider, so every operation is
+  forwarded), a decision for the owner of `codeoss-exthost`, not made here.
+- **Changes.** The main side records what it changes (created, changed, deleted) for the file watchers
+  (ADR-0090). The changes of the host's own operations are not seen, for the same reason.
+- **Tests.** `file_system` unit tests (error codes, the scheme rule, the allowed-root guard), the
+  main-side operations through `MainThread::handle` (`tests/file_system_main_thread.rs`), and a real host
+  (`tests/workspace_fs_real_host.rs`, fixture `fs-fixture`): every step of `vscode.workspace.fs` reports
+  the code a user would catch (`FileNotFound`, `FileExists`, `FileIsADirectory`, `FileNotADirectory`,
+  `NoPermissions`, `Unavailable`), and the forwarded guards refuse outside the workspace with nothing
+  touched.

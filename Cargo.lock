@@ -7351,6 +7351,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vsr-rpc"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "vsr-search"
 version = "0.1.0"
 dependencies = [

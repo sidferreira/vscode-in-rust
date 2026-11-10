@@ -1,0 +1,10 @@
+[package]
+name = "vsr-rpc"
+description = "UI-free extension host RPC: the PersistentProtocol framing, the RPCProtocol message codec and the proxy id table of upstream VS Code (ADR-0060)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json = "1"

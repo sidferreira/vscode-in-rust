@@ -1683,6 +1683,8 @@ unit ports (`activitybarPart.test.ts`) are not ported, so the references are "Up
 
 ## ADR-0051 — Sash settings: size wired, grippers blocked (2026-11-10)
 
+**Superseded by ADR-0056** (the grip is drawn; `autoHideGrippers` and `autoHideGrippersDelay` are wired).
+
 **Context.** The sash group had `workbench.sash.size` (wired in ADR-0048), `hoverDelay` (blocked: gpui tooltips
 use a fixed delay) and `autoHideGrippers` / `autoHideGrippersDelay`. Upstream's `SashGrippersController` (sash.ts)
 hides the grippers, the dots drawn in the middle of a sash, after the mouse has been idle for the delay, and
@@ -1793,6 +1795,26 @@ vertical scrollbar, at the height of their line in the whole document. The zone 
   background colour.
 - With `editor.scrollbar.vertical: hidden` there is no lane, so no ruler. Upstream keeps the reserved column and draws
   the ruler in it; this stays a deliberate difference, as in ADR-0054.
+
+## ADR-0056 — Sash grippers: the grip is drawn on the sidebar sash and recedes when the mouse is idle (2026-11-10)
+
+**Context.** `workbench.sash.autoHideGrippers` and `autoHideGrippersDelay` (ADR-0051) describe the gripper dots of a
+sash, which fade when the mouse is idle (upstream `SashGrippersController` in `sash.ts`, with the settings registered
+in `sash.contribution.ts`). rscode has one sash, the sidebar's, a 1px border with a hover colour.
+
+**Decision.** The sidebar sash draws a grip: a 3 by 24 pixel rounded bar, centred on the sash, in `sash.hoverBorder`.
+With `autoHideGrippers` on, a mouse move shows it again and it recedes after `autoHideGrippersDelay` milliseconds
+(default 2000) of mouse idle; each move restarts the timer, so an earlier timer cannot recede it. With the setting
+off the grip stays visible. Both settings are wired (`config/settings.rs` `LayoutSettings`, `main.rs` `sash_mouse_activity`).
+The E2E tests run the idle timer on the test clock (`config/e2e_sash.rs`).
+
+**Not done.**
+- Upstream starts its idle timer when the window opens, so the grip recedes without any mouse movement. Here it
+  stays until the first mouse move, then recedes after the delay.
+- Upstream also keeps the grippers of hovered sashes in their hover state; here only mouse movement keeps the grip.
+- Mouse movement is taken from the workbench root, not from nested webview frames (upstream's webview event).
+- rscode has no other sash, so the grip is drawn only on the sidebar's.
+
 
 ## ADR-0060 — Extension host spike (P0): Option A is feasible, the handshake works (2026-11-10)
 

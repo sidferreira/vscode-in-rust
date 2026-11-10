@@ -21,6 +21,8 @@ mod e2e;
 #[cfg(test)]
 mod e2e_files;
 #[cfg(test)]
+mod e2e_sash;
+#[cfg(test)]
 mod e2e_syntax;
 #[cfg(test)]
 mod e2e_typing;

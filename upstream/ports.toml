@@ -254,6 +254,20 @@ synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Overview ruler (ADR-0055): the zone math of overviewZoneManager.ts (all three upstream OverviewZoneManager tests ported; the DOM width they set changes no zone), the marks for the cursor, the selection and the find matches on the vertical scrollbar's lane, editor.overviewRulerBorder and editor.hideCursorInOverviewRuler. Not ported: the multi-cursor and bracket-match zones, error and warning zones (no diagnostics yet), the lane's own background colour, and view-line positions (marks use document lines, so folding misplaces them)."
 
 [[port]]
+id = "workbench-sash-grippers"
+status = "partial"
+upstream = [
+  "src/vs/workbench/contrib/sash/browser/sash.ts",
+  "src/vs/workbench/contrib/sash/browser/sash.contribution.ts",
+]
+rust = [
+  "crates/vsr-app/src/config/e2e_sash.rs",
+  "crates/vsr-app/src/main.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Sash grippers (ADR-0056): the sidebar sash draws its grip and recedes it when the mouse is idle (workbench.sash.autoHideGrippers and autoHideGrippersDelay, wired). Not ported: the idle timer at window open, the hover-state grippers, the webview mouse activity event, and grippers on other sashes (rscode has only the sidebar sash). e2e_sash.rs is ours."
+
+[[port]]
 id = "editor-minimap"
 status = "partial"
 upstream = [

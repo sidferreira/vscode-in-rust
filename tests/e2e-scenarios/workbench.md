@@ -34,6 +34,17 @@ Blocked, grouped by feature:
 - cross-version state migration: #7, #8
 - localization: #10
 
+### Sash grippers (ADR-0056)
+
+Headless (`crates/vsr-app/src/config/e2e_sash.rs`). The grip is found by its debug selector, and the idle timer runs on the test clock.
+
+| scenario | status | test |
+|---|---|---|
+| the grip is drawn on the sidebar sash | ready | `the_grip_is_drawn_on_the_sidebar_sash` |
+| auto-hide recedes the grip after the delay; mouse movement brings it back | ready | `auto_hide_recedes_the_grip_after_the_delay_and_mouse_movement_brings_it_back` |
+| `workbench.sash.autoHideGrippersDelay` is read live | ready | `the_delay_setting_is_read_live` |
+| `workbench.sash.autoHideGrippers: false` keeps the grip visible | ready | `disabling_auto_hide_keeps_the_grip_visible` |
+
 ## rscode-only scenarios (no upstream smoke test)
 
 The upstream smoke tests drive the Command Palette through `quickaccess.runCommand(...)` in most

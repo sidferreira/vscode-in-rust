@@ -743,6 +743,10 @@ pub struct LayoutSettings {
     pub tree_indent: f32,
     /// `workbench.sash.size`: the width in pixels of the area that drags a sash (default 4).
     pub sash_size: f32,
+    /// `workbench.sash.autoHideGrippers` and `autoHideGrippersDelay`: whether the sash's grip recedes when the
+    /// mouse is idle, and after how many milliseconds (upstream `SashGrippersController`, ADR-0056).
+    pub sash_auto_hide_grippers: bool,
+    pub sash_auto_hide_grippers_delay: u64,
     /// `window.commandCenter`: the search box in the title bar.
     pub command_center: bool,
     /// `window.density.editorTabHeight`: compact tabs are shorter (22px, default 35px).
@@ -796,6 +800,8 @@ impl LayoutSettings {
             show_tabs: c.get_enum("workbench.editor.showTabs").unwrap_or(ShowTabs::Multiple),
             tree_indent: c.get_f64("workbench.tree.indent").unwrap_or(8.0) as f32,
             sash_size: sash_size(c),
+            sash_auto_hide_grippers: c.get_bool("workbench.sash.autoHideGrippers").unwrap_or(true),
+            sash_auto_hide_grippers_delay: c.get_f64("workbench.sash.autoHideGrippersDelay").unwrap_or(2000.0).max(0.0) as u64,
             command_center: c.get_bool("window.commandCenter").unwrap_or(true),
             compact_tabs: c.get_enum::<TabHeight>("window.density.editorTabHeight") == Some(TabHeight::Compact),
             activity_bar_compact: c.get_bool("workbench.activityBar.compact").unwrap_or(false),
@@ -1016,6 +1022,8 @@ mod tests {
             show_tabs: ShowTabs::Multiple,
             tree_indent: 8.0,
             sash_size: 4.0,
+            sash_auto_hide_grippers: true,
+            sash_auto_hide_grippers_delay: 2000,
             command_center: true,
             compact_tabs: false,
             activity_bar_compact: false,

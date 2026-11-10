@@ -170,6 +170,10 @@ struct Workbench {
     sidebar_visible: bool,
     sidebar_width: f32,
     resizing_sidebar: bool,
+    /// The sash grip is receded: `workbench.sash.autoHideGrippers` after the mouse was idle for the delay.
+    sash_grippers_hidden: bool,
+    /// Bumped with every mouse move, so a timer from an earlier move does not recede the grip.
+    sash_idle_epoch: u64,
     expanded: HashSet<PathBuf>,
     /// The Explorer tree's focus, selection and scroll (ADR-0041).
     explorer: explorer::state::ExplorerState,
@@ -260,6 +264,8 @@ impl Workbench {
             sidebar_visible: true,
             sidebar_width: m::SIDEBAR_WIDTH,
             resizing_sidebar: false,
+            sash_grippers_hidden: false,
+            sash_idle_epoch: 0,
             expanded: HashSet::new(),
             explorer: explorer::state::ExplorerState::new(cx),
             children: HashMap::new(),
@@ -314,6 +320,37 @@ impl Workbench {
 
     fn layout(&self, cx: &App) -> LayoutSettings {
         LayoutSettings::from_configuration(AppConfig::get(cx).configuration())
+    }
+
+    /// The mouse moved: the grip comes back, and recedes again after the idle delay
+    /// (`SashGrippersController`'s `showGrippers`). Nothing happens when auto-hide is off.
+    fn sash_mouse_activity(&mut self, cx: &mut Context<Self>) {
+        let layout = self.layout(cx);
+        if !layout.sash_auto_hide_grippers {
+            if self.sash_grippers_hidden {
+                self.sash_grippers_hidden = false;
+                cx.notify();
+            }
+            return;
+        }
+        if self.sash_grippers_hidden {
+            self.sash_grippers_hidden = false;
+            cx.notify();
+        }
+        self.sash_idle_epoch = self.sash_idle_epoch.wrapping_add(1);
+        let epoch = self.sash_idle_epoch;
+        let delay = std::time::Duration::from_millis(layout.sash_auto_hide_grippers_delay);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            this.update(cx, |this, cx| {
+                if this.sash_idle_epoch == epoch && !this.sash_grippers_hidden {
+                    this.sash_grippers_hidden = true;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn list(&self, dir: &Path) -> Vec<DirEntry> {
@@ -1306,7 +1343,20 @@ impl Render for Workbench {
                                 cx.notify();
                             }),
                         ),
-                );
+                )
+                // The grip: drawn in the middle of the sash, receded while the mouse is idle (ADR-0056).
+                .children((!self.sash_grippers_hidden).then(|| {
+                    div()
+                        .absolute()
+                        .top_1_2()
+                        .mt(px(-12.))
+                        .left(px(-1.5))
+                        .w(px(3.))
+                        .h(px(24.))
+                        .rounded(px(1.5))
+                        .debug_selector(|| "sidebar-resize-gripper".to_string())
+                        .bg(to_gpui(t.sash_hover_border))
+                }));
             (self.side_bar(cx, layout.activity_bar).into_any_element(), sash.into_any_element())
         });
         let mut right_group = Vec::new();
@@ -1356,6 +1406,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &language_mode::ChangeLanguageMode, window, cx| this.show_language_picker(window, cx)))
             .map(|root| Workbench::bind_explorer_actions(root, cx))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
+                this.sash_mouse_activity(cx);
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {
                         let layout = this.layout(cx);

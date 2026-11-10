@@ -17,6 +17,8 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "workbench.editor.showTabs",
             "workbench.tree.indent",
             "workbench.sash.size",
+            "workbench.sash.autoHideGrippers",
+            "workbench.sash.autoHideGrippersDelay",
         ],
     ),
     (

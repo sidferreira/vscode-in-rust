@@ -361,3 +361,46 @@ fn a_plain_save_as_keeps_the_tab_open(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(wb.read_with(cx, |wb, _| wb.editors.index_of(&target).is_some()));
 }
+
+#[gpui::test]
+fn a_restored_untitled_text_keeps_its_tab_position(cx: &mut TestAppContext) {
+    let env = env("position", "{}");
+    {
+        let (wb, cx) = start(cx, &env);
+        wb.update(cx, |wb, _| wb.open(&env.root.join("a.rs")));
+        cx.run_until_parked();
+        new_untitled(&wb, cx);
+        type_in_active(&wb, cx, "draft");
+        wb.update(cx, |wb, _| wb.open(&env.root.join("notes.txt")));
+        cx.run_until_parked();
+        tick(cx);
+        tick(cx);
+        wb.update(cx, |wb, cx| wb.persist_on_quit(cx));
+    }
+    let (wb, cx) = start(cx, &env);
+    let order: Vec<PathBuf> = wb.read_with(cx, |wb, _| wb.editors.open.iter().map(|e| e.path.clone()).collect());
+    assert_eq!(order, vec![env.root.join("a.rs"), untitled_key("Untitled-1"), env.root.join("notes.txt")]);
+}
+
+#[gpui::test]
+fn restore_applies_the_editor_limit_to_the_saved_tabs(cx: &mut TestAppContext) {
+    let env = env("limit", "{}");
+    fs::write(env.root.join("c.txt"), "c\n").unwrap();
+    {
+        let (wb, cx) = start(cx, &env);
+        for name in ["a.rs", "notes.txt", "c.txt"] {
+            let path = env.root.join(name);
+            wb.update(cx, |wb, _| wb.open(&path));
+            cx.run_until_parked();
+        }
+        assert_eq!(wb.read_with(cx, |wb, _| wb.editors.open.len()), 3);
+        tick(cx);
+        wb.update(cx, |wb, cx| wb.persist_on_quit(cx));
+    }
+    fs::write(&env.settings, r#"{ "workbench.editor.limit.enabled": true, "workbench.editor.limit.value": 2 }"#).unwrap();
+    let (wb, cx) = start(cx, &env);
+    let open: Vec<PathBuf> = wb.read_with(cx, |wb, _| wb.editors.open.iter().map(|e| e.path.clone()).collect());
+    assert_eq!(open, vec![env.root.join("notes.txt"), env.root.join("c.txt")], "the least recently used tab goes, the active one stays");
+    let active = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().path.clone());
+    assert_eq!(active, env.root.join("c.txt"));
+}

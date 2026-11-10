@@ -37,7 +37,7 @@ use std::time::Duration;
 
 use gpui_kit::*;
 
-use super::backup::BackupStore;
+use super::backup::{Backup, BackupStore};
 use super::settings::SessionSettings;
 use super::state::{
     EditorState, FORMAT_VERSION, GlobalState, MAX_RECENT_FOLDERS, SearchState, SideBarState, ViewState, WorkspaceState, touch_recent,
@@ -186,6 +186,16 @@ impl Workbench {
         self.session.backups = Some(backups.clone());
         self.session.workspace_file = Some(workspace_file.clone());
 
+        // Backups are read first: an untitled text's tab is placed from its backup (ADR-0074).
+        let loaded = backups.load_all();
+        notices.extend(loaded.problems.iter().cloned());
+        let untitled_backups: HashMap<PathBuf, Backup> = loaded
+            .backups
+            .iter()
+            .filter(|b| untitled_name_of(Path::new(&b.path)).is_some())
+            .map(|b| (PathBuf::from(&b.path), b.clone()))
+            .collect();
+
         // Workspace state.
         let mut restored_views: Vec<(PathBuf, ViewState)> = Vec::new();
         match load_json::<WorkspaceState>(&workspace_file) {
@@ -194,7 +204,7 @@ impl Workbench {
                     self.restore_layout(&state);
                 }
                 if settings.restores_editors() {
-                    restored_views = self.restore_tabs(&state);
+                    restored_views = self.restore_tabs(&state, &untitled_backups);
                 }
             }
             Loaded::Corrupt { kept, error } => notices.push(format!("The saved session could not be read ({error}); kept at {}", shown(kept))),
@@ -202,8 +212,6 @@ impl Workbench {
         }
 
         // Backups: unsaved text always comes back.
-        let loaded = backups.load_all();
-        notices.extend(loaded.problems);
         for backup in &loaded.backups {
             self.restore_backup(backup, &backups);
         }
@@ -219,6 +227,8 @@ impl Workbench {
             let first = self.editors.mru.first().and_then(|p| self.editors.index_of(p)).unwrap_or(0);
             self.editors.activate(first);
         }
+        // The limit applies to the whole restore, once the order and the active tab are known (ADR-0074).
+        self.editors.enforce_limit();
         if !notices.is_empty() {
             self.error = Some(notices.join(" | "));
         }
@@ -259,15 +269,26 @@ impl Workbench {
         Some(editor)
     }
 
-    /// Opens the saved tabs in their order (files that are gone are skipped). Returns their view states.
-    fn restore_tabs(&mut self, state: &WorkspaceState) -> Vec<(PathBuf, ViewState)> {
+    /// Opens the saved tabs in their order (files that are gone are skipped; an untitled text comes back
+    /// from its backup, at its saved place, and one without a backup was clean and is not brought back).
+    /// Returns their view states.
+    fn restore_tabs(&mut self, state: &WorkspaceState, untitled: &HashMap<PathBuf, Backup>) -> Vec<(PathBuf, ViewState)> {
         let mut views = Vec::new();
         for saved in &state.editors {
             let path = PathBuf::from(&saved.path);
             if self.editors.index_of(&path).is_some() {
                 continue;
             }
-            let Some(editor) = self.build_editor(&path) else { continue };
+            let editor = match untitled_name_of(&path) {
+                Some(name) => match untitled.get(&path) {
+                    Some(backup) => self.editors.untitled_editor(name, &backup.text, backup.language.as_deref()),
+                    None => continue,
+                },
+                None => match self.build_editor(&path) {
+                    Some(editor) => editor,
+                    None => continue,
+                },
+            };
             self.editors.open.push(editor);
             if saved.preview && self.editors.preview.is_none() {
                 self.editors.preview = Some(path.clone());
@@ -334,13 +355,12 @@ impl Workbench {
 
     /// The state of this workbench as it would be saved now.
     pub(crate) fn session_snapshot(&self, cx: &App) -> WorkspaceState {
-        // Untitled texts are not tabs to reopen by path: their text is in the backups (ADR-0058).
+        // An untitled text is listed by its key: its text is in its backup, and its place is kept (ADR-0074).
         let editors = self
             .editors
             .open
             .iter()
             .enumerate()
-            .filter(|(_, e)| !e.is_untitled())
             .map(|(i, e)| EditorState {
                 path: e.path.to_string_lossy().into_owned(),
                 preview: self.editors.is_preview(i),
@@ -355,18 +375,8 @@ impl Workbench {
             find_history,
             replace_history,
             editors,
-            active: self
-                .editors
-                .active
-                .filter(|&a| self.editors.open.get(a).is_some_and(|e| !e.is_untitled()))
-                .map(|a| self.editors.open[..a].iter().filter(|e| !e.is_untitled()).count()),
-            mru: self
-                .editors
-                .mru
-                .iter()
-                .filter(|p| untitled_name_of(p).is_none())
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect(),
+            active: self.editors.active,
+            mru: self.editors.mru.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
             side_bar: SideBarState {
                 visible: self.sidebar_visible,
                 width: self.sidebar_width,

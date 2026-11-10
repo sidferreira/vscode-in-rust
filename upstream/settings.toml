@@ -663,3 +663,51 @@ status = "blocked"
 reason = "needs folding range providers from the extension host"
 comment = "editor.defaultFoldingRangeProvider picks the folding provider that wins over the others. rscode folds by indentation only (folding.rs); the providers come from the extension host."
 match = ["editor.defaultFoldingRangeProvider"]
+
+[[rule]]
+status = "blocked"
+reason = "needs document symbols (outline provider from the extension host)"
+comment = "outline.* configures the Outline view, which lists the symbols of the active file. The symbols come from the language providers of the extension host (ADR-0020); rscode has no Outline view yet."
+match = ["outline*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the Search Editor"
+comment = "search.searchEditor.* configures search results shown in an editor tab (the Search Editor). rscode only has the Search view (ADR-0023); search.mode is blocked for the same reason."
+match = ["search.searchEditor*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the Replace Preview (a preview of each replace before it is applied)"
+comment = "search.useReplacePreview opens the Replace Preview when a match is selected or replaced. rscode's Search view replaces without a preview."
+match = ["search.useReplacePreview"]
+
+[[rule]]
+status = "blocked"
+reason = "needs workspace symbols (symbol provider, via the extension host)"
+comment = "search.quickOpen.includeSymbols adds the results of a workspace symbol search to Quick Open. The symbols come from the extension host (ADR-0020), so Quick Open has no symbol results yet."
+match = ["search.quickOpen.includeSymbols"]
+
+[[rule]]
+status = "n/a"
+reason = "AI chat, agents and copilot (product)"
+comment = "workbench.commandPalette.experimental.enableNaturalLanguageSearch ranks commands with AI, and askChatLocation and showAskInChat send questions to chat. rscode has no AI chat or AI search (ADR-0023 and the AI policy)."
+match = ["workbench.commandPalette.experimental.enableNaturalLanguageSearch", "workbench.commandPalette.experimental.askChatLocation", "workbench.commandPalette.showAskInChat"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the suggested commands list (commands ranked by use for the palette)"
+comment = "workbench.commandPalette.experimental.suggestCommands shows a list of commonly used commands at the top of the palette. rscode's palette keeps only the command history (workbench.commandPalette.history); there is no suggested list yet."
+match = ["workbench.commandPalette.experimental.suggestCommands"]
+
+[[rule]]
+status = "blocked"
+reason = "needs hover widgets with a configurable delay (gpui tooltips use a fixed delay)"
+comment = "workbench.sash.hoverDelay sets how long the hover feedback on a sash takes. gpui tooltips use a fixed delay, so the setting has no effect yet (the same gap as the other hover delays)."
+match = ["workbench.sash.hoverDelay"]
+
+[[rule]]
+status = "blocked"
+reason = "needs sash grippers (the drawn handle in the middle of a sash)"
+comment = "workbench.sash.autoHideGrippers and autoHideGrippersDelay fade the gripper of a sash when the mouse is idle. rscode's sashes have a hover colour only, no gripper."
+match = ["workbench.sash.autoHideGrippers", "workbench.sash.autoHideGrippersDelay"]

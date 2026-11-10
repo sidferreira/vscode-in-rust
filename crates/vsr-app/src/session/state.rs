@@ -14,7 +14,9 @@
 //!   "mru": ["/Users/me/project/a.rs"],   // activation order, most recent first
 //!   "side_bar": { "visible": true, "width": 300.0, "view": "explorer" },
 //!   "search": { "query": "foo", "include": "", "exclude": "", "match_case": false, "whole_word": false,
-//!               "use_regex": false, "use_excludes": true, "details_open": false }
+//!               "use_regex": false, "use_excludes": true, "details_open": false },
+//!   "find_history": ["foo", "bar"],      // editor.find.history (newest first; absent with `never`)
+//!   "replace_history": ["baz"]           // editor.find.replaceHistory
 //! }
 //! ```
 //!
@@ -50,6 +52,9 @@ pub struct WorkspaceState {
     pub mru: Vec<String>,
     pub side_bar: SideBarState,
     pub search: Option<SearchState>,
+    /// The Find and Replace box histories, newest first (`editor.find.history`, `replaceHistory`).
+    pub find_history: Vec<String>,
+    pub replace_history: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -171,6 +176,8 @@ mod tests {
             mru: vec!["/w/b ü.txt".into(), "/w/a.rs".into()],
             side_bar: SideBarState { visible: false, width: 321.5, view: "search".into() },
             search: Some(SearchState { query: "fo\"o\n".into(), use_regex: true, ..SearchState::default() }),
+            find_history: vec!["fo\"o".into(), "bar".into()],
+            replace_history: vec!["baz".into()],
         }
     }
 

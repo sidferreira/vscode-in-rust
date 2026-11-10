@@ -20,11 +20,13 @@
 //!
 //! Depends on `vsr-text` and `vsr-editor` only for the data it works on; no UI.
 
+pub mod history;
 pub mod model;
 pub mod replace_pattern;
 pub mod search;
 pub mod search_replace;
 
+pub use history::SearchHistory;
 pub use model::{FindModel, FindState, MATCHES_LIMIT, MatchInfo, SeedMode, scope_from_selection, seed_search_string};
 pub use replace_pattern::{ReplacePattern, ReplacePiece, build_replace_string_with_case_preserved, parse_replace_string};
 pub use search_replace::SearchReplacePattern;

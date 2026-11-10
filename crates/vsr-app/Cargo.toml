@@ -42,6 +42,12 @@ vsr-textmate.workspace = true
 # Pixel buffer for the minimap image (gpui `RenderImage` frames); already in the lockfile via gpui.
 image = { version = "0.25", default-features = false }
 
+# The macOS find pasteboard (`editor.find.globalFindClipboard`, ADR-0027). Both crates are already in the
+# lockfile through gpui; only the NSPasteboard and NSString features are turned on here.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSPasteboard"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSString"] }
+
 [dev-dependencies]
 # Headless gpui tests (TestAppContext / VisualTestContext), docs/testing.md tier 2 (ADR-0017/0018).
 # gpui-kit's own `test-support` feature cannot be used: it makes the lockfile resolver pull the

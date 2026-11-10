@@ -539,18 +539,36 @@ splits it into `findModel.ts` (matches, navigation, replace, driven by `FindRepl
   (replace all) in the Replace box, Alt+Cmd+Enter replace all, Cmd+Shift+1 replace one, Cmd+E use
   selection for find, Alt+Cmd+C / W / R / L / P toggles, Escape.
 - **Settings wired** (`editor.find.*`): `seedSearchStringFromSelection`, `autoFindInSelection`, `loop`,
-  `cursorMoveOnType`, `findOnType`, `closeOnResult`. Not wired: `addExtraSpaceOnTop` (would shift the
-  list's hit-testing), `globalFindClipboard`, `history`, `replaceHistory`.
+  `cursorMoveOnType`, `findOnType`, `closeOnResult`, and later `globalFindClipboard`, `history`, `replaceHistory`
+  (see History and Global find clipboard below). Not wired: `addExtraSpaceOnTop` (blocked, below).
 - **Tests.** `replacePattern.test.ts` (8) and 35 of the 44 `findModel.test.ts` tests ported
   (`findTest(...)` is now recognised as a test wrapper by `scripts/test-port`); not ported: the
   decorations test, 2 `selectAllMatches` (one cursor) and the 6 look-ahead replace tests. 15 headless
   gpui E2E tests (`editor_view/find_e2e.rs`) drive the real workbench: Cmd+F seeding and "2 of 5",
   Enter / Shift+Enter, Escape focus, Alt+Cmd+F replace all and a single Cmd+Z, regex `$1` / `\u`,
   find in selection, the settings.
+- **History (`editor.find.history`, `replaceHistory`).** `vsr-find::SearchHistory` (newest first, unique,
+  capped at 100; the Up / Down walk keeps the typed text as the draft and starts again when a recalled entry is
+  edited). An entry is recorded when Enter is pressed in a box and when the widget closes (upstream records
+  after a debounce on every change; the recorded text is the same). Up / Down in a box recall it through a
+  capture-phase action on the box, and only when there is an entry (otherwise the caret moves as usual). A
+  recalled text runs the search when `findOnType` is on, as a typed one does (`set_value` raises no change
+  event). `workspace` keeps the lists in the workspace session state (`find_history` / `replace_history` in
+  `state.json`, ADR-0040); `never` records nothing and saves nothing (upstream gives a fresh empty set).
+  Tests: unit (`vsr-find/src/history.rs`), E2E in `find_e2e.rs` and `session/e2e_tests.rs`.
+- **Global find clipboard (`editor.find.globalFindClipboard`, macOS).** `editor_view/find/clipboard.rs` reads and
+  writes the find pasteboard (`NSPasteboardNameFind`, through `objc2-app-kit` / `objc2-foundation`, both already in
+  the lockfile via gpui). Read when Cmd+F seeds the box and no selection seeded it; written when the search string
+  changes to a non-empty text (upstream `readFindText` / `writeFindText`; an empty string is not written, so the
+  other apps' clipboard is not cleared by an empty box). Behind the `FindPasteboard` trait: the tests use an
+  in-memory pasteboard and never touch the user's find pasteboard. **The system pasteboard is not exercised
+  headlessly**; check it by hand (Cmd+F in rscode, then paste into another app's Find field).
+- **Not wired: `addExtraSpaceOnTop`** (blocked in `upstream/settings.toml`: it needs a top view zone so the
+  widget does not cover the first line, and the editor has no top padding that hit-testing and scrolling share).
 
-**Not implemented:** select all occurrences (single cursor), find history, global find clipboard,
-`addExtraSpaceOnTop`, the options-only widget shown when closed, resizing the widget, overview ruler
-marks, Tab order between the widget buttons, `find.test.ts` / `findController.test.ts` ports.
+**Not implemented:** select all occurrences (single cursor), `addExtraSpaceOnTop`, the options-only widget shown
+when closed, resizing the widget, overview ruler marks, Tab order between the widget buttons,
+`find.test.ts` / `findController.test.ts` ports.
 
 ## ADR-0028 — Quick input and the fuzzy scorer (2026-11-09)
 

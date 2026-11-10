@@ -44,7 +44,7 @@ use super::state::{
 };
 use super::store::{Loaded, SessionStorage, SessionStore, load_json, write_atomic};
 use crate::config::AppConfig;
-use crate::config::settings::{StartupEditor, startup_editor};
+use crate::config::settings::{FindSettings, StartupEditor, startup_editor};
 use crate::model::OpenEditor;
 use crate::theme::Theme;
 use crate::ui::to_gpui;
@@ -244,6 +244,7 @@ impl Workbench {
             _ => ActivityView::Explorer,
         };
         self.session.pending_search = state.search.clone();
+        self.editor_view.restore_find_histories(state.find_history.clone(), state.replace_history.clone());
     }
 
     /// An editor for the file at `path` (read from disk), `None` when it cannot be read.
@@ -331,9 +332,13 @@ impl Workbench {
                 view: self.editor_view.view_state(e),
             })
             .collect();
+        let find = FindSettings::from_configuration(AppConfig::get(cx).configuration());
+        let (find_history, replace_history) = self.editor_view.find_histories(&find);
         WorkspaceState {
             version: FORMAT_VERSION,
             folder: self.root.to_string_lossy().into_owned(),
+            find_history,
+            replace_history,
             editors,
             active: self.editors.active,
             mru: self.editors.mru.iter().map(|p| p.to_string_lossy().into_owned()).collect(),

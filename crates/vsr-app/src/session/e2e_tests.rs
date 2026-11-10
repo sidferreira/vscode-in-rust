@@ -613,6 +613,35 @@ fn window_close_asks_with_on_exit_but_not_with_on_exit_and_window_close(cx: &mut
 
 // ---- the Welcome page ---------------------------------------------------------------------------
 
+/// What the session state would hold for the find histories (find, replace).
+fn histories(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> (Vec<String>, Vec<String>) {
+    wb.read_with(cx, |wb, cx| {
+        let settings = crate::config::settings::FindSettings::from_configuration(AppConfig::get(cx).configuration());
+        wb.editor_view.find_histories(&settings)
+    })
+}
+
+#[gpui_kit::test]
+fn the_find_histories_are_kept_in_the_session_unless_the_setting_is_never(cx: &mut TestAppContext) {
+    let kept = env("find-history", None);
+    let (wb, vcx) = start(cx, &kept);
+    wb.update(vcx, |wb, _| wb.editor_view.restore_find_histories(vec!["beta".into()], vec!["x".into()]));
+    quit(&wb, vcx);
+    let (wb, vcx) = start(cx, &kept);
+    assert_eq!(histories(&wb, vcx), (vec!["beta".to_string()], vec!["x".to_string()]));
+
+    let never = env("find-history-never", Some(r#"{ "editor.find.history": "never" }"#));
+    let (wb, vcx) = start(cx, &never);
+    wb.update(vcx, |wb, _| wb.editor_view.restore_find_histories(vec!["beta".into()], vec!["x".into()]));
+    quit(&wb, vcx);
+    let (wb, vcx) = start(cx, &never);
+    assert_eq!(
+        histories(&wb, vcx),
+        (Vec::<String>::new(), vec!["x".to_string()]),
+        "never: the find history is not kept, the replace history still is"
+    );
+}
+
 #[gpui_kit::test]
 fn with_nothing_restored_the_welcome_tab_shows_and_a_recent_file_opens_on_click(cx: &mut TestAppContext) {
     let env = env("welcome", None);

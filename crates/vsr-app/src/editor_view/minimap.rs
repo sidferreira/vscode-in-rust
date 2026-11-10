@@ -11,17 +11,18 @@
 //! the minimap canvas are drawn (so a 10k-line file costs the same as a 100-line one), and the
 //! pixel buffer is reused until something it shows changes.
 //!
-//! Not ported: section headers (`showRegionSectionHeaders`, `showMarkSectionHeaders`,
-//! `markSectionHeaderRegex`, `sectionHeaderFontSize`, `sectionHeaderLetterSpacing`: they need
-//! language comment tokens and `#region` folding markers), per-token colours (no tokenizer yet),
-//! decorations (selection, find matches, errors), the shadow when scrolled horizontally, and
-//! fade transitions.
+//! Section headers (ADR-0042, `headers.rs`) are drawn as text labels over their line; not ported: the
+//! header letter spacing (gpui has none), decorations (selection, find matches, errors), the
+//! shadow when scrolled horizontally, and fade transitions.
 
+pub mod headers;
 pub mod layout;
 mod prebaked;
 pub mod raster;
 #[cfg(test)]
 mod e2e;
+#[cfg(test)]
+mod headers_e2e;
 #[cfg(test)]
 mod upstream_tests;
 
@@ -191,6 +192,8 @@ pub struct MinimapView {
     scrolled: bool,
     was_visible: bool,
     hide_task: Option<Task<()>>,
+    /// The section headers of the document, for the key they were found under.
+    section_headers: RefCell<Option<(u64, Vec<vsr_editor::section_headers::SectionHeader>)>>,
 }
 
 impl Default for MinimapView {
@@ -211,6 +214,7 @@ impl Default for MinimapView {
             scrolled: false,
             was_visible: true,
             hide_task: None,
+            section_headers: RefCell::new(None),
         }
     }
 }
@@ -388,6 +392,7 @@ impl MinimapView {
             (params.render == RenderMinimap::Text, params.font_scale, params.line_height, params.char_width).hash(&mut h);
             (params.canvas_width, params.canvas_height, params.tab_size, params.top_padding_lines).hash(&mut h);
             (params.fg, params.bg, sampling.as_ref().map(Vec::len)).hash(&mut h);
+            i.editor.editor.hidden_ranges().hash(&mut h);
             // Token colours change as the tokenizer works through the file, and with the theme.
             i.editor.syntax().map(|d| (d.tokenizer.progress(), d.service.theme_generation())).hash(&mut h);
             h.finish()
@@ -410,12 +415,14 @@ impl MinimapView {
             let numbers: Vec<usize> = (first..=last.max(first))
                 .filter(|_| last >= first)
                 .map(|n| sampling.as_ref().map_or(n, |s| s.get(n - 1).copied().unwrap_or(line_count)).clamp(1, line_count))
+                // Folded lines: the model line of the view line.
+                .map(|vl| wrapped.as_ref().map_or(vl, |v| v.view_line(vl - 1).model_line))
                 .collect();
             let colors: Vec<Option<Vec<ColorRun>>> = numbers
                 .iter()
                 .zip(lines.iter())
                 .map(|(&n, text)| {
-                    if wrapped.is_some() {
+                    if i.editor.editor.is_wrapping() {
                         return None;
                     }
                     let runs = i.editor.syntax()?.style_runs(n, text)?;
@@ -434,7 +441,10 @@ impl MinimapView {
             img
         });
 
-        let element = self.element(&frame, &i, image, outer_w, outer_h);
+        let headers = self.headers_for(&i);
+        let ratio = sampling.as_ref().map(|s| line_count as f64 / s.len().max(1) as f64);
+        let placed = headers::place(&headers, i.editor, &frame, ratio);
+        let element = self.element(&frame, &i, image, &placed);
         let check = self.check_element(i.text_bounds, i.scroll.clone(), info.width as f32, outer_w, outer_h, scroll_top, known);
         let (left, right) = match m.side {
             MinimapSide::Left => (Some(element), None),
@@ -483,7 +493,29 @@ impl MinimapView {
         .into_any_element()
     }
 
-    fn element(&self, f: &Frame, i: &BuildInput, image: Arc<RenderImage>, _outer_w: f32, _outer_h: f32) -> AnyElement {
+    /// The section headers of the document (found again when the text, the language, the
+    /// tokens or the settings changed).
+    fn headers_for(&self, i: &BuildInput) -> Vec<vsr_editor::section_headers::SectionHeader> {
+        let f = &i.cfg.folding;
+        if !f.minimap_region_headers && !f.minimap_mark_headers {
+            return Vec::new();
+        }
+        let mut h = DefaultHasher::new();
+        (i.editor.path.as_path(), i.editor.editor.version(), i.editor.language_id()).hash(&mut h);
+        (f.minimap_region_headers, f.minimap_mark_headers, &f.minimap_mark_regex).hash(&mut h);
+        i.editor.syntax().map(|d| d.tokenizer.progress()).hash(&mut h);
+        let key = h.finish();
+        if let Some((k, list)) = self.section_headers.borrow().as_ref()
+            && *k == key
+        {
+            return list.clone();
+        }
+        let list = headers::find(i.editor, f);
+        *self.section_headers.borrow_mut() = Some((key, list.clone()));
+        list
+    }
+
+    fn element(&self, f: &Frame, i: &BuildInput, image: Arc<RenderImage>, placed: &[headers::Placed]) -> AnyElement {
         let shared = self.shared.clone();
         let colors = SliderColors::for_background(i.theme.editor_bg);
         let info = f.info;
@@ -538,6 +570,31 @@ impl MinimapView {
             .bg(to_gpui(i.theme.editor_bg))
             .opacity(if f.minimap_visible { 1.0 } else { 0.0 })
             .child(canvas_el);
+
+        // Section headers: the title over its line, with a rule under it for `MARK: -` headers.
+        let fg = to_gpui(i.theme.editor_fg);
+        let font_size = i.cfg.folding.minimap_header_font_size;
+        for p in placed {
+            let line = p.line;
+            let mut label = div()
+                .absolute()
+                .left_0()
+                .top(px(p.y))
+                .w_full()
+                .h(px(font_size + 3.0))
+                .px(px(2.0))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_size(px(font_size))
+                .text_color(fg)
+                .bg(to_gpui(i.theme.editor_bg))
+                .debug_selector(move || format!("minimap-header:{line}"))
+                .child(p.text.clone());
+            if p.separator {
+                label = label.border_b_1().border_color(fg.opacity(0.4));
+            }
+            root = root.child(label);
+        }
 
         if interactive {
             let s = shared.clone();

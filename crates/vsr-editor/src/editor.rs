@@ -32,6 +32,8 @@ pub struct Editor {
     pub(crate) word_separators: String,
     /// Word wrap: the projection of the buffer into view lines (see `wrapping.rs`).
     pub(crate) wrap: RefCell<crate::wrapping::WrapState>,
+    /// Code folding: regions, collapse state and hidden lines (see `editor_folding.rs`).
+    pub(crate) folding: crate::editor_folding::FoldingCell,
     /// A caret at a wrap boundary is drawn at the end of the earlier view line (upstream's
     /// `PositionAffinity.Left`) when this equals the active position.
     pub(crate) caret_trailing: Option<Position>,
@@ -49,6 +51,7 @@ impl Editor {
             history: UndoStack::default(),
             word_separators: crate::word_ops::USUAL_WORD_SEPARATORS.to_string(),
             wrap: RefCell::new(crate::wrapping::WrapState::default()),
+            folding: Default::default(),
             caret_trailing: None,
         }
     }

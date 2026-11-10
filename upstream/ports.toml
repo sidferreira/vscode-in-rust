@@ -664,3 +664,48 @@ upstream = ["src/vs/workbench/browser/parts/editor/editorStatus.ts"]
 rust = ["crates/vsr-app/src/language_mode.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "workbench.action.editor.changeLanguageMode (Cmd+K M) with the Quick Pick of languages and Auto Detect; the status bar shows the language name. Not ported: Configure File Association / language based settings / marketplace entries, the status bar click, language detection by content."
+
+[[port]]
+id = "editor-folding"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/folding/browser/foldingRanges.ts",
+  "src/vs/editor/contrib/folding/browser/foldingModel.ts",
+  "src/vs/editor/contrib/folding/browser/indentRangeProvider.ts",
+  "src/vs/editor/contrib/folding/browser/hiddenRangeModel.ts",
+  "src/vs/editor/contrib/folding/test/browser/foldingRanges.test.ts",
+  "src/vs/editor/contrib/folding/test/browser/foldingModel.test.ts",
+  "src/vs/editor/contrib/folding/test/browser/indentRangeProvider.test.ts",
+  "src/vs/editor/contrib/folding/test/browser/indentFold.test.ts",
+  "src/vs/editor/contrib/folding/test/browser/hiddenRangeModel.test.ts",
+  "src/vs/editor/contrib/folding/browser/folding.ts",
+  "src/vs/editor/contrib/folding/browser/foldingDecorations.ts",
+  "src/vs/editor/contrib/folding/browser/folding.css",
+  "src/vs/editor/common/model/utils.ts",
+  "src/vs/editor/contrib/stickyScroll/browser/stickyScrollController.ts",
+  "src/vs/editor/contrib/stickyScroll/browser/stickyScrollWidget.ts",
+  "src/vs/editor/contrib/stickyScroll/browser/stickyScrollModelProvider.ts",
+  "src/vs/editor/common/services/findSectionHeaders.ts",
+  "src/vs/editor/test/common/services/findSectionHeaders.test.ts",
+]
+rust = [
+  "crates/vsr-editor/src/folding",
+  "crates/vsr-editor/src/editor_folding.rs",
+  "crates/vsr-editor/src/section_headers.rs",
+  "crates/vsr-editor/tests/folding.rs",
+  "crates/vsr-editor/tests/upstream_find_section_headers.rs",
+  "crates/vsr-app/src/editor_view/folding.rs",
+  "crates/vsr-app/src/editor_view/folding_e2e.rs",
+  "crates/vsr-app/src/editor_view/sticky_scroll.rs",
+  "crates/vsr-app/src/editor_view/sticky_e2e.rs",
+  "crates/vsr-app/src/editor_view/minimap/headers.rs",
+  "crates/vsr-app/src/editor_view/minimap/headers_e2e.rs",
+  "crates/vsr-app/src/config/folding.rs",
+  "crates/vsr-editor/tests/upstream_folding_ranges.rs",
+  "crates/vsr-editor/tests/upstream_folding_model.rs",
+  "crates/vsr-editor/tests/upstream_indent_range_provider.rs",
+  "crates/vsr-editor/tests/upstream_indent_fold.rs",
+  "crates/vsr-editor/tests/upstream_hidden_range_model.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Code folding, sticky scroll and minimap section headers (ADR-0042). Also 19 of 19 findSectionHeaders.test.ts. Sticky scroll pins the folding regions' headers (no outline provider; stickyScroll tests are DOM tests and not ported), the minimap draws the titles as labels. Folding: folding regions, the merge of provider and manual regions, indentation and region-marker ranges with the cap on regions, the collapse operations by level, and the hidden line ranges. 26 of 26 indentRangeProvider.test.ts and indentFold.test.ts, 7 of 7 foldingRanges.test.ts, 1 of 1 hiddenRangeModel.test.ts and 21 of 22 foldingModel.test.ts. Regions follow edits through a line map instead of tracked decorations (the decoration test is not ported). Not ported: syntaxRangeProvider.ts (needs language server folding providers, syntaxFold.test.ts), the memento that restores folds on reopen, import folding."

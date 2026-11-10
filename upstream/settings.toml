@@ -394,10 +394,15 @@ match = ["editor.gotoLocation*", "editor.hover*", "editor.codeLens*", "editor.in
 
 [[rule]]
 status = "blocked"
-reason = "needs folding regions and section markers"
-comment = "Minimap section headers read `#region` / MARK comments; needs folding ranges and comment tokens."
-match = ["editor.minimap.showRegionSectionHeaders", "editor.minimap.showMarkSectionHeaders", "editor.minimap.markSectionHeaderRegex",
-         "editor.minimap.sectionHeaderFontSize", "editor.minimap.sectionHeaderLetterSpacing"]
+reason = "needs letter spacing in the text system (gpui has none)"
+comment = "editor.minimap.sectionHeaderLetterSpacing: upstream paints the section header into the minimap canvas with a letter spacing; rscode draws the title as a text label and gpui text has no letter spacing. The other section header settings are wired (ADR-0042)."
+match = ["editor.minimap.sectionHeaderLetterSpacing"]
+
+[[rule]]
+status = "blocked"
+reason = "needs language server folding range providers (import ranges)"
+comment = "editor.foldingImportsByDefault collapses the ranges of kind `imports`, which only a folding range provider reports. rscode computes indentation and marker ranges only (ADR-0042); editor.foldingStrategy `auto` therefore behaves as `indentation`."
+match = ["editor.foldingImportsByDefault"]
 
 # ---------------------------------------------------------------------------------------------
 # files.* (ADR-0034). The files settings that are wired live in config/wired.rs. The ones below are

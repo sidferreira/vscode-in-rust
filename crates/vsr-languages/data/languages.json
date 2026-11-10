@@ -10,6 +10,12 @@
    "bat"
   ],
   "configuration": "bat/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*(::|@?[Rr][Ee][Mm])\\s*#region",
+    "end": "^\\s*(::|@?[Rr][Ee][Mm])\\s*#endregion"
+   }
+  },
   "extension": "bat"
  },
  {
@@ -27,6 +33,9 @@
    "clojure"
   ],
   "configuration": "clojure/language-configuration.json",
+  "folding": {
+   "offSide": true
+  },
   "extension": "clojure"
  },
  {
@@ -42,6 +51,17 @@
    "coffee"
   ],
   "configuration": "coffeescript/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*#region\\b",
+    "end": "^\\s*#endregion\\b"
+   }
+  },
+  "blockComment": [
+   "###",
+   "###"
+  ],
   "extension": "coffeescript"
  },
  {
@@ -99,6 +119,16 @@
    "c"
   ],
   "configuration": "cpp/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*#\\s*pragma\\s+region\\b",
+    "end": "^\\s*#\\s*pragma\\s+endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "cpp"
  },
  {
@@ -135,6 +165,16 @@
    "cpp"
   ],
   "configuration": "cpp/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*#\\s*pragma\\s+region\\b",
+    "end": "^\\s*#\\s*pragma\\s+endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "cpp"
  },
  {
@@ -147,6 +187,16 @@
    "CUDA C++"
   ],
   "configuration": "cpp/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*#\\s*pragma\\s+region\\b",
+    "end": "^\\s*#\\s*pragma\\s+endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "cpp"
  },
  {
@@ -161,6 +211,16 @@
    "csharp"
   ],
   "configuration": "csharp/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*#region\\b",
+    "end": "^\\s*#endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "csharp"
  },
  {
@@ -176,6 +236,16 @@
    "text/css"
   ],
   "configuration": "css/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*\\/\\*\\s*#region\\b\\s*(.*?)\\s*\\*\\/",
+    "end": "^\\s*\\/\\*\\s*#endregion\\b.*\\*\\/"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "css"
  },
  {
@@ -187,6 +257,10 @@
    "Dart"
   ],
   "configuration": "dart/language-configuration.json",
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "dart"
  },
  {
@@ -201,6 +275,10 @@
    "diff"
   ],
   "configuration": "diff/language-configuration.json",
+  "blockComment": [
+   "#",
+   " "
+  ],
   "extension": "diff"
  },
  {
@@ -265,6 +343,17 @@
    "fsharp"
   ],
   "configuration": "fsharp/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*//\\s*#region\\b|^\\s*\\(\\*\\s*#region(.*)\\*\\)",
+    "end": "^\\s*//\\s*#endregion\\b|^\\s*\\(\\*\\s*#endregion\\s*\\*\\)"
+   }
+  },
+  "blockComment": [
+   "(*",
+   "*)"
+  ],
   "extension": "fsharp"
  },
  {
@@ -278,6 +367,10 @@
    "git-commit"
   ],
   "configuration": "git-base/languages/git-commit.language-configuration.json",
+  "blockComment": [
+   "#",
+   " "
+  ],
   "extension": "git-base"
  },
  {
@@ -293,6 +386,10 @@
    "git-rebase"
   ],
   "configuration": "git-base/languages/git-rebase.language-configuration.json",
+  "blockComment": [
+   "#",
+   " "
+  ],
   "extension": "git-base"
  },
  {
@@ -318,6 +415,16 @@
    "Go"
   ],
   "configuration": "go/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "go"
  },
  {
@@ -341,6 +448,10 @@
    "groovy"
   ],
   "configuration": "groovy/language-configuration.json",
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "groovy"
  },
  {
@@ -358,6 +469,10 @@
    "text/x-handlebars-template"
   ],
   "configuration": "handlebars/language-configuration.json",
+  "blockComment": [
+   "{{!--",
+   "--}}"
+  ],
   "extension": "handlebars"
  },
  {
@@ -377,6 +492,10 @@
    "hlsl"
   ],
   "configuration": "hlsl/language-configuration.json",
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "hlsl"
  },
  {
@@ -410,6 +529,16 @@
    "application/xhtml+xml"
   ],
   "configuration": "html/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*<!--\\s*#region\\b.*-->",
+    "end": "^\\s*<!--\\s*#endregion\\b.*-->"
+   }
+  },
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "html"
  },
  {
@@ -422,6 +551,10 @@
    "ini"
   ],
   "configuration": "ini/ini.language-configuration.json",
+  "blockComment": [
+   ";",
+   " "
+  ],
   "extension": "ini"
  },
  {
@@ -449,6 +582,10 @@
    "properties"
   ],
   "configuration": "ini/properties.language-configuration.json",
+  "blockComment": [
+   "#",
+   " "
+  ],
   "extension": "ini"
  },
  {
@@ -462,6 +599,16 @@
    "java"
   ],
   "configuration": "java/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*(?:(?:#?region\\b)|(?:<editor-fold\\b))",
+    "end": "^\\s*//\\s*(?:(?:#?endregion\\b)|(?:</editor-fold>))"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "java"
  },
  {
@@ -475,6 +622,16 @@
    "jsx"
   ],
   "configuration": "javascript/javascript-language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "javascript"
  },
  {
@@ -499,12 +656,26 @@
    "text/javascript"
   ],
   "configuration": "javascript/javascript-language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "javascript"
  },
  {
   "id": "jsx-tags",
   "aliases": [],
   "configuration": "javascript/tags-language-configuration.json",
+  "blockComment": [
+   "{/*",
+   "*/}"
+  ],
   "extension": "javascript"
  },
  {
@@ -537,6 +708,16 @@
    "application/manifest+json"
   ],
   "configuration": "json/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "json"
  },
  {
@@ -566,6 +747,16 @@
    "JSON with Comments"
   ],
   "configuration": "json/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "json"
  },
  {
@@ -579,6 +770,16 @@
    "JSON Lines"
   ],
   "configuration": "json/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "json"
  },
  {
@@ -595,6 +796,16 @@
    "Code Snippets"
   ],
   "configuration": "json/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "json"
  },
  {
@@ -608,6 +819,16 @@
    "julia"
   ],
   "configuration": "julia/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*#region",
+    "end": "^\\s*#endregion"
+   }
+  },
+  "blockComment": [
+   "#=",
+   "=#"
+  ],
   "extension": "julia"
  },
  {
@@ -634,6 +855,12 @@
    "tex"
   ],
   "configuration": "latex/latex-language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*(%\\s*region|%?\\s*\\\\begingroup)\\b",
+    "end": "^\\s*(%\\s*endregion|%?\\s*\\\\endgroup)\\b"
+   }
+  },
   "extension": "latex"
  },
  {
@@ -648,6 +875,12 @@
    "latex"
   ],
   "configuration": "latex/latex-language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*(%\\s*region|%?\\s*\\\\begingroup)\\b",
+    "end": "^\\s*(%\\s*endregion|%?\\s*\\\\endgroup)\\b"
+   }
+  },
   "extension": "latex"
  },
  {
@@ -665,12 +898,33 @@
   "id": "cpp_embedded_latex",
   "aliases": [],
   "configuration": "latex/latex-cpp-embedded-language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*#\\s*pragma\\s+region\\b",
+    "end": "^\\s*#\\s*pragma\\s+endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "latex"
  },
  {
   "id": "markdown_latex_combined",
   "aliases": [],
   "configuration": "latex/markdown-latex-combined-language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*<!--\\s*#?region\\b.*-->",
+    "end": "^\\s*<!--\\s*#?endregion\\b.*-->"
+   }
+  },
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "latex"
  },
  {
@@ -687,6 +941,16 @@
    "text/less"
   ],
   "configuration": "less/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*\\/\\*\\s*#region\\b\\s*(.*?)\\s*\\*\\/",
+    "end": "^\\s*\\/\\*\\s*#endregion\\b.*\\*\\/"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "less"
  },
  {
@@ -710,6 +974,10 @@
    "lua"
   ],
   "configuration": "lua/language-configuration.json",
+  "blockComment": [
+   "--[[",
+   "]]"
+  ],
   "extension": "lua"
  },
  {
@@ -757,6 +1025,17 @@
    "markdown"
   ],
   "configuration": "markdown-basics/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*<!--\\s*#?region\\b.*-->",
+    "end": "^\\s*<!--\\s*#?endregion\\b.*-->"
+   }
+  },
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "markdown-basics"
  },
  {
@@ -787,6 +1066,10 @@
    "Objective-C"
   ],
   "configuration": "objective-c/language-configuration.json",
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "objective-c"
  },
  {
@@ -798,6 +1081,10 @@
    "Objective-C++"
   ],
   "configuration": "objective-c/language-configuration.json",
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "objective-c"
  },
  {
@@ -816,6 +1103,12 @@
    "perl"
   ],
   "configuration": "perl/perl.language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^(?:(?:=pod\\s*$)|(?:\\s*#region\\b))",
+    "end": "^(?:(?:=cut\\s*$)|(?:\\s*#endregion\\b))"
+   }
+  },
   "extension": "perl"
  },
  {
@@ -857,6 +1150,16 @@
    "application/x-php"
   ],
   "configuration": "php/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*(#|//|// #)region\\b",
+    "end": "^\\s*(#|//|// #)endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "php"
  },
  {
@@ -877,6 +1180,16 @@
    "pwsh"
   ],
   "configuration": "powershell/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*#[rR]egion\\b",
+    "end": "^\\s*#[eE]nd[rR]egion\\b"
+   }
+  },
+  "blockComment": [
+   "<#",
+   "#>"
+  ],
   "extension": "powershell"
  },
  {
@@ -889,6 +1202,17 @@
    "prompt"
   ],
   "configuration": "prompt-basics/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*<!--\\s*#?region\\b.*-->",
+    "end": "^\\s*<!--\\s*#?endregion\\b.*-->"
+   }
+  },
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "prompt-basics"
  },
  {
@@ -905,6 +1229,17 @@
    "instructions"
   ],
   "configuration": "prompt-basics/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*<!--\\s*#?region\\b.*-->",
+    "end": "^\\s*<!--\\s*#?endregion\\b.*-->"
+   }
+  },
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "prompt-basics"
  },
  {
@@ -922,6 +1257,17 @@
    "chat agent"
   ],
   "configuration": "prompt-basics/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*<!--\\s*#?region\\b.*-->",
+    "end": "^\\s*<!--\\s*#?endregion\\b.*-->"
+   }
+  },
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "prompt-basics"
  },
  {
@@ -934,6 +1280,17 @@
    "skill"
   ],
   "configuration": "prompt-basics/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*<!--\\s*#?region\\b.*-->",
+    "end": "^\\s*<!--\\s*#?endregion\\b.*-->"
+   }
+  },
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "prompt-basics"
  },
  {
@@ -948,6 +1305,9 @@
    "jade"
   ],
   "configuration": "pug/language-configuration.json",
+  "folding": {
+   "offSide": true
+  },
   "extension": "pug"
  },
  {
@@ -973,6 +1333,17 @@
    "py"
   ],
   "configuration": "python/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*#\\s*region\\b",
+    "end": "^\\s*#\\s*endregion\\b"
+   }
+  },
+  "blockComment": [
+   "\"\"\"",
+   "\"\"\""
+  ],
   "extension": "python"
  },
  {
@@ -1004,6 +1375,10 @@
    "text/x-cshtml"
   ],
   "configuration": "razor/language-configuration.json",
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "razor"
  },
  {
@@ -1061,6 +1436,10 @@
    "rb"
   ],
   "configuration": "ruby/language-configuration.json",
+  "blockComment": [
+   "=begin",
+   "=end"
+  ],
   "extension": "ruby"
  },
  {
@@ -1073,6 +1452,16 @@
    "rust"
   ],
   "configuration": "rust/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "rust"
  },
  {
@@ -1089,6 +1478,16 @@
    "text/scss"
   ],
   "configuration": "scss/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*\\/\\*\\s*#region\\b\\s*(.*?)\\s*\\*\\/",
+    "end": "^\\s*\\/\\*\\s*#endregion\\b.*\\*\\/"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "scss"
  },
  {
@@ -1111,6 +1510,10 @@
    "shaderlab"
   ],
   "configuration": "shaderlab/language-configuration.json",
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "shaderlab"
  },
  {
@@ -1173,6 +1576,12 @@
    "text/x-shellscript"
   ],
   "configuration": "shellscript/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*#\\s*#?region\\b.*",
+    "end": "^\\s*#\\s*#?endregion\\b.*"
+   }
+  },
   "extension": "shellscript"
  },
  {
@@ -1186,6 +1595,17 @@
    "T-SQL"
   ],
   "configuration": "sql/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*--\\s*#region\\b",
+    "end": "^\\s*--\\s*#endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "sql"
  },
  {
@@ -1198,6 +1618,10 @@
    "swift"
   ],
   "configuration": "swift/language-configuration.json",
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "swift"
  },
  {
@@ -1214,6 +1638,16 @@
    "typescript"
   ],
   "configuration": "typescript-basics/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "typescript-basics"
  },
  {
@@ -1227,6 +1661,16 @@
    "tsx"
   ],
   "configuration": "typescript-basics/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*//\\s*#?region\\b",
+    "end": "^\\s*//\\s*#?endregion\\b"
+   }
+  },
+  "blockComment": [
+   "/*",
+   "*/"
+  ],
   "extension": "typescript-basics"
  },
  {
@@ -1264,6 +1708,12 @@
    "vb"
   ],
   "configuration": "vb/language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*#Region\\b",
+    "end": "^\\s*#End Region\\b"
+   }
+  },
   "extension": "vb"
  },
  {
@@ -1339,6 +1789,16 @@
    "xml"
   ],
   "configuration": "xml/xml.language-configuration.json",
+  "folding": {
+   "markers": {
+    "start": "^\\s*<!--\\s*#region\\b.*-->",
+    "end": "^\\s*<!--\\s*#endregion\\b.*-->"
+   }
+  },
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "xml"
  },
  {
@@ -1352,6 +1812,10 @@
    "xsl"
   ],
   "configuration": "xml/xsl.language-configuration.json",
+  "blockComment": [
+   "<!--",
+   "-->"
+  ],
   "extension": "xml"
  },
  {
@@ -1369,6 +1833,13 @@
    "compose"
   ],
   "configuration": "yaml/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*#\\s*region\\b",
+    "end": "^\\s*#\\s*endregion\\b"
+   }
+  },
   "extension": "yaml"
  },
  {
@@ -1390,6 +1861,13 @@
    "yaml"
   ],
   "configuration": "yaml/language-configuration.json",
+  "folding": {
+   "offSide": true,
+   "markers": {
+    "start": "^\\s*#\\s*region\\b",
+    "end": "^\\s*#\\s*endregion\\b"
+   }
+  },
   "extension": "yaml"
  }
 ]

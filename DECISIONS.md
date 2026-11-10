@@ -1296,3 +1296,75 @@ the `explorer.*` view settings were absent. Blocked: `files.enableTrash` and the
 - Renaming a file inside a folder that is collapsed reveals the folder first (`expand_to`).
 - `natord` is a new dependency; adding it changed other lock entries (`windows` 0.62, `getrandom`
   0.4) that cargo re-resolved.
+
+
+## ADR-0042 — Code folding, sticky scroll and minimap section headers (2026-11-10)
+
+rscode needs code folding, and two features that stand on it: sticky scroll (the headers of the
+enclosing regions pinned at the top) and the minimap's section headers (`#region` and `MARK:`
+titles). They are built on one model, UI free in `vsr-editor`, and drawn by three small view
+modules.
+
+- **Model** (`vsr-editor/src/folding/`, ports of `foldingRanges.ts`, `indentRangeProvider.ts`,
+  `foldingModel.ts`, `hiddenRangeModel.ts`): sorted line regions with parents, the merge of fresh
+  regions with the collapsed and manual ones (`sanitize_and_merge`), indentation ranges with the
+  `#region` marker handling, off-side languages and the cap on regions, and the collapse operations
+  (by level, up, recursive, all but the selection). 56 upstream tests are ported.
+- **Edits**: upstream keeps collapsed regions alive with one tracked decoration per region. There
+  are no decorations in `TextBuffer`, so `Editor` (`editor_folding.rs`) keeps the line hashes of the
+  last sync while anything is collapsed, and on the next sync finds the unchanged lines at the top
+  and bottom (`LineMap`, the same idea as the wrap projection's incremental sync). Collapsed ranges
+  map through it; the merge then keeps a range collapsed when it has the same start and size, and
+  expands one a selection starts inside of (upstream's rule, which is how typing in a fold unfolds
+  it).
+- **Composition with word wrap (ADR-0036)**: hidden lines are part of the view-line projection.
+  `ViewLines` gets hidden ranges; a hidden model line has no view lines, and the projection exists
+  whenever lines wrap or are hidden, so rows, hit testing, scrolling, the minimap and cursor
+  movement by view line all follow without a second layer. Without folds and without wrap there is
+  no projection and the old row-equals-line path is unchanged.
+- **Caret rules**: the caret never rests on a hidden line. Fold commands move it to the end of the
+  header (`onHiddenRangesChanges`); cursor moves that land in a fold go past it or to the header end
+  (`skip_hidden` in `move_to`); a selection that starts in a collapsed region (find, replace, undo)
+  expands it (`revealCursor`).
+- **Language rules**: the `folding` section of each language configuration (offSide and the marker
+  regexes) is bundled into `languages.json` by `scripts/bundle-grammars`, together with the block
+  comment tokens. `vsr_languages::bundled::folding_rules` and `block_comment` read them; a test
+  compiles every bundled marker with the `regex` crate.
+- **Strategy**: `editor.foldingStrategy` `auto` falls back to indentation because rscode has no
+  language server folding range providers (`syntaxRangeProvider.ts` is not ported).
+  `editor.foldingImportsByDefault` needs those providers and is blocked.
+- **View** (`editor_view/folding.rs`): the chevron-down / chevron-right codicons in the gutter
+  (`editor.showFoldingControls`: collapsed regions always, expanded ones with `always` or while the
+  mouse is over the gutter), the `⋯` after a folded line (`editor.foldPlaceholderForeground`), the
+  folded background (`editor.foldingHighlight`, `editor.foldBackground`), and clicks (Shift or
+  middle: recursive, Alt: the surrounding regions; the `⋯` always unfolds, the empty space after it
+  with `editor.unfoldOnClickAfterEndOfLine`). Commands and keys are in the registry under their
+  VS Code ids: `editor.fold` Alt+Cmd+[, `editor.unfold` Alt+Cmd+], `editor.foldAll` Cmd+K Cmd+0,
+  `editor.unfoldAll` Cmd+K Cmd+J, `editor.foldRecursively`, `editor.unfoldRecursively`,
+  `editor.toggleFold`, `editor.foldLevel1` to 7, `editor.foldAllMarkerRegions`,
+  `editor.foldAllExcept` and the go-to-fold commands. Not built: block comment folding, manual
+  folding ranges.
+- **Sticky scroll** (`editor_view/sticky_scroll.rs`): `Editor::sticky_lines` finds the regions that
+  contain the first line the headers do not cover (iterating until the count settles), outermost
+  first, at most `editor.stickyScroll.maxLineCount`. Each header is drawn as an ordinary editor row
+  (`rows()`), so it has the gutter, syntax colours and fold control; a click moves the caret to it and
+  scrolls it to the top; `scrollWithEditor` makes the rows follow the horizontal scroll. There is no
+  outline provider, so `editor.stickyScroll.defaultModel` is read but all three models use the
+  folding regions, which means sticky scroll needs `editor.folding` on.
+- **Minimap section headers** (`section_headers.rs`, a port of `findSectionHeaders.ts` with its 19
+  tests; `minimap/headers.rs`): region headers use the language's start marker, mark headers the
+  `markSectionHeaderRegex` (named groups `label` and `separator`) and must be in a comment according
+  to the tokenizer, with the closing block comment token removed. The title is drawn as a text label
+  over its minimap line; `sectionHeaderLetterSpacing` stays blocked (gpui text has no letter spacing).
+- **Settings**: `editor.folding`, `foldingStrategy`, `foldingHighlight`, `foldingMaximumRegions`,
+  `showFoldingControls`, `unfoldOnClickAfterEndOfLine`, `editor.stickyScroll.*` (4) and
+  `editor.minimap.showRegionSectionHeaders`, `showMarkSectionHeaders`, `markSectionHeaderRegex`,
+  `sectionHeaderFontSize` are wired (`config/folding.rs`).
+
+**Consequences.**
+- The regions are recomputed on every buffer version change, one pass over the lines; a 10k-line
+  file with a fold stays well under the 100 ms-per-key bound in the headless test.
+- `Editor::view_lines()` is now `Some` for a folded file even without wrap; code that assumed
+  row == line - 1 when it was `None` stays correct because folded files take the projection path.
+- Folds are per open editor and are not restored when a tab is reopened (upstream's memento is not
+  ported).

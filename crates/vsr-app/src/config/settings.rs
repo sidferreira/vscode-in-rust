@@ -401,6 +401,8 @@ pub struct EditorSettings {
     pub auto_save_workspace_only: bool,
     pub find: FindSettings,
     pub minimap: MinimapSettings,
+    /// Folding, sticky scroll and minimap section headers (ADR-0042).
+    pub folding: super::folding::FoldingSettings,
 }
 
 impl Default for EditorSettings {
@@ -449,6 +451,7 @@ impl Default for EditorSettings {
             auto_save_workspace_only: false,
             find: FindSettings::default(),
             minimap: MinimapSettings::default(),
+            folding: Default::default(),
         }
     }
 }
@@ -519,6 +522,7 @@ impl EditorSettings {
             auto_save_workspace_only: c.get_bool("files.autoSaveWorkspaceFilesOnly").unwrap_or(false),
             find: FindSettings::from_configuration(c),
             minimap: MinimapSettings::from_configuration(c),
+            folding: super::folding::FoldingSettings::from_configuration(c),
         }
     }
 

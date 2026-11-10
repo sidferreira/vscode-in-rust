@@ -77,6 +77,20 @@ fn the_default_theme_is_dark_2026_with_the_colours_of_its_json(cx: &mut TestAppC
 }
 
 #[gpui_kit::test]
+fn a_light_system_defaults_to_light_2026_with_the_colours_of_its_json(cx: &mut TestAppContext) {
+    // Upstream source: workbenchThemeService.ts ThemeSettingDefaults.COLOR_THEME_LIGHT (ADR-0049)
+    let (wb, cx) = start(cx, "default-light");
+    set(cx, "window.autoDetectColorScheme", json!(true));
+    cx.update(|_, cx| ThemeService::set_system_appearance(cx, WindowAppearance::Light));
+    cx.run_until_parked();
+    assert_eq!(active_id(cx), "Light 2026", "no preferredLightColorTheme set: the light default");
+    let t = theme(&wb, cx);
+    for (field, key) in [(t.editor_bg, "editor.background"), (t.editor_fg, "editor.foreground"), (t.side_bar_bg, "sideBar.background"), (t.status_bar_bg, "statusBar.background"), (t.focus_border, "focusBorder")] {
+        assert_eq!(field, json_color("Light 2026", key), "{key}");
+    }
+}
+
+#[gpui_kit::test]
 fn setting_the_color_theme_repaints_with_the_new_colours(cx: &mut TestAppContext) {
     let (wb, cx) = start(cx, "switch");
     let dark = theme(&wb, cx);

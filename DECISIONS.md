@@ -1646,9 +1646,12 @@ app painted before the theme service existed. Upstream 1.147 defaults `workbench
 `workbench.preferredDarkColorTheme`) follow it. `Theme::default_dark()` is the default without
 customisations; `Theme::dark_modern()` keeps meaning the bundled Dark Modern, for the legacy colour test.
 
-**Not changed.** The light default stays Light Modern (upstream: Light 2026), and so do the high contrast
-defaults (already upstream's). Switching the light default is a separate, user-visible decision; it is one
-constant (`DEFAULT_LIGHT`) when wanted.
+**Light default (amended the same day, the user's call: "match upstream").** `vsr_theme::DEFAULT_LIGHT` is
+`"Light 2026"` (`ThemeSettingDefaults.COLOR_THEME_LIGHT`; `2026-light.json` was already bundled, and the
+`workbench.preferredLightColorTheme` schema default already said Light 2026). It is what a light system
+picks under `window.autoDetectColorScheme` when no preferred light theme is set, and the fallback for an
+unknown one. Test: `a_light_system_defaults_to_light_2026_with_the_colours_of_its_json`. The high contrast
+defaults are unchanged (already upstream's).
 
 **Tests.** The default-theme golden test is `the_default_theme_is_dark_2026_with_the_colours_of_its_json`.
 Tests that check Dark Modern's token colours pin `workbench.colorTheme` to Dark Modern in their settings file

@@ -282,7 +282,10 @@ fn an_unknown_theme_falls_back_to_the_default_of_the_scheme() {
     let s = ThemeSettings { color_theme: Some("Monokai".into()), ..ThemeSettings::default() };
     assert_eq!(s.resolve(&catalog, HostColorScheme::default()).unwrap().settings_id, "Dark 2026");
     let s = ThemeSettings { detect_color_scheme: true, preferred_light: Some("Abyss".into()), ..ThemeSettings::default() };
-    assert_eq!(s.resolve(&catalog, HostColorScheme { dark: false, high_contrast: false }).unwrap().settings_id, "Light Modern");
+    assert_eq!(s.resolve(&catalog, HostColorScheme { dark: false, high_contrast: false }).unwrap().settings_id, "Light 2026");
+    // no preferred light theme at all: the light default, as upstream
+    let s = ThemeSettings { detect_color_scheme: true, ..ThemeSettings::default() };
+    assert_eq!(s.resolve(&catalog, HostColorScheme { dark: false, high_contrast: false }).unwrap().settings_id, "Light 2026");
     // legacy ids are migrated
     let s = ThemeSettings { color_theme: Some("Default Light+".into()), ..ThemeSettings::default() };
     assert_eq!(s.resolve(&catalog, HostColorScheme::default()).unwrap().settings_id, "Light+");

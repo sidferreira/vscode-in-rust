@@ -57,3 +57,22 @@ Headless (`crates/vsr-app/src/explorer/e2e_tree.rs`, the trie in `explorer/nesti
 | `explorer.fileNesting.patterns` replaces the defaults; an empty child list nests nothing | ready | `file_nesting_patterns_are_the_setting` |
 | the trie's matching rules (star, `${capture}`, `${basename}`, `${extname}`, `${dirname}`, loops) | ready | `explorer::nesting::tests` (26 upstream tests) |
 
+### Outline view (ADR-0092 to ADR-0094)
+
+The Outline is a section under the file tree (crates/vsr-app/src/outline/view.rs). Headless
+(`crates/vsr-app/src/outline/e2e_tests.rs`, the rows in `outline/view.rs`).
+
+| scenario | status | test |
+|---|---|---|
+| the section starts closed; its header opens it; a symbol row selects its range in the editor; a second header click closes it | ready | `the_section_opens_from_its_header_and_draws_its_rows`, `clicking_a_symbol_selects_its_range_in_the_editor` |
+| `outline.collapseItems: alwaysCollapse` starts items closed; the chevron opens and closes one | ready | `collapse_items_always_collapse_starts_items_closed_and_the_chevron_opens_them` |
+| the view lists the symbols once the document is asked for, depth first; an edit refreshes them after the debounce | ready | `the_view_lists_the_symbols_of_the_active_file_depth_first`, `an_edit_refreshes_the_rows_after_the_debounce` |
+| no editor, no provider, and a provider with no symbols each show their message | ready | `the_view_says_why_it_is_empty` |
+| follow cursor selects the symbol at the caret and opens its ancestors | ready | `follow_cursor_selects_the_symbol_at_the_caret_and_opens_its_parent` |
+| the header's Sort By cycles position, name and category | ready | `sort_by_cycles_position_name_and_category_from_the_header` |
+| filter on type: typing narrows the rows, Backspace and Escape edit the text | ready | `filter_on_type_narrows_the_rows_as_you_type_and_escape_clears_them` |
+| each `outline.show<Kind>` hides only its kind from the view | ready | `each_show_kind_setting_hides_only_its_kind_from_the_view` |
+| `outline.icons` off draws no kind icon | ready | `outline_icons_off_draws_no_kind_icon` |
+| a diagnostic marks its symbol and the parents it is in; the badge shows; `outline.problems.badges` and `enabled` turn them off | ready | `a_diagnostic_marks_its_symbol_and_shows_a_badge_on_its_row`, `problems_settings_turn_the_badges_and_the_markers_off` |
+| `outline.problems.colors` colours the name by severity | unit | `problems_off_hide_every_marker_and_each_setting_its_own_effect` (outline/view.rs); the name colour has no debug selector yet |
+| the host's symbols reach the view (real Code-OSS host; skips without `RSCODE_CODE_OSS` and Node) | ready | `the_extension_hosts_symbols_reach_the_outline` |

@@ -29,8 +29,8 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 61 | every ADR cited by a node exists (latest ADR-0065) |
-| upstream/ports.toml entries | 51 | not nodes (file ports, not features): partial 48, planned 1, ported 2 |
+| ADR headings in DECISIONS.md | 63 | every ADR cited by a node exists (latest ADR-0073) |
+| upstream/ports.toml entries | 52 | not nodes (file ports, not features): partial 49, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 174.
 
@@ -71,7 +71,7 @@ flowchart LR
   n_text_decorations["TextEditorDecorationType (after and before text, gutter) (todo)"]:::todo
   n_diagnostics_model["Diagnostics store (problems reported by language features) (todo)"]:::todo
   n_file_participants["File participants (create, rename, delete hooks from the ext host) (todo)"]:::todo
-  n_lang_providers_main["Language provider registry on the main side (LanguageFeatures shapes) (todo)"]:::todo
+  n_lang_providers_main["Language provider registry on the main side (LanguageFeatures shapes) (done)"]:::done
   n_lsp_client["LSP client over stdio (vscode-languageclient) (todo)"]:::todo
   n_completion_suggest["Completion provider and suggest widget (todo)"]:::todo
   n_navigation_providers["Definition, hover, code lens and inlay hint providers (todo)"]:::todo
@@ -296,20 +296,20 @@ flowchart LR
 
 | # | node | title | effort | dep settings unblocked (+not yet) | todo settings unblocked (+not yet) | scenarios unblocked (+not yet) | extensions unblocked (+not yet) | directly needed by |
 |---|---|---|---|---|---|---|---|---|
-| 1 | lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | M (guess) | 189 (+284) | 0 (+0) | 4 (+0) | 1 (+8) | color-decorators, completion-suggest, document-symbols, ext-emmet, ext-kotlin, ext-merge-conflict, ext-oxc, ext-php, ext-ts-features, ext-xml, folding-providers, formatting-providers, lsp-client, markdown-features, navigation-providers, refactor-code-actions, semantic-highlighting, smart-select, workspace-symbols |
-| 2 | child-process-main | Child processes on the main side (spawn, stdio) | S (guess) | 12 (+226) | 34 (+0) | 0 (+0) | 0 (+7) | debugger-dap, ext-claude-code, ext-kotlin, ext-php, ext-ts-features, ext-xml, lsp-client |
-| 3 | custom-editors | Custom editors (editor types per file) | L (guess) | 5 (+6) | 78 (+0) | 7 (+0) | 0 (+0) | diff-editor, non-text-editors, notebook-editor |
-| 4 | native-window-chrome | Native title bar, full screen and first-mouse click | L (guess) | 11 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | multi-window |
-| 5 | untitled-editors | Untitled editors (new files) | M (guess) | 11 (+6) | 0 (+0) | 0 (+0) | 0 (+0) | language-detection, non-text-editors, search-editor |
-| 6 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | M (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 7 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
-| 8 | accessibility-tree | Accessibility tree from gpui (screen readers) | L (guess) | 4 (+0) | 0 (+0) | 4 (+0) | 0 (+0) | - |
-| 9 | editor-groups | Editor splits and editor groups | L (guess) | 7 (+0) | 3 (+0) | 0 (+0) | 0 (+0) | - |
-| 10 | bracket-pair-model | Bracket pair model (guides and colourisation over the whole buffer) | L (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 11 | gpui-text-rendering | gpui text system gaps (letter spacing, font variation axes, smoothing) | M (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 12 | link-opener | External browser and URI openers | M (guess) | 5 (+0) | 0 (+0) | 0 (+0) | 0 (+2) | link-detection, uri-handler |
+| 1 | child-process-main | Child processes on the main side (spawn, stdio) | S (guess) | 106 (+132) | 34 (+0) | 0 (+0) | 2 (+5) | debugger-dap, ext-claude-code, ext-kotlin, ext-php, ext-ts-features, ext-xml, lsp-client |
+| 2 | completion-suggest | Completion provider and suggest widget | M (guess) | 70 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 3 | document-symbols | Document symbols: Outline view and breadcrumb symbols | M (guess) | 60 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 4 | navigation-providers | Definition, hover, code lens and inlay hint providers | M (guess) | 28 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 5 | text-decorations | TextEditorDecorationType (after and before text, gutter) | M (guess) | 4 (+0) | 0 (+0) | 0 (+0) | 1 (+2) | comments-api, ext-errorlens, ext-merge-conflict |
+| 6 | ext-emmet | Emmet (built-in) | M (guess) | 12 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 7 | custom-editors | Custom editors (editor types per file) | L (guess) | 5 (+6) | 78 (+0) | 7 (+0) | 0 (+0) | diff-editor, non-text-editors, notebook-editor |
+| 8 | native-window-chrome | Native title bar, full screen and first-mouse click | L (guess) | 11 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | multi-window |
+| 9 | untitled-editors | Untitled editors (new files) | M (guess) | 11 (+6) | 0 (+0) | 0 (+0) | 0 (+0) | language-detection, non-text-editors, search-editor |
+| 10 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | M (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 11 | refactor-code-actions | Peek, rename, code actions and linked editing | M (guess) | 9 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 12 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
 
-Top 12 of 65 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
+Top 12 of 74 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
 
 ### Waiting on in-progress work
 
@@ -327,9 +327,9 @@ None.
 | breadcrumbs | Breadcrumbs: path bar and dropdown (ADR-0047) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | browser-view | Browser view (built-in browser) | todo | feature | L (guess) | webview-service | 1 (+0) | 1 (+0) | 0 (+0) | 7 | 7 (+0) | 0 (+0) |
 | builtin-lsp-css-html-json | Built-in CSS, HTML and JSON language features | todo | extension | M (guess) | lsp-client | 130 (+0) | 130 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| cargo-proxy-token | Cargo proxy token in the agent shell | blocked-external | feature | - | - | 0 (+0) | 1 (+0) | 67 (+131) | 0 | 7 (+56) | 0 (+5) |
+| cargo-proxy-token | Cargo proxy token in the agent shell | blocked-external | feature | - | - | 0 (+0) | 55 (+0) | 13 (+131) | 0 | 7 (+56) | 1 (+4) |
 | chat-agents | AI chat, agents, copilot and AI search | blocked-external | feature | - | - | 3 (+0) | 3 (+0) | 0 (+0) | 22 | 22 (+0) | 0 (+1) |
-| child-process-main | Child processes on the main side (spawn, stdio) | todo | feature | S (guess) | ext-host-p1 | 0 (+0) | 12 (+34) | 226 (+0) | 0 | 0 (+0) | 0 (+7) |
+| child-process-main | Child processes on the main side (spawn, stdio) | todo | feature | S (guess) | ext-host-p1 | 0 (+0) | 106 (+34) | 132 (+0) | 0 | 0 (+0) | 2 (+5) |
 | code-folding | Code folding and sticky scroll (ADR-0042) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | color-decorators | Colour decorators (document colour provider) | todo | feature | S (guess) | lang-providers-main | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | command-palette-suggestions | Suggested commands in the Command Palette | todo | feature | S (guess) | command-registry | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -385,7 +385,7 @@ None.
 | hot-exit-undo | Undo history saved with the hot exit backup | todo | feature | S (guess) | session-restore | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | hover-delay | Hover widgets with a configurable delay | todo | feature | S (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | integrated-terminal | Integrated terminal (pty, shell integration, terminal editors) | blocked-external | feature | L (guess) | cargo-proxy-token, bottom-panel | 0 (+119) | 13 (+131) | 0 (+0) | 52 | 56 (+0) | 1 (+2) |
-| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | todo | feature | M (guess) | ext-host-p1 | 0 (+0) | 189 (+0) | 284 (+0) | 4 | 4 (+0) | 1 (+8) |
+| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 189 (+0) | 284 (+0) | 4 | 4 (+0) | 1 (+8) |
 | language-config | Language configuration: typing rules, comments, indentation (ADR-0046) | done | feature | - | - | 0 (+0) | 7 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | language-detection | Language detection for untitled and unknown files | todo | feature | M (guess) | untitled-editors | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | large-file-mode | Large file mode (features off for very big files) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -393,7 +393,7 @@ None.
 | link-opener | External browser and URI openers | todo | feature | M (guess) | - | 3 (+0) | 5 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+2) |
 | lm-tools | Language model tools (lm.registerTool) | todo | feature | M (guess) | chat-agents | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+1) |
 | localization | Localization (NLS) | todo | feature | L (guess) | - | 0 (+0) | 0 (+0) | 0 (+0) | 1 | 1 (+0) | 0 (+0) |
-| lsp-client | LSP client over stdio (vscode-languageclient) | todo | feature | L (source) | child-process-main, workspace-fs-api, lang-providers-main | 0 (+0) | 130 (+0) | 2 (+0) | 0 | 0 (+0) | 1 (+3) |
+| lsp-client | LSP client over stdio (vscode-languageclient) | todo | feature | L (source) | child-process-main, workspace-fs-api, lang-providers-main | 0 (+0) | 132 (+0) | 0 (+0) | 0 | 0 (+0) | 1 (+3) |
 | macos-pasteboards | macOS find pasteboard and rich clipboard (HTML flavour) | todo | feature | S (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | markdown-features | Markdown language features, preview and Mermaid (built-in) | todo | extension | L (guess) | webview-service, lang-providers-main | 54 (+0) | 54 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | modal-dialogs | Modal confirm dialogs | todo | feature | S (guess) | - | 2 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -432,10 +432,10 @@ None.
 | smart-select | Expand Selection (smart select with selection range providers) | todo | feature | M (guess) | lang-providers-main | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | soft-tab-cursor | Atomic soft tab cursor moves | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | symlink-watching | Watching symlinked folders | todo | feature | S (guess) | file-watcher-explorer | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| syntax-highlighting | TextMate syntax highlighting (ADR-0038) | done | feature | - | - | 0 (+0) | 0 (+0) | 1 (+0) | 0 | 0 (+0) | 0 (+0) |
+| syntax-highlighting | TextMate syntax highlighting (ADR-0038) | done | feature | - | - | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | todo | feature | M (guess) | - | 10 (+0) | 10 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | tasks-runner | Tasks (tasks.json, task runner, output in the terminal) | todo | feature | L (guess) | integrated-terminal | 0 (+12) | 13 (+12) | 0 (+0) | 4 | 4 (+0) | 1 (+1) |
-| text-decorations | TextEditorDecorationType (after and before text, gutter) | todo | feature | M (guess) | ext-host-p1 | 0 (+0) | 0 (+0) | 4 (+0) | 0 | 0 (+0) | 0 (+3) |
+| text-decorations | TextEditorDecorationType (after and before text, gutter) | todo | feature | M (guess) | ext-host-p1 | 0 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 1 (+2) |
 | text-encodings | Text encodings other than UTF-8 | todo | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | theme-service | Theme service, colour themes from JSON (ADR-0037) | done | feature | - | - | 0 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | title-bar-controls | Title bar navigation and layout controls | todo | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -447,7 +447,7 @@ None.
 | user-profiles | User profiles | todo | feature | L (guess) | multi-window | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | view-containers | View containers that can be hidden | todo | feature | M (guess) | - | 1 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+2) |
 | view-header-actions | View header actions shown on hover and focus | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| webview-service | Webview service (embedded web view, wry or WKWebView) | todo | feature | XL (guess) | cargo-proxy-token | 0 (+0) | 1 (+0) | 54 (+0) | 0 | 7 (+0) | 0 (+4) |
+| webview-service | Webview service (embedded web view, wry or WKWebView) | todo | feature | XL (guess) | cargo-proxy-token | 0 (+0) | 55 (+0) | 0 (+0) | 0 | 7 (+0) | 1 (+3) |
 | window-without-folder | Windows without a folder | todo | feature | S (guess) | multi-window | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | word-wrap | Word wrap as a view-line projection (ADR-0036) | done | feature | - | - | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | workspace-fs-api | workspace.fs and file system provider API (ext host) | todo | feature | M (guess) | ext-host-p1 | 1 (+0) | 2 (+0) | 132 (+0) | 0 | 0 (+0) | 0 (+5) |

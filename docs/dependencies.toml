@@ -278,12 +278,12 @@ reasons = [
 [[node]]
 id = "lang-providers-main"
 title = "Language provider registry on the main side (LanguageFeatures shapes)"
-status = "todo"
+status = "done"
 effort = "M"
 effort_source = "guess"
 needs = ["ext-host-p1"]
 scenarios = ["language services (outline, diagnostics)"]
-note = "Roadmap P2 'LanguageFeatures shapes' (completion, hover, code action, code lens, semantic tokens, folding, inlay, signature, formatting, definition). Every provider node below needs it."
+note = "Roadmap P2 'LanguageFeatures shapes' (completion, hover, code action, code lens, semantic tokens, folding, inlay, signature, formatting, definition). Every provider node below needs it. Done (ADR-0072, ADR-0073): registries + typed $provide* queries in vsr-exthost; each feature still needs its UI."
 
 [[node]]
 id = "lsp-client"

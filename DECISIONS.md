@@ -2434,6 +2434,72 @@ focus changes do not reach the name box's focus-out listener. The suggested-name
 - A refused file save during quit leaves the untitled texts unasked; the user answers Save All again.
 - `files.encoding` and the working-copy events for untitled texts stay unmodelled (ADR-0057).
 
+## ADR-0078 — Child processes: the hypothesis holds for stdio language servers; the main side owes the environment, activation and the terminal (2026-11-10)
+
+Context: `docs/dependencies.toml` node `child-process-main` says rscode must spawn child processes on
+the main side before language servers (TypeScript, Kotlin, XML, oxc) can work. The hypothesis: under
+Option A (ADR-0060) the extension host is Node, so an extension spawns its server with `child_process`
+itself and stdio LSP needs no main-side process work. Tested, not assumed.
+
+**Verdict: confirmed for LSP over stdio.** Spawning from the extension host works on the real host. Upstream
+also spawns the extension-facing children (MCP servers, debug adapters, tunnels) from the extension host. What the main side still
+owes is not process spawning: the environment it gives the host's children, activation by language id, and the
+pty/terminal path (which tasks and debug run through).
+
+**Evidence (`crates/vsr-exthost/tests/lsp_real_host.rs`, 4 tests, green against the Code-OSS build, no
+processes left behind):**
+1. The fixture (`tests/fixtures/lsp-fixture`, plain JS) calls
+   `child_process.spawn(process.execPath, [path.join(__dirname, 'fake-server.js')], stdio pipes)` and speaks
+   LSP framing (Content-Length) over them: `initialize`/`initialized`, `textDocument/didOpen`,
+   `publishDiagnostics`, `textDocument/completion`, `shutdown`, `exit`. The server is stdlib only.
+2. **`process.execPath` is Node** under our launch: it resolves to the same binary Rust launched
+   (`Launch.node`, compared canonicalised), and `process.versions.electron` is `undefined`. A server that
+   re-executes `process.execPath` therefore runs Node. Under Electron it would be the Electron binary and
+   would need `ELECTRON_RUN_AS_NODE`; that is not our configuration, and it is recorded here for the day it is.
+3. Diagnostics: `publishDiagnostics` -> `createDiagnosticCollection` -> `$changeMany` -> `MainThreadDiagnostics`
+   (`markers_for`): one Error marker, 1-based line and columns.
+4. Completion: forwarded to the server and back through `provide_completion_items`; the echoed item
+   `serverPos:1:5` shows the 0-based position reached the server intact.
+5. Orphans: `host.shutdown` ends the server (its pid is gone, not a zombie, within 5 s). Killing the host with
+   `kill -KILL` also ends the server within 5 s. Nothing kills it but the closing of its stdin: the server
+   exits on stdin EOF, and on macOS there is no parent-death signal or process-group handling to rely on.
+
+**Upstream (`vscode-original` @ 50e1350fc78d), where children are spawned:**
+- Extension host: MCP stdio servers (`src/vs/workbench/api/node/extHostMcpNode.ts:117`), debug adapters
+  (`api/node/extHostDebugService.ts:56` creates `ExecutableDebugAdapter` from `contrib/debug/node/debugAdapter.ts`),
+  tunnels (`api/node/extHostTunnelService.ts`, `exec`).
+- Main side: the terminal and its pty host (`platform/terminal/node/ptyService.ts`); external debug consoles
+  (`contrib/debug/node/terminals.ts`); search (`services/search/node/ripgrep*`, which rscode does not need: it has
+  its own search crate).
+- Tasks: `contrib/tasks` contains no `child_process`; tasks run through the terminal service
+  (`contrib/tasks/browser/terminalTaskSystem.ts`), so they depend on the terminal, not on a spawn proxy.
+- The protocol (`api/common/extHost.protocol.ts`) has no `MainThread*` process or spawn proxy at all. The only
+  `MainThread` names related to processes are terminal shell integration.
+
+**What the main side still owes LSP extensions (not spawning):**
+- **Environment.** The host's environment is `getShellEnv()` merged into `process.env`
+  (`workbench/services/extensions/electron-browser/localProcessExtensionHost.ts:225`). A server launched by
+  `command` (`java`, `node` from a version manager) resolves through the host's `PATH`. rscode must give the
+  host a login-shell `PATH` through `BootParams.env`. The test passes `env: vec![]` and inherits the test
+  runner's `PATH`, which is why it passes; a Finder-launched rscode has launchd's `PATH`. Not built.
+- **Activation.** Real servers activate on `onLanguage:<id>`. `open_document` does not activate extensions
+  (ADR-0065 follow-up), so the fixture uses `*` and the real path is untested. Needs `$activateByEvent` for
+  language ids from the document model.
+- **Orphans for real servers.** The fake server exits on stdin EOF. A real server that ignores EOF would outlive
+  a killed host. Mitigation would be a process group on the main side (`setpgid` at spawn and a `killpg` on
+  exit), which we do not do, because the spawn is in the host, not in rscode. Not verified with a real server.
+- **Terminal (pty).** `MainThreadTerminalService` -> pty host. It is needed by the integrated terminal (ADR-0045,
+  blocked on the cargo token), by tasks (through the terminal), and by debug `runInTerminal`
+  (routed to the terminal; not verified here).
+
+**Consequences.**
+- `child-process-main` as a main-side node is not needed for LSP. Its edges move to the environment and activation
+  work, and to the terminal for tasks and debug (node changes recorded in the handoff, not in this ADR).
+- Language servers (TypeScript, Kotlin, XML, oxc) are still unverified against real servers. The next check is one
+  real server (oxc or lemminx) on the real host, before `lsp-client` is marked done.
+- Upstream prefers the extension host to spawn: the `extHostMcpNode` and debug adapters follow the same pattern, so
+  we keep it and do not add a main-side spawn service.
+
 ## ADR-0080 — Suggest core: fuzzy scoring in `vsr-suggest`, UI-free and ported from `filters.ts` (2026-11-10)
 
 The completion widget (ADR-0073's "suggest widget" work) needs a scorer that ranks and highlights items

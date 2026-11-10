@@ -523,5 +523,28 @@
     },
     "rust_tests_passing": 1534,
     "rust_tests_failed": 0
+  },
+  {
+    "date": "2026-11-10",
+    "sha": "46f1f82",
+    "settings_wired": 185,
+    "settings_counts": {
+      "wired": 185,
+      "exthost": 426,
+      "blocked": 342,
+      "n/a": 550,
+      "todo": 559
+    },
+    "tests_ported": 612,
+    "tests_total": 58069,
+    "scenarios_ready": 65,
+    "scenarios_total": 190,
+    "ports_by_status": {
+      "planned": 1,
+      "partial": 50,
+      "ported": 2
+    },
+    "rust_tests_passing": 1591,
+    "rust_tests_failed": 0
   }
 ]

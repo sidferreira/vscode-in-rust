@@ -846,7 +846,7 @@ todo_globs = ["diffEditor*", "multiDiffEditor*"]
 [[node]]
 id = "untitled-editors"
 title = "Untitled editors (new files)"
-status = "todo"
+status = "done"
 effort = "M"
 effort_source = "guess"
 needs = []
@@ -862,7 +862,7 @@ effort = "L"
 effort_source = "guess"
 needs = ["untitled-editors", "custom-editors"]
 reasons = [
-  "needs untitled, binary, custom and large-file editors",
+  "needs binary, custom and large-file editors",
 ]
 
 [[node]]

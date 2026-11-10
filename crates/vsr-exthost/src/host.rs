@@ -232,6 +232,26 @@ impl ExtensionHost {
         }
     }
 
+    /// Send a request without waiting: the caller polls the [`Pending`] while it pumps the host
+    /// ([`ExtensionHost::pump`]). With `cancellable` the host appends a `CancellationToken` to the
+    /// arguments, which most `$provide*` methods read (it is only pushed for this message type).
+    pub fn begin_call(
+        &self,
+        rpc_id: u8,
+        method: &str,
+        args: &[Arg],
+        cancellable: bool,
+    ) -> Result<Pending, HostError> {
+        self.session()
+            .request_with(rpc_id, method, args, cancellable)
+            .map_err(|e| HostError::Codec(e.to_string()))
+    }
+
+    /// Cancel one of our requests (`Pending::req`): the host's token fires.
+    pub fn cancel_request(&self, req: u32) {
+        self.session().cancel(req);
+    }
+
     /// Wait for `$startExtensionHost` to finish: the eager extensions are activated.
     pub fn wait_started(&mut self, timeout: Duration) -> Result<(), HostError> {
         let Some(start) = self.start.take() else {

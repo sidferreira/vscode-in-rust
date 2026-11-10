@@ -10,3 +10,4 @@ publish.workspace = true
 vsr-rpc.workspace = true
 vsr-settings.workspace = true
 serde_json = "1"
+globset = "0.4"

@@ -1018,6 +1018,24 @@ synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "CompletionModel (filtering, incremental refilter, snippet placement, incomplete providers), CompletionItem and the suggestion comparators from suggest.ts. 13 of 13 completionModel tests ported. WordDistance is None (locality bonus not ported); label-details objects are plain labels; the pLabelLen statistic is not computed; suggest.ts's provideSuggestionItems (providers, ranges) and resolve are not ported."
 
 [[port]]
+id = "suggest-trigger"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/suggest/browser/suggestModel.ts",
+  "src/vs/editor/contrib/suggest/test/browser/suggestModel.test.ts",
+  "src/vs/editor/common/services/editorWebWorker.ts",
+  "src/vs/editor/browser/services/editorWorkerService.ts",
+]
+rust = [
+  "crates/vsr-suggest/src/trigger.rs",
+  "crates/vsr-suggest/src/words.rs",
+  "crates/vsr-suggest/tests/upstream_suggest_model.rs",
+  "crates/vsr-app/src/suggest/e2e_tests.rs",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "The trigger state machine (ADR-0083): LineContext, shouldAutoTrigger, quickSuggestions by token kind and delay, trigger characters, retrigger on a new word / incomplete / moving left, refilter, freeze of a manual list, cancel. 14 SuggestModel tests ported against a synchronous editor+registry driver (no inline completions, snippet, widget or code action tests; #99504 and the refilter-flag test read provider filtering, which Complete does not take). The word-based provider (textualSuggest, WordBasedCompletionItemProvider) runs in-process and fills the list when no provider offered items. Not ported: providerItemsToReuse for a new-word retrigger (all providers are asked again; character and incomplete retriggers reuse the silent providers' items), WordDistance (locality bonus), inline completions."
+
+[[port]]
 id = "outline-model"
 status = "partial"
 upstream = [

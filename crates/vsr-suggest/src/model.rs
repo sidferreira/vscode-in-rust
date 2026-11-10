@@ -107,6 +107,12 @@ impl CompletionModel {
         }
     }
 
+    /// Every item the model was made of, unfiltered, in source order (upstream `getItemsByProvider`
+    /// groups these by provider).
+    pub fn all_items(&self) -> &[SuggestItem] {
+        &self.items
+    }
+
     pub fn line_context(&self) -> &LineContext {
         &self.line_context
     }

@@ -234,6 +234,7 @@ impl Workbench {
             FromHost::Save(keys) => self.ext_save(&keys, cx),
             FromHost::Completions { id, path, line, column, results } => {
                 if self.suggest.deliver(crate::suggest::Answer { id, path, line, column, results }) {
+                    self.suggest_on_answer(cx);
                     cx.notify();
                 }
             }

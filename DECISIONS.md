@@ -2591,6 +2591,68 @@ ranges converted once, a range on another line is invalid). `vsr-app`: one `Test
 source answers two requests; the late answer to the first is dropped). The real host is not exercised by
 this step; step 3 adds the real-host E2E.
 
+## ADR-0083 — Suggest trigger: a UI-free state machine, the workbench feeds it editor events and runs its timer (2026-11-10)
+
+Ports `suggestModel.ts` (ADR-0082 gave the data path; ADR-0084 adds the widget).
+
+- **`vsr_suggest::trigger::Session`** (no gpui, no clock). `LineCtx` (cursor line, leading text, word until
+  the cursor, `shouldAutoTrigger`), `State {Idle, Manual, Auto}`, and the ported rules: `trigger`
+  (cancel, remember where the request is made), `receive` (build the `CompletionModel`, then
+  `_onNewContext`), `refilter`, `cancel`. `_onNewContext` keeps upstream's order: another line or changed
+  leading whitespace cancels; the cursor left of the request column retriggers on a word, else cancels; a
+  new word retriggers (when it may auto trigger); an incomplete provider with more typing retriggers as
+  `Incomplete`; otherwise the model is refiltered, an empty automatic list ends, an empty manual list
+  freezes (and ends when it also has no word). Quick suggest is `arm_quick_suggest` (returns the delay, or
+  nothing when all three kinds are `off`) and `fire_quick_suggest` (checks no session, a word that may
+  trigger, the token kind against `editor.quickSuggestions`, a provider); `trigger_character` reads
+  `suggestOnTriggerCharacters` and refuses a word's end (that is quick suggest's case).
+- **Settings.** `SuggestConfig` carries the upstream defaults (other on, comments and strings off, 10 ms,
+  trigger characters on, `offWithInlineSuggestions` word-based). Step 2 does not read `Configuration`:
+  the keys are still `blocked` in `upstream/settings.toml` and not in `wired.rs`; they are wired together
+  with their behaviour tests in one go.
+- **Workbench driver** (`suggest/mod.rs`). `EditorHost` gained two default methods: `editor_event`
+  (`Typed(text)`, `DeleteLeft`, `Moved`, `Edited`, `CompositionEnd`, `Other`; sent by `run_command`, the
+  platform input handler and `mouse_down`, which stand in for upstream's cursor change reason and source)
+  and `editor_command` (a command the owner may take first: `TriggerSuggest` on Ctrl+Space,
+  `HideSuggest` on Escape). The quick suggest delay is a gpui timer in `SuggestState` (dropping it
+  cancels it). `suggest_sync` runs every frame: a session ends when the active document changes, and the
+  editor's key context gains `suggestWidgetVisible` while a list shows, so Escape is bound as
+  `Editor && suggestWidgetVisible` and does not take the Find widget's Escape otherwise.
+- **Answers.** The host's lists (columns in `char`s, ADR-0082) go back to UTF-16 with the text of the
+  request line (`adapter::list_to_utf16`), become `SuggestItem`s (a missing sort text is the label, as
+  `provideSuggestionItems`; the DTO stays on the item for the widget) and are sorted with the snippet
+  comparator before the model numbers them. A cancelled session forgets its request id, so a late answer
+  is dropped by `SuggestState::deliver`. `suggest_request` flushes the document (`ext_sync`) before it
+  sends, so the host asks at the editor's version. Without a host the answer is empty (a test's fake source
+  aside), so the word-based provider alone answers.
+- **Word-based provider** (`vsr_suggest::words`, in-process). Upstream registers it with the `*` selector
+  (the lowest score), so it is asked only when no provider offered items, and never for a trigger
+  character. Words are runs of non-separator, non-space characters (the default definition without the
+  dotted-number alternative), numbers and the word at the cursor are left out, distinct, at most 10,000, kind
+  `Text`, replace range the whole word and insert range up to the cursor. Documents: the active one; with
+  `matchingDocuments` (the default) the open ones of the same language; `allDocuments` all; `currentDocument`
+  only the active one.
+- **Differences, on purpose.** (1) `ToHost::Complete` takes no provider filter, so a retrigger asks every
+  provider again. Character and incomplete retriggers keep the items of providers that did not answer
+  (`providerItemsToReuse`), which is what #21484 and #169390 need; a new-word retrigger does not reuse
+  (#99504's request counts differ). (2) Trigger characters: the host knows which providers registered which
+  character; the workbench sends a `Character` request for every typed non-space character that is not
+  quick suggest's case and the worker answers empty when no provider asked for it, which ends an automatic
+  session exactly as the refilter against `foo.` would. (3) No inline completions, so
+  `offWhenInlineCompletions` is `on`, no snippet mode, no `WordDistance` (`localityBonus` is off by default).
+  (4) The word definition above. (5) While an IME composes, nothing follows the text; its end triggers or
+  refilters.
+
+**Tests.** `vsr-suggest/tests/upstream_suggest_model.rs`: 14 `suggestModel.test.ts` tests against a
+synchronous editor and registry driver (shouldAutoTrigger, cancel/trigger and suggest/empty events, on
+type, #17400, #21484, #29353 x2, #28400 x2, trigger character in the context, #35269, #36491, #169390).
+Not ported: the embedded-language and inline-completion tests, snippets (#43523, #173244), details
+(#47988), code actions (#39893), the `*` selector tests (#127815, #167242: provider groups are the host's),
+#99504 and `Set refilter-flag` (see 1). Unit tests for quick suggest by token kind, delay, trigger
+characters and the words. `vsr-app` `suggest::e2e_tests`: typing asks after the delay, refilter without a
+new request, leaving the word, Enter / select all / Escape, a late answer, Ctrl+Space, a trigger character,
+the space (#17400) and the word-based list from two documents.
+
 ## ADR-0085 — The outline model: symbols grouped by provider, ids, markers, sort and kind filter (2026-11-10)
 
 `vsr-exthost::language_features::outline` (UI-free; next to the `DocumentSymbol` DTO it consumes, as

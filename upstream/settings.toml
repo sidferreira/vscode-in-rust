@@ -615,3 +615,21 @@ status = "blocked"
 reason = "needs multi-root workspaces"
 comment = "explorer.expandSingleFolderWorkspaces applies to multi-root workspaces that hold one folder. rscode opens one folder (see tests/e2e-scenarios/multiroot.md for the plan)."
 match = ["explorer.expandSingleFolderWorkspaces"]
+
+# ---------------------------------------------------------------------------------------------
+# breadcrumbs (ADR-0047). breadcrumbs.enabled, filePath and icons are wired (config/wired.rs).
+# The symbol part needs the document symbol providers of the extension host, and the outline
+# filters (showFiles and the other show<Kind> settings) filter those same symbols.
+# ---------------------------------------------------------------------------------------------
+
+[[rule]]
+status = "blocked"
+reason = "needs custom editors (the editor type dropdown switches between editors for one file)"
+comment = "breadcrumbs.showEditorType shows a dropdown when a custom editor can open the file. rscode has the text editor only."
+match = ["breadcrumbs.showEditorType"]
+
+[[rule]]
+status = "blocked"
+reason = "needs document symbols (outline provider from the extension host)"
+comment = "breadcrumbs.symbolPath, symbolSortOrder and symbolPathSeparator order and show the symbols of the file. breadcrumbs.show<Kind> (showFiles, showModules, ... showTypeParameters) filter the same symbol kinds in the outline, so they change nothing without symbols (documentSymbolsTree.ts)."
+match = ["breadcrumbs.symbol*", "breadcrumbs.show*"]

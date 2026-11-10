@@ -57,6 +57,10 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "Breadcrumbs",
+        &["breadcrumbs.enabled", "breadcrumbs.filePath", "breadcrumbs.icons"],
+    ),
+    (
         "Editor text",
         &[
             "editor.fontSize",

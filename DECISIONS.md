@@ -1319,3 +1319,43 @@ the `explorer.*` view settings were absent. Blocked: `files.enableTrash` and the
 - Renaming a file inside a folder that is collapsed reveals the folder first (`expand_to`).
 - `natord` is a new dependency; adding it changed other lock entries (`windows` 0.62, `getrandom`
   0.4) that cargo re-resolved.
+
+## ADR-0044 — Search and Explorer settings: the groups migrated, and what waits for features (2026-11-10)
+
+**Context.** The `search` group had 15 todo settings and the `explorer` group 8 (`settings-port
+next`). Several need features rscode does not have (the search editor, a Search tree view, notebooks,
+AI search, drag and drop, multi-root workspaces, file decorations). Settings for those must not sit
+as silent todo work or be skipped.
+
+**Decision.** Each setting is either wired (read live, listed in `config/wired.rs`) or blocked with a
+`[[rule]]` whose reason says what it needs (`upstream/settings.toml`). None is n/a: each is one rscode
+would want.
+
+- **Wired** (search): `search.ripgrep.maxThreads` (the walker threads of a search),
+  `search.sortOrder` (all six orders; `search/model.rs` keeps the order and places later files by
+  it, so a change re-sorts the listed files without a new search), `search.seedOnFocus` and
+  `search.seedWithNearestWord` (Find in Files seeds the query; `search/model.rs::seed_text`).
+- **Wired** (explorer): `explorer.excludeGitIgnore` (`explorer/gitignore.rs`: the `ignore` crate's
+  matcher per `.gitignore` from the root to the folder; a deeper rule overrides a shallower one; the
+  listed folders are read again on a change), `explorer.copyPathSeparator` and
+  `explorer.copyRelativePathSeparator`, with two new commands, Copy Path (Alt+Cmd+C) and Copy Relative
+  Path (Shift+Alt+Cmd+C). The commands copy the selected entry, or the active editor's file. There is
+  no Explorer context menu yet, so they are palette entries and keys.
+- **Blocked** (search, 11): `search.mode` (search editor), `globalFindClipboard` (macOS find pasteboard,
+  shared with the Find widget), `defaultViewMode` (tree view), `actionsPosition` (its `auto` value
+  needs the responsive row layout; the default `right` is what rscode draws), `quickAccess.preserveInput`
+  (Quick Search picker), `experimental.closedNotebookRichContentResults` (notebooks),
+  `experimental.useIgnoreFilesInFindFiles` (extension host findFiles API), `searchView.semanticSearchBehavior`
+  and `keywordSuggestions` (AI search), `decorations.colors` and `badges` (file decorations).
+- **Blocked** (explorer, 5): `enableDragAndDrop`, `enableUndo` (no undo stack for Explorer operations),
+  `expandSingleFolderWorkspaces` (multi-root), `decorations.colors` and `badges`.
+
+**Consequences.**
+- `actionsPosition` is not "left" or "right": upstream accepts only `auto` and `right`. A value outside
+  the schema falls back to the default, as for every enum.
+- Tests: pure functions and the model are covered headless (`gitignore`, `copied_path_text`, the sort
+  orders, `seed_text`, the settings parsing). The keys and the Find in Files focus path are not
+  driven by a gpui test yet; `tests/e2e-scenarios/search.md` and `explorer.md` mark those rows
+  `pending` or `unit`.
+- `.gitignore` edits are seen when the folder is listed again. There is no watch on `.gitignore`
+  files, and the global gitignore and `.git/info/exclude` are not read.

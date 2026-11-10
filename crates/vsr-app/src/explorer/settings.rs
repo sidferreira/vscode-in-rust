@@ -4,6 +4,8 @@
 //!
 //! upstream: src/vs/workbench/contrib/files/browser/files.contribution.ts @ 50e1350fc78d
 
+use std::path::Path;
+
 use vsr_settings::Configuration;
 
 /// `explorer.sortOrder`. `foldersNestsFiles` is `Default` here: nested files need file nesting
@@ -28,6 +30,34 @@ pub enum AutoReveal {
     FocusNoScroll,
 }
 
+/// `explorer.copyPathSeparator` and `explorer.copyRelativePathSeparator`: the character copied
+/// paths use between folders. `Auto` is the platform's (`/` on macOS).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PathSeparator {
+    #[default]
+    Auto,
+    Slash,
+    Backslash,
+}
+
+impl PathSeparator {
+    fn from_value(value: Option<&str>) -> Self {
+        match value {
+            Some("/") => Self::Slash,
+            Some("\\") => Self::Backslash,
+            _ => Self::Auto,
+        }
+    }
+
+    pub fn char(self) -> char {
+        match self {
+            Self::Auto => std::path::MAIN_SEPARATOR,
+            Self::Slash => '/',
+            Self::Backslash => '\\',
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExplorerSettings {
     pub sort_order: SortOrder,
@@ -36,6 +66,10 @@ pub struct ExplorerSettings {
     pub confirm_delete: bool,
     /// `files.enableTrash`: Delete moves to the Trash rather than deleting permanently.
     pub enable_trash: bool,
+    /// `explorer.excludeGitIgnore`: entries that a `.gitignore` excludes are hidden.
+    pub exclude_git_ignore: bool,
+    pub copy_path_separator: PathSeparator,
+    pub copy_relative_path_separator: PathSeparator,
 }
 
 impl Default for ExplorerSettings {
@@ -46,8 +80,20 @@ impl Default for ExplorerSettings {
             auto_reveal: AutoReveal::On,
             confirm_delete: true,
             enable_trash: true,
+            exclude_git_ignore: false,
+            copy_path_separator: PathSeparator::Auto,
+            copy_relative_path_separator: PathSeparator::Auto,
         }
     }
+}
+
+/// The text Copy Path (`relative: false`) or Copy Relative Path puts on the clipboard: the path
+/// (or its path relative to the workspace `root`), with `separator` between the folders.
+pub fn copied_path_text(path: &Path, root: &Path, relative: bool, separator: PathSeparator) -> String {
+    let shown = if relative { path.strip_prefix(root).unwrap_or(path) } else { path };
+    let text = shown.to_string_lossy();
+    let sep = separator.char();
+    if sep == std::path::MAIN_SEPARATOR { text.into_owned() } else { text.replace(std::path::MAIN_SEPARATOR, &sep.to_string()) }
 }
 
 impl ExplorerSettings {
@@ -71,6 +117,46 @@ impl ExplorerSettings {
             auto_reveal,
             confirm_delete: c.get_bool("explorer.confirmDelete").unwrap_or(d.confirm_delete),
             enable_trash: c.get_bool("files.enableTrash").unwrap_or(d.enable_trash),
+            exclude_git_ignore: c.get_bool("explorer.excludeGitIgnore").unwrap_or(d.exclude_git_ignore),
+            copy_path_separator: PathSeparator::from_value(c.get_str("explorer.copyPathSeparator")),
+            copy_relative_path_separator: PathSeparator::from_value(c.get_str("explorer.copyRelativePathSeparator")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vsr_settings::{SettingsRegistry, UserSettings};
+
+    use super::*;
+
+    fn config(user: &str) -> Configuration {
+        Configuration::new(&SettingsRegistry::load_default(), UserSettings::parse(user).unwrap())
+    }
+
+    #[test]
+    fn defaults_and_values_are_read() {
+        let d = ExplorerSettings::from_configuration(&config(""));
+        assert_eq!(d, ExplorerSettings::default());
+        assert!(!d.exclude_git_ignore);
+        let s = ExplorerSettings::from_configuration(&config(
+            r#"{ "explorer.excludeGitIgnore": true, "explorer.copyPathSeparator": "\\", "explorer.copyRelativePathSeparator": "/" }"#,
+        ));
+        assert!(s.exclude_git_ignore);
+        assert_eq!((s.copy_path_separator, s.copy_relative_path_separator), (PathSeparator::Backslash, PathSeparator::Slash));
+        let bad = ExplorerSettings::from_configuration(&config(r#"{ "explorer.copyPathSeparator": ":" }"#));
+        assert_eq!(bad.copy_path_separator, PathSeparator::Auto);
+    }
+
+    #[test]
+    fn copied_paths_follow_the_separator_setting() {
+        let root = Path::new("/ws/project");
+        let file = Path::new("/ws/project/src/main.rs");
+        assert_eq!(copied_path_text(file, root, false, PathSeparator::Auto), "/ws/project/src/main.rs");
+        assert_eq!(copied_path_text(file, root, true, PathSeparator::Auto), "src/main.rs");
+        assert_eq!(copied_path_text(file, root, true, PathSeparator::Backslash), "src\\main.rs");
+        assert_eq!(copied_path_text(file, root, false, PathSeparator::Slash), "/ws/project/src/main.rs");
+        // A path outside the workspace is copied whole.
+        assert_eq!(copied_path_text(Path::new("/elsewhere/a.txt"), root, true, PathSeparator::Auto), "/elsewhere/a.txt");
     }
 }

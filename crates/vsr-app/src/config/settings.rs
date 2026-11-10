@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use vsr_editor::EditorOptions;
 use vsr_search::SearchSettings;
-use vsr_search::settings::{CollapseResults, ExcludeMap};
+use vsr_search::settings::{CollapseResults, ExcludeMap, ResultSortOrder};
 use vsr_settings::Configuration;
 use vsr_text::DefaultEol;
 
@@ -803,6 +803,17 @@ pub fn search_settings(c: &Configuration) -> SearchSettings {
             Some("alwaysCollapse") => CollapseResults::AlwaysCollapse,
             _ => CollapseResults::AlwaysExpand,
         },
+        threads: c.get_f64("search.ripgrep.maxThreads").map_or(d.threads, |n| n.max(0.0) as usize),
+        sort_order: match c.get_str("search.sortOrder") {
+            Some("fileNames") => ResultSortOrder::FileNames,
+            Some("type") => ResultSortOrder::Type,
+            Some("modified") => ResultSortOrder::Modified,
+            Some("countDescending") => ResultSortOrder::CountDescending,
+            Some("countAscending") => ResultSortOrder::CountAscending,
+            _ => ResultSortOrder::Default,
+        },
+        seed_on_focus: c.get_bool("search.seedOnFocus").unwrap_or(d.seed_on_focus),
+        seed_with_nearest_word: c.get_bool("search.seedWithNearestWord").unwrap_or(d.seed_with_nearest_word),
     }
 }
 
@@ -1002,7 +1013,7 @@ mod tests {
 #[cfg(test)]
 mod search_tests {
     use vsr_search::SearchSettings;
-    use vsr_search::settings::CollapseResults;
+    use vsr_search::settings::{CollapseResults, ResultSortOrder};
     use vsr_settings::{SettingsRegistry, UserSettings};
 
     use super::*;
@@ -1054,5 +1065,18 @@ mod search_tests {
         assert_eq!(s.collapse_results, CollapseResults::AlwaysCollapse);
         let bad = search_settings(&config(r#"{ "search.collapseResults": "sideways" }"#));
         assert_eq!(bad.collapse_results, CollapseResults::AlwaysExpand);
+    }
+
+    #[test]
+    fn threads_sort_and_seeding_are_read() {
+        let s = search_settings(&config(
+            r#"{ "search.ripgrep.maxThreads": 3, "search.sortOrder": "countAscending",
+                 "search.seedOnFocus": true, "search.seedWithNearestWord": true }"#,
+        ));
+        assert_eq!(s.threads, 3);
+        assert_eq!(s.sort_order, ResultSortOrder::CountAscending);
+        assert!(s.seed_on_focus && s.seed_with_nearest_word);
+        let bad = search_settings(&config(r#"{ "search.sortOrder": "random", "search.ripgrep.maxThreads": -2 }"#));
+        assert_eq!((bad.sort_order, bad.threads), (ResultSortOrder::Default, 0));
     }
 }

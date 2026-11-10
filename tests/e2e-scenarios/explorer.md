@@ -33,3 +33,15 @@ it cannot be observed headless (the reason is in the scenario).
 | 21 | a file created by New File appears in the tree and opens | | ready | `a_new_file_appears_in_the_tree_and_opens` (explorer/e2e.rs) |
 | 22 | Delete moves to the Trash and closes the clean tab | | ready | `delete_moves_to_the_trash_and_closes_the_clean_tab` (explorer/e2e.rs) |
 | 23 | Copy, paste and duplicate with explorer.incrementalNaming | explorer.incrementalNaming | blocked (needs Explorer copy, paste and duplicate) | none |
+
+## Settings migration: explorer group (ADR-0044)
+
+Headless checks of the `explorer.*` settings that rscode reads. Pure-function tests run without a
+window; the keys themselves are not driven by a gpui test yet, so those rows say `unit`.
+
+| # | scenario | setting(s) | status | test |
+|---|---|---|---|---|
+| 24 | a `.gitignore` in the workspace root or a folder hides the entries it excludes; a deeper `!` rule re-includes | explorer.excludeGitIgnore | unit | `deeper_gitignore_files_override_shallower_ones`, `retain_visible_hides_ignored_entries_and_keeps_the_gitignore_itself` (explorer/gitignore.rs) |
+| 25 | Copy Path and Copy Relative Path use `/` or `\` between folders (auto is the platform's) | explorer.copyPathSeparator, explorer.copyRelativePathSeparator | unit | `copied_paths_follow_the_separator_setting`, `defaults_and_values_are_read` (explorer/settings.rs) |
+| 26 | Alt+Cmd+C and Shift+Alt+Cmd+C copy to the clipboard; a Command Palette pick works from any focus | explorer.copyPathSeparator | pending | the keys are bound (explorer/actions.rs) and the handler is on the workbench root, but no test presses them yet |
+| 27 | drag and drop, undo, multi-root single folder, file decorations | explorer.enableDragAndDrop, explorer.enableUndo, explorer.expandSingleFolderWorkspaces, explorer.decorations.* | blocked (needs drag and drop, undo, multi-root workspaces, file decorations) | none; see the `[[rule]]`s in upstream/settings.toml |

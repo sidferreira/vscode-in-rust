@@ -72,7 +72,7 @@ impl SearchOptions {
             smart_case: s.smart_case,
             ignore_glob_case: false,
             preview: VIEW_PREVIEW_OPTIONS,
-            threads: 0,
+            threads: s.threads,
         }
     }
 }

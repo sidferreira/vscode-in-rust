@@ -7,9 +7,29 @@
 //! Results are shown as a flat list of files (upstream `search.defaultViewMode` is `list`), each
 //! with its matches below it. Every match range is its own row, like upstream's `Match`.
 
+use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
-use vsr_search::{FileMatch, SearchRange};
+use vsr_editor::Editor;
+use vsr_find::{SeedMode, seed_search_string};
+use vsr_search::settings::ResultSortOrder;
+use vsr_search::{FileMatch, SearchRange, SearchSettings};
+
+/// The text the query starts with when the Search view is focused: the active editor's selection
+/// (`search.seedOnFocus`), or with no selection the word at the caret (`search.seedWithNearestWord`).
+/// `None` when neither applies, or when the seed is not a single line.
+pub fn seed_text(editor: &Editor, settings: &SearchSettings) -> Option<String> {
+    let no_selection = editor.selection().is_empty();
+    let mode = if settings.seed_on_focus && !no_selection {
+        SeedMode::Selection
+    } else if settings.seed_with_nearest_word && no_selection {
+        SeedMode::Always
+    } else {
+        return None;
+    };
+    seed_search_string(editor, mode, false)
+}
 
 /// `MatchImpl.MAX_PREVIEW_CHARS`.
 const MAX_PREVIEW_CHARS: usize = 250;
@@ -35,6 +55,8 @@ pub struct FileResult {
     pub dir: String,
     pub matches: Vec<MatchRow>,
     pub expanded: bool,
+    /// Last modification time, for `search.sortOrder: modified`.
+    pub modified: Option<SystemTime>,
 }
 
 /// A visible row of the results list.
@@ -47,6 +69,8 @@ pub enum Row {
 #[derive(Default, Debug)]
 pub struct Results {
     pub files: Vec<FileResult>,
+    /// `search.sortOrder`: the order of `files`.
+    pub sort: ResultSortOrder,
 }
 
 fn utf16_len(s: &str) -> usize {
@@ -138,14 +162,32 @@ fn rel_dir_and_name(root: &Path, path: &Path) -> (String, String) {
     (dir, name)
 }
 
-/// Default sort (`search.sortOrder: default`): by folder, then by file name, case-insensitively.
-fn sort_key(f: &FileResult) -> (String, String) {
-    (f.dir.to_lowercase(), f.name.to_lowercase())
+/// The order of two file rows under `search.sortOrder` (upstream `searchSortOrder`). Every order
+/// ends with the folder and name, so equal keys keep a stable, readable order.
+fn compare_files(order: ResultSortOrder, a: &FileResult, b: &FileResult) -> Ordering {
+    let by_path = || (a.dir.to_lowercase(), a.name.to_lowercase()).cmp(&(b.dir.to_lowercase(), b.name.to_lowercase()));
+    let extension = |f: &FileResult| f.name.rsplit_once('.').map(|(_, ext)| ext.to_lowercase()).unwrap_or_default();
+    match order {
+        ResultSortOrder::Default => by_path(),
+        ResultSortOrder::FileNames => a.name.to_lowercase().cmp(&b.name.to_lowercase()).then_with(by_path),
+        ResultSortOrder::Type => extension(a).cmp(&extension(b)).then_with(by_path),
+        // Newest first; a file without a time sorts last.
+        ResultSortOrder::Modified => b.modified.cmp(&a.modified).then_with(by_path),
+        ResultSortOrder::CountDescending => b.matches.len().cmp(&a.matches.len()).then_with(by_path),
+        ResultSortOrder::CountAscending => a.matches.len().cmp(&b.matches.len()).then_with(by_path),
+    }
 }
 
 impl Results {
     pub fn clear(&mut self) {
         self.files.clear();
+    }
+
+    /// `search.sortOrder` changed: order the files that are already listed. Files added later
+    /// are placed by the same order.
+    pub fn set_sort(&mut self, order: ResultSortOrder) {
+        self.sort = order;
+        self.files.sort_by(|a, b| compare_files(order, a, b));
     }
 
     /// Add a file's matches (keeps the list sorted). `collapse` is the initial state of the file.
@@ -165,9 +207,10 @@ impl Results {
                 });
             }
         }
-        let file = FileResult { path: fm.path.clone(), name, dir, matches, expanded };
-        let key = sort_key(&file);
-        let at = self.files.partition_point(|f| sort_key(f) < key);
+        let modified = std::fs::metadata(&fm.path).and_then(|m| m.modified()).ok();
+        let file = FileResult { path: fm.path.clone(), name, dir, matches, expanded, modified };
+        let order = self.sort;
+        let at = self.files.partition_point(|f| compare_files(order, f, &file) != Ordering::Greater);
         self.files.insert(at, file);
     }
 
@@ -331,6 +374,57 @@ mod tests {
                 preview_ranges: cols.iter().map(|&(s, e)| SearchRange::one_line(0, s, e)).collect(),
             }],
         }
+    }
+
+    #[test]
+    fn sort_orders_rank_files_and_later_files_follow_the_order() {
+        let root = Path::new("/ws");
+        let mut r = Results::default();
+        for (rel, n) in [("b/zeta.rs", 1), ("a/alpha.txt", 3), ("a/Beta.rs", 2)] {
+            let cols: Vec<(usize, usize)> = (0..n).map(|i| (i, i + 1)).collect();
+            r.add_file(root, &fm(root, rel, "xyz", &cols), true);
+        }
+        let names = |r: &Results| r.files.iter().map(|f| f.name.clone()).collect::<Vec<String>>();
+        assert_eq!(names(&r), ["alpha.txt", "Beta.rs", "zeta.rs"]);
+        r.set_sort(ResultSortOrder::Type);
+        assert_eq!(names(&r), ["Beta.rs", "zeta.rs", "alpha.txt"]);
+        r.set_sort(ResultSortOrder::CountDescending);
+        assert_eq!(names(&r), ["alpha.txt", "Beta.rs", "zeta.rs"]);
+        r.set_sort(ResultSortOrder::CountAscending);
+        assert_eq!(names(&r), ["zeta.rs", "Beta.rs", "alpha.txt"]);
+        // A file added later goes where the order puts it (two matches, tied with Beta.rs).
+        let cols = [(0, 1), (1, 2)];
+        r.add_file(root, &fm(root, "c/new.md", "xyz", &cols), false);
+        assert_eq!(names(&r), ["zeta.rs", "Beta.rs", "new.md", "alpha.txt"]);
+        r.set_sort(ResultSortOrder::FileNames);
+        assert_eq!(names(&r), ["alpha.txt", "Beta.rs", "new.md", "zeta.rs"]);
+    }
+
+    #[test]
+    fn seed_follows_seed_on_focus_and_seed_with_nearest_word() {
+        use vsr_editor::EditorOptions;
+        use vsr_text::{DefaultEol, Position, TextBuffer};
+        let mut ed = Editor::new(TextBuffer::new("foo.bar baz\nqux", DefaultEol::Lf, true), EditorOptions { tab_size: 4, insert_spaces: true });
+        let none = SearchSettings::default();
+        let on_focus = SearchSettings { seed_on_focus: true, ..none.clone() };
+        let nearest = SearchSettings { seed_with_nearest_word: true, ..none.clone() };
+        let both = SearchSettings { seed_on_focus: true, seed_with_nearest_word: true, ..none.clone() };
+
+        // Positions are 1-based (line, column), as the find tests use them.
+        ed.set_cursor(Position::new(1, 6), false); // inside "bar", no selection
+        assert_eq!(seed_text(&ed, &none), None, "seeding is off by default");
+        assert_eq!(seed_text(&ed, &on_focus), None, "seedOnFocus needs a selection");
+        assert_eq!(seed_text(&ed, &nearest).as_deref(), Some("bar"), "the word at the caret");
+        assert_eq!(seed_text(&ed, &both).as_deref(), Some("bar"));
+
+        ed.set_cursor(Position::new(1, 1), false);
+        ed.set_cursor(Position::new(1, 8), true); // "foo.bar"
+        assert_eq!(seed_text(&ed, &on_focus).as_deref(), Some("foo.bar"), "the selection");
+        assert_eq!(seed_text(&ed, &nearest), None, "a selection is never replaced by the word");
+        assert_eq!(seed_text(&ed, &both).as_deref(), Some("foo.bar"));
+
+        ed.set_cursor(Position::new(2, 2), true); // spans two lines
+        assert_eq!(seed_text(&ed, &on_focus), None, "a multi-line selection is not a seed");
     }
 
     #[test]

@@ -51,6 +51,9 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "explorer.sortOrder",
             "explorer.compactFolders",
             "explorer.autoReveal",
+            "explorer.excludeGitIgnore",
+            "explorer.copyPathSeparator",
+            "explorer.copyRelativePathSeparator",
         ],
     ),
     (
@@ -159,6 +162,10 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "search.searchOnTypeDebouncePeriod",
             "search.collapseResults",
             "search.showLineNumbers",
+            "search.ripgrep.maxThreads",
+            "search.sortOrder",
+            "search.seedOnFocus",
+            "search.seedWithNearestWord",
         ],
     ),
     (
@@ -243,6 +250,11 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- `editor.detectIndentation` is not implemented: `editor.tabSize` and `editor.insertSpaces` always apply.\n");
     out.push_str("- Search reads `files.exclude` too (it is listed under Explorer). Entries of `search.exclude` and `files.exclude` whose value is an object (`when` clauses) are ignored by the search.\n");
     out.push_str("- `workbench.editor.enablePreviewFromCodeNavigation` is read, but nothing opens from code navigation yet, so it has no effect.\n");
+    out.push_str("- `search.sortOrder` orders the files of the current results and places the files of later searches by the same order. `modified` reads each file's modification time when it is found.\n");
+    out.push_str("- `search.seedOnFocus` and `search.seedWithNearestWord` apply when the Search view is focused with Find in Files (Shift+Cmd+F). Other ways of showing the view do not seed the query.\n");
+    out.push_str("- `search.ripgrep.maxThreads` sets the walker threads of a search (0 is automatic).\n");
+    out.push_str("- `explorer.excludeGitIgnore` reads the `.gitignore` files from the workspace root down to each listed folder. A change to a `.gitignore` shows when its folder is listed again (there is no watch on `.gitignore` files yet). The global gitignore and `.git/info/exclude` are not read.\n");
+    out.push_str("- `explorer.copyPathSeparator` and `explorer.copyRelativePathSeparator` apply to Copy Path (Alt+Cmd+C) and Copy Relative Path (Shift+Alt+Cmd+C), which copy the selected entry or else the active editor's file. The Explorer has no context menu yet, so the two are Command Palette entries and keys.\n");
     out.push_str("- Editor groups: rscode has one group. `limit.*` counts the whole group, `revealIfOpen` and `focusRecentEditorAfterClose` apply to that group's tabs. `limit.perEditorGroup` is not read.\n");
     out.push_str("- `explorer.sortOrder: foldersNestsFiles` sorts like `default`: rscode has no file nesting (`explorer.fileNesting.*`), so nothing is nested. Names sort case-insensitively with numbers in order (`file2` before `file10`).\n");
     out.push_str("- `explorer.autoReveal` runs when an editor opens. Switching tabs does not reveal the file yet. The scroll is a request to the tree's scroll handle; the headless tests cannot observe it.\n");

@@ -17,11 +17,11 @@ use super::names::Severity;
 
 /// The group of the Explorer header: its title actions show while it is hovered.
 const HEADER_GROUP: &str = "explorer-header";
-use super::settings::{AutoReveal, ExplorerSettings};
+use super::settings::{AutoReveal, ExplorerSettings, copied_path_text};
 use crate::config::AppConfig;
 use super::actions::{
-    CancelDelete, CollapseAll, CollapseOrParent, DeleteFile, ExpandOrFirstChild, MoveFileToTrash, MoveSelectionDown, MoveSelectionUp,
-    NewFile, NewFolder, OpenOrToggle, RefreshAll, RenameFile,
+    CancelDelete, CollapseAll, CollapseOrParent, CopyPath, CopyRelativePath, DeleteFile, ExpandOrFirstChild, MoveFileToTrash,
+    MoveSelectionDown, MoveSelectionUp, NewFile, NewFolder, OpenOrToggle, RefreshAll, RenameFile,
 };
 use crate::config::settings::OpenSource;
 use crate::icons;
@@ -248,6 +248,19 @@ impl Workbench {
         cx.notify();
     }
 
+    /// Copy Path / Copy Relative Path: the selected entry, else the active editor's file. The
+    /// separator comes from `explorer.copyPathSeparator` / `explorer.copyRelativePathSeparator`.
+    pub(crate) fn copy_path(&mut self, relative: bool, cx: &mut Context<Self>) {
+        let path = self.explorer.selected.clone().or_else(|| self.editors.active_editor().map(|e| e.path.clone()));
+        let Some(path) = path else { return };
+        let separator = if relative {
+            self.explorer.settings.copy_relative_path_separator
+        } else {
+            self.explorer.settings.copy_path_separator
+        };
+        cx.write_to_clipboard(ClipboardItem::new_string(copied_path_text(&path, &self.root, relative, separator)));
+    }
+
     /// Collapse Folders in Explorer: every folder closes.
     pub(crate) fn collapse_all(&mut self, cx: &mut Context<Self>) {
         self.expanded.clear();
@@ -280,6 +293,8 @@ impl Workbench {
             .on_action(cx.listener(|this, _: &CancelDelete, _, cx| this.cancel_delete(cx)))
             .on_action(cx.listener(|this, _: &RefreshAll, _, cx| this.refresh_all(cx)))
             .on_action(cx.listener(|this, _: &CollapseAll, _, cx| this.collapse_all(cx)))
+            .on_action(cx.listener(|this, _: &CopyPath, _, cx| this.copy_path(false, cx)))
+            .on_action(cx.listener(|this, _: &CopyRelativePath, _, cx| this.copy_path(true, cx)))
     }
 
     /// The Explorer view: a header and the tree rows (ADR-0039 live refresh, ADR-0041 selection).

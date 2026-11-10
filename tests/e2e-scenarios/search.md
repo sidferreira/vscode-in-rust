@@ -30,3 +30,14 @@ Near-term (ready / pending):
 
 Blocked, grouped by feature:
 - none
+
+## Settings migration: search group (ADR-0044)
+
+Headless checks of the `search.*` settings that rscode reads. The unit rows run without a window.
+
+| # | scenario | setting(s) | status | test |
+|---|---|---|---|---|
+| 8 | sortOrder orders the file rows (default, fileNames, type, countDescending, countAscending) and a later file is placed by the same order | search.sortOrder | unit | `sort_orders_rank_files_and_later_files_follow_the_order` (search/model.rs) |
+| 9 | the settings read ripgrep.maxThreads, sortOrder and the seeding flags; bad values fall back to the defaults | search.ripgrep.maxThreads, search.sortOrder, search.seedOnFocus, search.seedWithNearestWord | unit | `threads_sort_and_seeding_are_read`, `defaults_are_the_upstream_defaults` (config/settings.rs) |
+| 10 | Find in Files seeds the query from the selection (seedOnFocus) or the word at the caret (seedWithNearestWord, no selection) | search.seedOnFocus, search.seedWithNearestWord | unit | `seed_follows_seed_on_focus_and_seed_with_nearest_word` (search/model.rs); the focus path itself (`focus_search`) is not driven |
+| 11 | blocked settings: search.mode, globalFindClipboard, defaultViewMode, actionsPosition, quickAccess.preserveInput, experimental.*, searchView.*, decorations.* | see the `[[rule]]`s in upstream/settings.toml | blocked | none |

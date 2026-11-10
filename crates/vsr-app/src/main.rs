@@ -312,6 +312,9 @@ impl Workbench {
 
     fn list(&self, dir: &Path) -> Vec<DirEntry> {
         let mut entries = list_dir(dir, &self.root, &self.exclude).unwrap_or_default();
+        if self.explorer.settings.exclude_git_ignore {
+            explorer::gitignore::retain_visible(&mut entries, &self.root, dir);
+        }
         explorer::sort::sort_entries(&mut entries, self.explorer.settings.sort_order);
         entries
     }
@@ -330,6 +333,7 @@ impl Workbench {
         let app = AppConfig::get(cx);
         let configuration = app.configuration();
         let affects_exclude = app.last_change().affects("files.exclude");
+        let affects_git_ignore = app.last_change().affects("explorer.excludeGitIgnore");
         self.session_config_changed(cx);
         let new_exclude = affects_exclude
             .then(|| ExcludeMatcher::from_value(configuration.get_value("files.exclude").unwrap_or(&serde_json::Value::Null)));
@@ -360,8 +364,12 @@ impl Workbench {
             }
         }
         self.apply_explorer_settings(cx);
-        if let Some(exclude) = new_exclude {
-            self.exclude = exclude;
+        // The listed folders are read again when their exclusions change (files.exclude or
+        // explorer.excludeGitIgnore; `list` applies both).
+        if affects_exclude || affects_git_ignore {
+            if let Some(exclude) = new_exclude {
+                self.exclude = exclude;
+            }
             let dirs: Vec<PathBuf> = self.children.keys().cloned().collect();
             for dir in dirs {
                 let entries = self.list(&dir);
@@ -443,9 +451,20 @@ impl Workbench {
     fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.view = ActivityView::Search;
         self.sidebar_visible = true;
+        let seed = self.search_seed(cx);
         let view = self.ensure_search(window, cx);
-        view.update(cx, |v, cx| v.focus_query(window, cx));
+        view.update(cx, |v, cx| {
+            v.seed_query(seed, window, cx);
+            v.focus_query(window, cx)
+        });
         cx.notify();
+    }
+
+    /// The query's starting text when the Search view is focused (`search.seedOnFocus`,
+    /// `search.seedWithNearestWord`), from the active editor.
+    fn search_seed(&self, cx: &App) -> Option<String> {
+        let editor = &self.editors.active_editor()?.editor;
+        search_view::model::seed_text(editor, &search_view::current_settings(cx))
     }
 
     /// Open `path` with `range` selected and scrolled into view (a Search result or a

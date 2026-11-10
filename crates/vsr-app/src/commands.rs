@@ -228,6 +228,11 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
         D::new("explorer.newFolder", "New Folder...").category("File").f1(),
         action(crate::explorer::actions::NewFolder, Workbench),
     );
+    r.register(D::new("copyFilePath", "Copy Path").category("File").f1(), action(crate::explorer::actions::CopyPath, Workbench));
+    r.register(
+        D::new("copyRelativeFilePath", "Copy Relative Path").category("File").f1(),
+        action(crate::explorer::actions::CopyRelativePath, Workbench),
+    );
     r.register(D::new("renameFile", "Rename..."), action(crate::explorer::actions::RenameFile, Workbench));
     r.register(D::new("moveFileToTrash", "Delete"), action(crate::explorer::actions::MoveFileToTrash, Workbench));
     r.register(D::new("deleteFile", "Delete Permanently"), action(crate::explorer::actions::DeleteFile, Workbench));

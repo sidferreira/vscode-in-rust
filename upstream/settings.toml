@@ -493,3 +493,78 @@ path = "crates/vsr-app/src/ui.rs (no dedicated module yet; create one when the f
 [[component]]
 match = ["*"]
 path = "crates/vsr-app/src/ui.rs"
+
+# Search and Explorer settings deferred behind a feature rscode does not have yet (settings
+# migration, search and explorer groups). Each names what it needs; delete the rule when that lands.
+
+[[rule]]
+status = "blocked"
+reason = "needs the search editor (search results in an editor tab)"
+comment = "search.mode decides whether Find in Files and Find in Folder open the Search view or a search editor. rscode only has the Search view (ADR-0023)."
+match = ["search.mode"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the macOS find pasteboard (the shared find clipboard)"
+comment = "search.globalFindClipboard reads and writes the macOS find pasteboard. The Find widget has the same gap (editor.find.globalFindClipboard is not implemented either), so both wait for one NSPasteboard find-board binding."
+match = ["search.globalFindClipboard"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the Search tree view (folders as a hierarchy)"
+comment = "search.defaultViewMode: tree groups the results by folder. rscode has the list view only (search/model.rs); list is the default and is what rscode shows."
+match = ["search.defaultViewMode"]
+
+[[rule]]
+status = "blocked"
+reason = "needs actionbar placement by row width (search.actionsPosition auto)"
+comment = "search.actionsPosition: right (the default) is what rscode draws. auto puts the actions right after the content on a wide view, which needs the responsive row layout of the Search view."
+match = ["search.actionsPosition"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the Quick Search picker (search results in Quick Access)"
+comment = "search.quickAccess.preserveInput restores the last text of the Quick Search picker. rscode's Quick Access has no search provider yet."
+match = ["search.quickAccess.preserveInput"]
+
+[[rule]]
+status = "blocked"
+reason = "needs notebook editors and notebook search"
+comment = "search.experimental.closedNotebookRichContentResults shows rich notebook results for notebooks that are closed. rscode has no notebooks."
+match = ["search.experimental.closedNotebookRichContentResults"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the extension host's findFiles API (extensions)"
+comment = "search.experimental.useIgnoreFilesInFindFiles changes the legacy findFiles extension API, which only exists once the extension host runs extensions (ADR-0020)."
+match = ["search.experimental.useIgnoreFilesInFindFiles"]
+
+[[rule]]
+status = "blocked"
+reason = "needs AI search (semantic index and keyword suggestions)"
+comment = "search.searchView.semanticSearchBehavior and keywordSuggestions depend on the semantic search index. rscode has no AI search."
+match = ["search.searchView.semanticSearchBehavior", "search.searchView.keywordSuggestions"]
+
+[[rule]]
+status = "blocked"
+reason = "needs file decorations and custom tab labels"
+comment = "search.decorations.colors and badges colour and badge the file rows from the decoration service, which needs the SCM and problems services (see the editor rule above)."
+match = ["search.decorations.colors", "search.decorations.badges", "explorer.decorations.colors", "explorer.decorations.badges"]
+
+[[rule]]
+status = "blocked"
+reason = "needs drag and drop in the Explorer"
+comment = "explorer.enableDragAndDrop moves files and folders by dragging them in the tree. rscode's tree has no drag and drop (copy, paste and move wait for it too)."
+match = ["explorer.enableDragAndDrop"]
+
+[[rule]]
+status = "blocked"
+reason = "needs undo for Explorer file operations"
+comment = "explorer.enableUndo: undo of create, rename and delete in the Explorer. The Explorer's operations (ADR-0039) keep no undo stack yet."
+match = ["explorer.enableUndo"]
+
+[[rule]]
+status = "blocked"
+reason = "needs multi-root workspaces"
+comment = "explorer.expandSingleFolderWorkspaces applies to multi-root workspaces that hold one folder. rscode opens one folder (see tests/e2e-scenarios/multiroot.md for the plan)."
+match = ["explorer.expandSingleFolderWorkspaces"]

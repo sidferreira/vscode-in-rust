@@ -578,3 +578,83 @@ fn problems_settings_turn_the_badges_and_the_markers_off(cx: &mut TestAppContext
         "outline.problems.enabled off: no problems on any symbol"
     );
 }
+
+/// `outline.show<Kind>`, in the order of the symbol kinds (`SymbolKind` 0 to 25, as upstream lists them).
+const SHOW_SETTINGS: [&str; 26] = [
+    "showFiles",
+    "showModules",
+    "showNamespaces",
+    "showPackages",
+    "showClasses",
+    "showMethods",
+    "showProperties",
+    "showFields",
+    "showConstructors",
+    "showEnums",
+    "showInterfaces",
+    "showFunctions",
+    "showVariables",
+    "showConstants",
+    "showStrings",
+    "showNumbers",
+    "showBooleans",
+    "showArrays",
+    "showObjects",
+    "showKeys",
+    "showNull",
+    "showEnumMembers",
+    "showStructs",
+    "showEvents",
+    "showOperators",
+    "showTypeParameters",
+];
+
+/// One top-level symbol of each kind, `k<kind>` on line `kind + 1`.
+fn one_per_kind() -> Vec<ProviderSymbols> {
+    let symbols = (0..26u32)
+        .map(|kind| DocumentSymbol {
+            name: format!("k{kind}"),
+            detail: String::new(),
+            kind,
+            tags: vec![],
+            container_name: None,
+            range: Range::new(kind + 1, 1, kind + 1, 5),
+            selection_range: Range::new(kind + 1, 1, kind + 1, 5),
+            children: vec![],
+        })
+        .collect();
+    vec![ProviderSymbols::new(Some("fake"), symbols)]
+}
+
+#[gpui::test]
+fn each_show_kind_setting_hides_only_its_kind_from_the_view(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-kinds");
+    open(&wb, cx, &proj.join("src/main.rs"));
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| one_per_kind())));
+    ask(&wb, cx);
+    let names = |cx: &mut VisualTestContext| -> Vec<String> {
+        view_rows(&wb, cx).into_iter().map(|(name, _)| name).collect()
+    };
+    assert_eq!(names(cx).len(), 26, "every kind shows by default");
+    for (kind, setting) in SHOW_SETTINGS.iter().enumerate() {
+        set(cx, &format!("outline.{setting}"), serde_json::json!(false));
+        let shown = names(cx);
+        assert_eq!(shown.len(), 25, "{setting} hides one row");
+        assert!(!shown.contains(&format!("k{kind}")), "{setting} hides the kind {kind}");
+        set(cx, &format!("outline.{setting}"), serde_json::json!(true));
+    }
+}
+
+#[gpui::test]
+fn outline_icons_off_draws_no_kind_icon(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-icons");
+    open(&wb, cx, &proj.join("src/main.rs"));
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    ask(&wb, cx);
+    click(cx, "outline-header");
+    let main = view_row_id(&wb, cx, "main");
+    let icon = selector(format!("outline-icon:{main}"));
+    assert!(cx.debug_bounds(icon).is_some(), "the icon is drawn by default");
+    set(cx, "outline.icons", serde_json::json!(false));
+    assert!(cx.debug_bounds(icon).is_none(), "outline.icons off");
+}

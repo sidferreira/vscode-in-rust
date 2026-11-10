@@ -676,7 +676,9 @@ impl Workbench {
             div().flex_none().w(px(16.)).into_any_element()
         };
         let icon = icons_on.then(|| {
+            let key = format!("outline-icon:{}", row.id);
             div()
+                .debug_selector(move || key.clone())
                 .flex_none()
                 .w(px(16.))
                 .mr(px(4.))

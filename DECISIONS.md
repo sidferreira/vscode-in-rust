@@ -2729,3 +2729,11 @@ Upstream: `documentSymbolsTree.ts` (the decoration: a problem count, the colours
 Tests: unit (`markers_from_json`, the marked model's lifetime, a marker on a parent and its child,
 the three settings' effect); headless E2E (a diagnostic marks the row and draws its badge; `badges` off
 and `enabled` off hide them).
+
+**Settings (step 4).** All 31 `outline.*` settings are wired (the group "Outline" in `config/wired.rs`):
+`collapseItems` and `icons` (ADR-0092), the three `problems.*` (above), and the 26 `show<Kind>` filters
+through `KindFilter` (the view's rows, so a hidden kind hides its subtree). The rule that blocked them
+("needs the Outline view") is removed from `upstream/settings.toml`. Tests: a table test sets each
+`outline.show<Kind>` to false in turn and checks that only that kind leaves the view; `outline.icons` off
+removes the icon from every row. Upstream smoke has no Outline area, so there is no scenario row for it;
+the headless tests in `crates/vsr-app/src/outline/` are the coverage.

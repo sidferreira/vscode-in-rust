@@ -723,7 +723,6 @@ upstream = [
 rust = [
   "crates/vsr-app/src/breadcrumbs/mod.rs",
   "crates/vsr-app/src/breadcrumbs/model.rs",
-  "crates/vsr-app/src/breadcrumbs/e2e_tests.rs",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Breadcrumbs (ADR-0047): the file path part of breadcrumbsModel.ts (workspace-relative segments, absolute outside the workspace, filePath on/off/last), the bar of breadcrumbsControl.ts and breadcrumbscontrol.css (22px, the four breadcrumb colours), the dropdown of breadcrumbsPicker.ts on the Quick Pick (siblings, folders open in place, files open), and the focus commands breadcrumbs.focus, focusAndSelect and toggle with Left, Right, Enter and Escape. Not ported: the symbol path (needs document symbols), the outline filters breadcrumbs.show<Kind>, the editor type dropdown (custom editors), the picker's type-to-filter folder navigation and the Quick Pick's own styling."

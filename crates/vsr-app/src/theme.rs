@@ -90,6 +90,7 @@ theme_fields! {
     list_hover_bg: ["list.hoverBackground"],
     list_active_bg: ["list.inactiveSelectionBackground"],
     error_fg: ["editorError.foreground"],
+    warning_fg: ["editorWarning.foreground"],
     foreground: ["foreground"],  // Settings editor (settingsEditor2)
     description_fg: ["descriptionForeground"],
     focus_border: ["focusBorder"],
@@ -277,6 +278,7 @@ mod tests {
         ("list_hover_bg", "#2A2D2E"),
         ("list_active_bg", "#37373D"),
         ("error_fg", "#F14C4C"),
+        ("warning_fg", "#CCA700"),
         ("foreground", "#CCCCCC"),
         ("description_fg", "#9D9D9D"),
         ("focus_border", "#0078D4"),

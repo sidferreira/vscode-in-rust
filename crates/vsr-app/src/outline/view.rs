@@ -14,7 +14,9 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use vsr_exthost::language_features::dto::{Position, Range as SymbolRange};
-use vsr_exthost::language_features::outline::{Item, KindFilter, NodeId, OutlineModel, ROOT, SortOrder};
+use vsr_exthost::language_features::outline::{
+    Item, KindFilter, MarkerCount, NodeId, OutlineModel, ROOT, SortOrder, severity,
+};
 use vsr_search::SearchRange;
 use vsr_settings::Configuration;
 
@@ -39,16 +41,36 @@ pub struct OutlineSettings {
     pub icons: bool,
     /// The `outline.show<Kind>` filter.
     pub filter: KindFilter,
+    /// `outline.problems.enabled`: diagnostics are shown on the symbols at all.
+    pub problems: bool,
+    /// `outline.problems.colors`: a symbol with a problem has its name in the severity's colour.
+    pub problem_colors: bool,
+    /// `outline.problems.badges`: a symbol with a problem shows the severity's icon.
+    pub problem_badges: bool,
 }
 
 impl OutlineSettings {
     pub fn from_configuration(c: &Configuration) -> Self {
+        let on = |key: &str| c.get_bool(key).unwrap_or(true);
         Self {
             collapse_all: c.get_str("outline.collapseItems") == Some("alwaysCollapse"),
-            icons: c.get_bool("outline.icons").unwrap_or(true),
+            icons: on("outline.icons"),
             filter: KindFilter::from_settings("outline", |key| c.get_bool(key)),
+            problems: on("outline.problems.enabled"),
+            problem_colors: on("outline.problems.colors"),
+            problem_badges: on("outline.problems.badges"),
         }
     }
+}
+
+/// The severity a row's name takes its colour from, when colours are on (`outline.problems.colors`).
+pub fn problem_color_severity(settings: &OutlineSettings, marker: Option<MarkerCount>) -> Option<u8> {
+    marker.filter(|_| settings.problems && settings.problem_colors).map(|m| m.top_severity)
+}
+
+/// The severity of the badge a row shows, when badges are on (`outline.problems.badges`).
+pub fn problem_badge_severity(settings: &OutlineSettings, marker: Option<MarkerCount>) -> Option<u8> {
+    marker.filter(|_| settings.problems && settings.problem_badges).map(|m| m.top_severity)
 }
 
 /// One row of the view: a symbol, or a provider's group when several providers answered.
@@ -67,6 +89,8 @@ pub struct OutlineRow {
     pub expanded: bool,
     /// The symbol at the caret (follow cursor).
     pub selected: bool,
+    /// The diagnostics under the symbol (`outline.problems.enabled`; none for a group).
+    pub marker: Option<MarkerCount>,
 }
 
 /// What the rows depend on besides the settings: the view's own state.
@@ -126,6 +150,7 @@ fn walk(
         let expandable = !children.is_empty();
         let expanded = !view.text.is_empty() || open.contains(&node.id) || (!settings.collapse_all != view.toggled.contains(&node.id));
         let selected = view.selected == Some(node.id.as_str());
+        let marker = settings.problems.then(|| model.marker(id)).flatten();
         out.push(OutlineRow {
             id: node.id.clone(),
             depth,
@@ -136,6 +161,7 @@ fn walk(
             expandable,
             expanded,
             selected,
+            marker,
         });
         if expandable && expanded {
             walk(model, &children, depth + 1, settings, view, open, out);
@@ -353,7 +379,7 @@ impl Workbench {
         let Some(path) = self.outline_document() else {
             return Vec::new();
         };
-        let Some(model) = self.outline.model(&path) else {
+        let Some(model) = self.outline.view_model(&path) else {
             return Vec::new();
         };
         let settings = OutlineSettings::from_configuration(AppConfig::get(cx).configuration());
@@ -373,7 +399,7 @@ impl Workbench {
     pub(crate) fn outline_status(&self, cx: &App) -> OutlineStatus {
         let doc = self.outline_document();
         let name = doc.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned());
-        let model = doc.as_deref().and_then(|p| self.outline.model(p));
+        let model = doc.as_deref().and_then(|p| self.outline.view_model(p));
         let answered = doc.as_deref().and_then(|p| self.outline.answered(p));
         let has_rows = !self.outline_rows(cx).is_empty();
         status_of(name.as_deref(), model, answered, self.ext.is_running(), has_rows)
@@ -606,7 +632,31 @@ impl Workbench {
     fn outline_row(&self, i: usize, row: OutlineRow, doc: &Path, cx: &mut Context<Self>) -> AnyElement {
         let t = &self.theme;
         let indent = self.layout(cx).tree_indent;
-        let icons_on = OutlineSettings::from_configuration(AppConfig::get(cx).configuration()).icons;
+        let settings = OutlineSettings::from_configuration(AppConfig::get(cx).configuration());
+        let icons_on = settings.icons;
+        let name_color = problem_color_severity(&settings, row.marker).map(|s| {
+            if s == severity::ERROR { to_gpui(t.error_fg) } else { to_gpui(t.warning_fg) }
+        });
+        let badge = problem_badge_severity(&settings, row.marker).map(|s| {
+            let (glyph, color) = if s == severity::ERROR {
+                (icons::ERROR, to_gpui(t.error_fg))
+            } else {
+                (icons::WARNING, to_gpui(t.warning_fg))
+            };
+            div()
+                .id(("outline-badge", i))
+                .debug_selector({
+                    let key = format!("outline-badge:{}", row.id);
+                    move || key.clone()
+                })
+                .flex_none()
+                .ml_auto()
+                .pl(px(6.))
+                .font_family(icons::FAMILY)
+                .text_size(px(12.))
+                .text_color(color)
+                .child(icons::glyph(glyph))
+        });
         let disclosure = if row.expandable {
             let (id, debug) = (row.id.clone(), format!("outline-toggle:{}", row.id));
             div()
@@ -660,8 +710,15 @@ impl Workbench {
             .debug_selector(move || debug.clone())
             .child(disclosure)
             .children(icon)
-            .child(div().overflow_hidden().whitespace_nowrap().child(row.name.clone()))
+            .child({
+                let name = div().overflow_hidden().whitespace_nowrap().child(row.name.clone());
+                match name_color {
+                    Some(color) => name.text_color(color),
+                    None => name,
+                }
+            })
             .children(detail)
+            .children(badge)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| match range {
                 Some(range) => this.select_symbol(&doc, range, OpenSource::CodeNavigation, window, cx),
                 None => this.toggle_outline_item(&id, cx),
@@ -675,9 +732,14 @@ mod tests {
     // Explicit imports: `super::*` would bring gpui_kit's glob exports (its own `test`) into scope.
     use std::collections::HashSet;
 
-    use super::{OutlineRow, OutlineSettings, OutlineStatus, RowView, rows, status_of, symbol_glyph};
+    use super::{
+        OutlineRow, OutlineSettings, OutlineStatus, RowView, problem_badge_severity, problem_color_severity, rows,
+        status_of, symbol_glyph,
+    };
     use vsr_exthost::language_features::dto::{DocumentSymbol, Range};
-    use vsr_exthost::language_features::outline::{KindFilter, OutlineModel, ProviderSymbols, SortOrder};
+    use vsr_exthost::language_features::outline::{
+        KindFilter, Marker, OutlineModel, ProviderSymbols, SortOrder, severity,
+    };
 
     fn sym(name: &str, kind: u32, range: Range, children: Vec<DocumentSymbol>) -> DocumentSymbol {
         DocumentSymbol {
@@ -701,7 +763,14 @@ mod tests {
     }
 
     fn settings(collapse_all: bool) -> OutlineSettings {
-        OutlineSettings { collapse_all, icons: true, filter: KindFilter::default() }
+        OutlineSettings {
+            collapse_all,
+            icons: true,
+            filter: KindFilter::default(),
+            problems: true,
+            problem_colors: true,
+            problem_badges: true,
+        }
     }
 
     /// The view with no toggles, the position sort, no caret and no filter.
@@ -813,6 +882,42 @@ mod tests {
         assert_eq!(status_of(Some("a.ts"), Some(&m), Some(0), true, false), OutlineStatus::NoProvider);
         assert_eq!(status_of(Some("a.ts"), Some(&m), Some(1), true, false), OutlineStatus::NoSymbols("a.ts".into()));
         assert_eq!(status_of(Some("a.ts"), Some(&m), Some(1), true, true), OutlineStatus::Rows);
+    }
+
+    #[test]
+    fn a_marker_marks_its_symbol_and_the_parent_it_is_inside() {
+        let mut m = model();
+        // Inside `m` (line 2) and therefore inside `C`: `C` keeps no count of its own, but its severity.
+        let mut markers = vec![Marker { range: Range::new(2, 4, 2, 9), severity: severity::ERROR }];
+        m.update_marker(&mut markers);
+        let r = rows(&m, &settings(false), &plain(&HashSet::new()));
+        let (class, method) = (r[0].marker.expect("the class has its severity"), r[1].marker.expect("the method has the problem"));
+        assert_eq!(class.top_severity, severity::ERROR);
+        assert_eq!(class.count, 0, "the method took the marker");
+        assert_eq!((method.count, method.top_severity), (1, severity::ERROR));
+        assert!(r[2].marker.is_none(), "a symbol without problems has none");
+    }
+
+    #[test]
+    fn problems_off_hide_every_marker_and_each_setting_its_own_effect() {
+        let mut m = model();
+        let mut markers = vec![Marker { range: Range::new(2, 4, 2, 9), severity: severity::WARNING }];
+        m.update_marker(&mut markers);
+        let mut off = settings(false);
+        off.problems = false;
+        assert!(rows(&m, &off, &plain(&HashSet::new())).iter().all(|r| r.marker.is_none()));
+
+        let on = settings(false);
+        let marker = rows(&m, &on, &plain(&HashSet::new()))[1].marker;
+        assert_eq!(problem_color_severity(&on, marker), Some(severity::WARNING));
+        assert_eq!(problem_badge_severity(&on, marker), Some(severity::WARNING));
+        let mut no_colors = on.clone();
+        no_colors.problem_colors = false;
+        assert_eq!(problem_color_severity(&no_colors, marker), None, "outline.problems.colors off");
+        assert_eq!(problem_badge_severity(&no_colors, marker), Some(severity::WARNING), "badges still on");
+        let mut no_badges = on.clone();
+        no_badges.problem_badges = false;
+        assert_eq!(problem_badge_severity(&no_badges, marker), None, "outline.problems.badges off");
     }
 
     #[test]

@@ -2704,3 +2704,28 @@ actions in the section header, shown while the section is open (sort, follow cur
 Tests: `outline/view.rs` (follow cursor with its ancestors, sort by name and category, the filter's matches
 and ancestors, the empty filter); `outline/e2e_tests.rs` (follow through the caret, the header's sort cycle,
 typing into the filter and Escape). The session's round trip covers the new fields.
+
+## ADR-0094 — Problems on the Outline's symbols: the diagnostics mark the model, and the settings decide what shows (2026-11-10)
+
+Upstream: `documentSymbolsTree.ts` (the decoration: a problem count, the colours, the badge),
+`outlineModel.ts` (`updateMarker`), `outline.contribution.ts` (`outline.problems.*`).
+
+- **Source.** The diagnostics of the active document come from the extension host's snapshot (the
+  same `diagnostics` the squiggles read, ADR-0067). `markers_from_json` keeps errors and warnings
+  (hints and infos are not counted, as the squiggles draw them but upstream's outline shows the
+  problems only), with their 1-based ranges, sorted by start as `updateMarker` consumes them.
+- **Marked model.** The outline keeps, per document, a copy of the model with the markers attached
+  (`OutlineState::mark`), rebuilt when the marker signature changes and dropped when a new answer is
+  delivered, since the answer's symbols are new. `view_model` gives the view the marked copy. The
+  cached model stays unmarked for the breadcrumbs and Go to Symbol, which do not show problems.
+- **Settings.** `outline.problems.enabled` (off: no marker is read at all), `outline.problems.colors`
+  (the name takes the severity's colour: `editorError.foreground`, and a new `warning_fg` key for
+  `editorWarning.foreground`), `outline.problems.badges` (the severity icon at the row's end). A
+  symbol that contains a problem but whose own count is 0 still shows the severity (ADR-0085).
+- **Not done.** `problems.visibility` (the Problems view's visibility) does not exist yet, so it
+  does not overwrite these settings, as upstream says it does when off. Problem counts in the badge
+  (upstream shows the count for a symbol with several) are the icon only.
+
+Tests: unit (`markers_from_json`, the marked model's lifetime, a marker on a parent and its child,
+the three settings' effect); headless E2E (a diagnostic marks the row and draws its badge; `badges` off
+and `enabled` off hide them).

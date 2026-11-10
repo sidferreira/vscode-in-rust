@@ -520,3 +520,61 @@ fn filter_on_type_narrows_the_rows_as_you_type_and_escape_clears_them(cx: &mut T
     cx.run_until_parked();
     assert_eq!(view_rows(&wb, cx).len(), 3, "escape clears the text");
 }
+
+/// Sets a setting in the user's settings, as the Settings editor does.
+fn set(cx: &mut VisualTestContext, key: &str, value: serde_json::Value) {
+    cx.update(|_, cx| AppConfig::set_value(cx, key, Some(value))).unwrap();
+    cx.run_until_parked();
+}
+
+/// A diagnostic `error` on line 5, columns 4..8 (the name of `main` in `nested_symbols`).
+fn main_error() -> serde_json::Value {
+    serde_json::json!({"severity": 8, "startLineNumber": 5, "startColumn": 4, "endLineNumber": 5, "endColumn": 8, "message": "boom"})
+}
+
+/// Puts the extension host's diagnostics of `path` in place, as the host would publish them.
+fn set_diagnostics(wb: &Entity<Workbench>, cx: &mut VisualTestContext, path: &Path, markers: Vec<serde_json::Value>) {
+    let key = crate::extensions::snapshot::resource_key(path);
+    wb.update(cx, |wb, _| {
+        wb.ext.snapshot.diagnostics.insert(key, markers);
+    });
+}
+
+#[gpui::test]
+fn a_diagnostic_marks_its_symbol_and_shows_a_badge_on_its_row(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "view-problems");
+    let main_file = proj.join("src/main.rs");
+    open(&wb, cx, &main_file);
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    set_diagnostics(&wb, cx, &main_file, vec![main_error()]);
+    ask(&wb, cx);
+    click(cx, "outline-header");
+    let main = view_row_id(&wb, cx, "main");
+    let top = wb.read_with(cx, |wb, app| wb.outline_rows(app).into_iter().find(|r| r.name == "main").and_then(|r| r.marker));
+    assert_eq!(top.map(|m| m.top_severity), Some(vsr_exthost::language_features::outline::severity::ERROR));
+    assert!(cx.debug_bounds(selector(format!("outline-badge:{main}"))).is_some(), "the badge is drawn");
+}
+
+#[gpui::test]
+fn problems_settings_turn_the_badges_and_the_markers_off(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench_with(cx, "view-problems-off", r#"{"outline.problems.badges": false}"#);
+    let main_file = proj.join("src/main.rs");
+    open(&wb, cx, &main_file);
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    set_diagnostics(&wb, cx, &main_file, vec![main_error()]);
+    ask(&wb, cx);
+    click(cx, "outline-header");
+    let main = view_row_id(&wb, cx, "main");
+    assert!(cx.debug_bounds(selector(format!("outline-badge:{main}"))).is_none(), "outline.problems.badges off");
+    assert!(
+        wb.read_with(cx, |wb, app| wb.outline_rows(app).iter().any(|r| r.marker.is_some())),
+        "the problem is still counted for the colour"
+    );
+
+    set(cx, "outline.problems.enabled", serde_json::json!(false));
+    cx.run_until_parked();
+    assert!(
+        wb.read_with(cx, |wb, app| wb.outline_rows(app).iter().all(|r| r.marker.is_none())),
+        "outline.problems.enabled off: no problems on any symbol"
+    );
+}

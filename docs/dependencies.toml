@@ -850,9 +850,7 @@ status = "done"
 effort = "M"
 effort_source = "guess"
 needs = []
-reasons = [
-  "needs untitled editors (new files)",
-]
+note = "Done (ADR-0057..0059): Cmd+N, Save As through the name box, hot exit; labelFormat and files.defaultLanguage wired."
 
 [[node]]
 id = "non-text-editors"

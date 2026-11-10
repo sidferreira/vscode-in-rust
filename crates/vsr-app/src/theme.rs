@@ -57,6 +57,8 @@ theme_fields! {
     title_bar_bg: ["titleBar.activeBackground"],
     status_bar_bg: ["statusBar.background"],
     tab_strip_bg: ["editorGroupHeader.tabsBackground"],
+    scrollbar_slider_bg: ["scrollbarSlider.background"],
+    scrollbar_slider_hover_bg: ["scrollbarSlider.hoverBackground"],
     tab_inactive_bg: ["tab.inactiveBackground"],
     activity_bar_border: ["activityBar.border"],
     side_bar_border: ["sideBar.border"],

@@ -28,6 +28,7 @@ pub mod files;
 pub mod folding;
 pub mod glob;
 pub mod minimap;
+pub mod scrollbar;
 pub mod settings;
 pub mod wired;
 

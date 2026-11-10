@@ -103,9 +103,14 @@ fn minimap_is_shown_by_default_on_the_right(cx: &mut TestAppContext) {
     assert!(f32::from(m.size.width) > 8.0 && f.info.width > 8.0, "has a width: {m:?}");
     assert!(near(f32::from(m.size.width), f.info.width as f32, 0.5));
     assert_eq!(f.size, MinimapSize::Proportional);
-    // Everything fits the editor's full width: text + minimap.
+    // Everything fits the editor's full width: text + minimap + the vertical scrollbar, which is
+    // drawn beside the minimap when the document overflows (`editor.scrollbar.vertical` auto).
     let editor = cx.debug_bounds("editor-group").unwrap();
-    assert!(near(f32::from(text.size.width + m.size.width), f32::from(editor.size.width), 2.0), "{text:?} {m:?} {editor:?}");
+    let bar = cx.debug_bounds("editor-scrollbar-vertical").map_or(0.0, |b| f32::from(b.size.width));
+    assert!(
+        near(f32::from(text.size.width + m.size.width) + bar, f32::from(editor.size.width), 2.0),
+        "{text:?} {m:?} bar {bar} {editor:?}"
+    );
     // 1000 lines do not fit the editor, so there is a slider covering the visible part.
     let s = slider(cx).expect("slider");
     assert!(f.layout.slider_needed);

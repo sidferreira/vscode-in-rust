@@ -908,6 +908,6 @@ match = ["workbench.sash.autoHideGrippers", "workbench.sash.autoHideGrippersDela
 
 [[rule]]
 status = "blocked"
-reason = "needs an editor scrollbar (rscode draws no editor scrollbar yet)"
-comment = "editor.scrollbar.vertical and horizontal (visible, auto, hidden), the vertical and horizontal sizes, scrollByPage (a click on the track) and ignoreHorizontalScrollbarInContentHeight all describe a scrollbar the editor draws. rscode scrolls the editor by wheel and keys and draws only the minimap slider (ADR-0053). The scrollbar is a feature of its own; these wait for it."
-match = ["editor.scrollbar.vertical", "editor.scrollbar.horizontal", "editor.scrollbar.verticalScrollbarSize", "editor.scrollbar.horizontalScrollbarSize", "editor.scrollbar.scrollByPage", "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight"]
+reason = "needs the horizontal bar's height in the scroll height (rscode's list measures whole rows)"
+comment = "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight decides whether the horizontal bar's height adds to the scroll height (viewLayout.ts getScrollHeight). rscode's editor is a uniform list of rows, so the bar's height would need a spacer row. The other five editor.scrollbar.* settings are wired (ADR-0054)."
+match = ["editor.scrollbar.ignoreHorizontalScrollbarInContentHeight"]

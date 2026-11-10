@@ -26,6 +26,7 @@
 mod decorations;
 pub(crate) mod find;
 mod folding;
+mod scrollbar;
 mod sticky_scroll;
 mod minimap;
 pub(crate) mod wrap;
@@ -110,6 +111,8 @@ pub struct EditorView {
     find: find::FindUi,
     /// The minimap beside the editor (`editor.minimap.*`, ADR-0031).
     minimap: minimap::MinimapView,
+    /// The vertical and horizontal scrollbars (`editor.scrollbar.*`, ADR-0054).
+    scrollbars: scrollbar::Bars,
     /// The bracket pair highlighted at the caret (`editor.matchBrackets`).
     brackets: decorations::BracketCache,
     /// Alt+Z (`editor.action.toggleWordWrap`): per-document override of `editor.wordWrap`.
@@ -304,6 +307,12 @@ impl EditorView {
         // `editor.scrollBeyondLastColumn`: room after the widest line, so the list scrolls past it (not
         // with word wrap, where no line is wider than the viewport).
         let scroll_extra = if wrapping { 0.0 } else { cfg.scroll_beyond_last_column as f32 * used_char_w };
+        // The bars: settings and slider colours are read before the list's closure takes `cfg` and `theme`.
+        let bar_settings = scrollbar::settings(&cfg);
+        let slider_colors = scrollbar::SliderColors {
+            background: theme.scrollbar_slider_bg,
+            hover: theme.scrollbar_slider_hover_bg,
+        };
         let list = uniform_list(
             id,
             rows_total,
@@ -332,6 +341,9 @@ impl EditorView {
         }
         .size_full();
 
+        let (vertical_in, horizontal_in) = scrollbar::inputs(&scroll, self.bounds.get().size, &bar_settings);
+        let vertical_bar = scrollbar::bar("editor-scrollbar-vertical", &scroll, &vertical_in, slider_colors, self.scrollbars.vertical.clone());
+        let horizontal_bar = scrollbar::bar("editor-scrollbar-horizontal", &scroll, &horizontal_in, slider_colors, self.scrollbars.horizontal.clone());
         let bounds_cell = self.bounds.clone();
         let input_focus = focus.clone();
         let entity = cx.entity();
@@ -367,9 +379,9 @@ impl EditorView {
             .key_context(KeyContext::parse(KEY_CONTEXT).unwrap_or_default())
             .track_focus(&focus)
             .relative()
-            .h_full()
             .flex_1()
             .min_w_0()
+            .min_h_0()
             .on_action(cx.listener(|this: &mut T, a: &Run, window, cx| {
                 run_command(this, a.0, window, cx)
             }))
@@ -413,8 +425,9 @@ impl EditorView {
                 .flex_row()
                 .size_full()
                 .children(minimap.left)
-                .child(surface)
+                .child(div().flex().flex_col().flex_1().min_w_0().h_full().child(surface).children(horizontal_bar))
                 .children(minimap.right)
+                .children(vertical_bar)
                 .children(minimap.check),
         )
         .children(find_widget)
@@ -1349,3 +1362,5 @@ mod folding_e2e;
 mod sticky_e2e;
 #[cfg(test)]
 mod scroll_e2e;
+#[cfg(test)]
+mod scrollbar_e2e;

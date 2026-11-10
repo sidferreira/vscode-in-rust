@@ -1737,6 +1737,33 @@ no half-drawn scrollbar is shipped to satisfy the settings, and the policy is re
 **Not done.** `scrollbar_width` was not used to size the bars: gpui reserves the space but draws nothing in it,
 so the setting would change the layout without a visible bar.
 
+**Superseded by ADR-0054.** The editor draws its scrollbars now, and five of the six settings are wired.
+
+## ADR-0054 — Editor scrollbars: the bars are drawn, five of six `editor.scrollbar.*` settings wired (2026-11-10)
+
+**Context.** ADR-0053 blocked the `editor.scrollbar.*` group until rscode drew an editor scrollbar. Upstream's
+`scrollableElement` draws both bars and their slider math lives in `scrollbarState.ts`.
+
+**Decision.** The editor draws a vertical bar (the rightmost column, after the minimap) and a horizontal bar
+(under the text area), from the list's scroll handle: the viewport is the last paint and the scroll range is gpui's
+`max_offset`, so the slider follows the real scroll range, including the `scrollBeyondLastLine` and
+`scrollBeyondLastColumn` room. The slider math is `editor_view/scrollbar/state.rs`, a port of `scrollbarState.ts`
+(both upstream `ScrollbarState` tests ported). A click on the track jumps the slider's centre to the click, or pages
+one viewport with `editor.scrollbar.scrollByPage`; dragging the slider moves the list by the pointer's delta.
+`editor.scrollbar.vertical` and `horizontal` (`auto` shows the bar when the content overflows, `visible` always,
+`hidden` never), `verticalScrollbarSize` and `horizontalScrollbarSize` (the bar's thickness, and the room it takes
+from the text area) and `scrollByPage` are wired. Colours are `scrollbarSlider.background` and `hoverBackground`.
+
+**Not done.**
+- `editor.scrollbar.ignoreHorizontalScrollbarInContentHeight` stays `blocked`: upstream adds the horizontal bar's
+  height to the scroll height, and rscode's list measures whole rows, so that would need a spacer row.
+- The arrow buttons (arrowSize is 0), the fade after scrolling (`scrollbarVisibilityController`) and
+  `scrollbarSlider.activeBackground` (gpui-pre's element has no active state here).
+- `hidden` takes no width, where upstream's layout keeps `verticalScrollbarSize` reserved (`editorOptions.ts`).
+- The drag is a gpui window listener, so it follows the pointer anywhere in the window, not through the bar's
+  own pointer capture.
+- Overview ruler decorations (ADR-0055, next) and sash grippers are separate features.
+
 ## ADR-0060 — Extension host spike (P0): Option A is feasible, the handshake works (2026-11-10)
 
 Context: ADR-0020 chose Option A (run upstream's own compiled `extensionHostProcess` under Node,

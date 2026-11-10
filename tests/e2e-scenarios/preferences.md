@@ -143,3 +143,18 @@ Headless (`crates/vsr-app/src/editor_view/scroll_e2e.rs`). The check is the list
 |---|---|---|
 | `editor.scrollBeyondLastColumn` (default 4) adds that many character widths after the widest line, live; 0 removes the room | ready | `scroll_beyond_last_column_adds_room_after_the_widest_line_live` |
 | with `editor.wordWrap` on there is no horizontal room, whatever the setting | ready | `scroll_beyond_last_column_does_not_apply_with_word_wrap` |
+
+### Editor scrollbars (`editor.scrollbar.*`, ADR-0054)
+
+Headless (`crates/vsr-app/src/editor_view/scrollbar_e2e.rs`). The bars are found by their debug selectors, and driven by simulated pointers.
+
+| scenario | status | test |
+|---|---|---|
+| `auto` draws the vertical bar only when the document is taller than the viewport | ready | `auto_shows_the_vertical_bar_when_the_document_is_taller_than_the_viewport`, `auto_hides_the_vertical_bar_when_the_document_fits` |
+| `visible` always draws it; `hidden` never does | ready | `visible_always_shows_the_vertical_bar`, `hidden_never_shows_the_vertical_bar` |
+| `verticalScrollbarSize` sets the bar's width, live | ready | `vertical_scrollbar_size_sets_the_bar_width_live` |
+| a click on the track below the slider centres the slider on the click | ready | `click_on_the_track_below_the_slider_centres_the_slider_on_the_click` |
+| `scrollByPage` makes a track click move one viewport | ready | `scroll_by_page_click_moves_one_viewport` |
+| dragging the slider moves the list by the slider's ratio | ready | `dragging_the_slider_moves_the_list_by_the_slider_ratio` |
+| the horizontal bar follows `auto` for a wide line, and is absent while word wrap is on | ready | `horizontal_auto_shows_for_a_wide_line_and_not_while_wrapping` |
+| `ignoreHorizontalScrollbarInContentHeight` | blocked (needs the bar's height in the scroll height) | |

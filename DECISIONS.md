@@ -1849,3 +1849,146 @@ as `exthost-rpc-wire`, `exthost-proxy-ids`, `exthost-handshake`.
 app), cancellation tokens, URI transformers (remote only), `MessagePort`/`process.send` connection
 types, reconnection, the `IExtensionDescription` list and activation (`$startExtensionHost`,
 `$activate`), the `MainThread*` implementations themselves.
+
+## ADR-0062 — Why `$startExtensionHost` never answered: the host waits for the workspace and configuration (2026-11-10)
+
+Context: ADR-0060 saw `$startExtensionHost` acknowledged but never replied to (empty extension list,
+`autoStart: true`).
+
+**Root cause.** Not the empty list and not `autoStart` by itself. `ExtHostExtensionService.initialize()`
+(run from the `ExtensionHostMain` constructor) awaits two things the *main thread* must send before it
+opens `_readyToStartExtensionHost`:
+
+1. `ExtHostConfiguration.$initializeConfiguration(IConfigurationInitData)`: `_beforeAlmostReadyToRunExtensions`
+   (node `extHostExtensionService.ts`) awaits `getConfigProvider()`, a barrier opened only by that call;
+2. `ExtHostWorkspace.$initializeWorkspace(IWorkspaceData | null, trusted)`: `waitForInitializeCall()`.
+
+`_startExtensionHost()` (called by `$startExtensionHost`) waits on `_readyToStartExtensionHost`, so the
+request is acknowledged (the RPC layer acks on receipt) and then parked forever. The workspace in the
+init data is not what opens the barrier. Verified against the real host: no reply without the two calls,
+reply (`undefined`) with them.
+
+**`autoStart` interaction.** With `autoStart: true` the host calls `_startExtensionHost()` itself the
+moment both barriers open and sets `_started`; a later `$startExtensionHost` then fails with
+"Extension host is already started!". So the main thread picks one: `autoStart: true` and send the two
+initialisers (the extension list then comes from the init data / `$deltaExtensions`), or `autoStart:
+false` and send the two initialisers followed by `$startExtensionHost(delta)`. upstream's local process
+host uses `autoStart = (startup === EagerAutoStart)`. rscode uses the second form: the delta carries
+the descriptions and we know when "eager extensions activated" is done (the reply).
+
+`handshake` gained `InitParams::auto_start`, `workspace_data`, `configuration_data` and `empty_delta`
+helpers. Tests: `crates/vsr-rpc/tests/start_extension_host.rs` (hang, answered, already-started).
+
+## ADR-0063 — `vsr-rpc::session`: a long-lived connection with async replies (2026-11-10)
+
+`Session::start(Connection, Option<HostProcess>)` (or `Session::from_host(Host)` after the handshake)
+returns the session and an `mpsc::Receiver<Event>`. A reader thread owns the read half of the socket,
+cuts frames, runs `Protocol::receive`, answers replay requests, sends an explicit `Ack` when nothing
+piggybacked ours, and a `KeepAlive` after 5 s of silence (`Protocol::keepalive_frame`). The write half,
+the `Protocol` and the `RpcPeer` sit behind one mutex, so numbering and writes stay in order from any
+thread.
+
+- **Host requests** arrive as `Event::Request(Call, Responder)`. The `Acknowledged` is written by the
+  reader at once (like `_receiveRequest`); the reply is written when the owner calls
+  `Responder::reply`, from any thread, in any order. The app drains the channel on its own event loop
+  and answers from app state: no handler object has to live inside the transport. `RpcPeer::receive` /
+  `rpc::reply_message` are the split of `handle` (which keeps its synchronous `Handler` form for the
+  P0 tests).
+- **Our requests**: `Session::request` returns a `Pending` (its own channel); `wait(timeout)` gives the
+  `Completed`, `WaitError::Timeout`, or `WaitError::Closed` when the socket closed first. Any number
+  can be in flight; `cancel(req)` sends `Cancel`.
+- **Shutdown**: `Session::shutdown(grace)` sends `Terminate`, waits for the process to exit by itself,
+  kills it after the grace, removes the socket file and joins the reader; the events channel then ends
+  with `Event::Closed`. The same `Closed` arrives when the host dies by itself. `HostProcess::drop`
+  kills a still-running Node so a panicking test cannot leave one behind.
+- `Event::BadMessage` reports a message that does not decode; the connection carries on.
+
+Tests (`tests/session.rs`): loopback between two sessions over `UnixStream::pair` (out-of-order and
+cross-thread replies, timeout, close, undecodable message), and against the real host (workspace and
+configuration init, `$startExtensionHost` and five `$test_latency` in flight waited on in reverse,
+`MainThread*` requests served on another thread, clean exit). `Host` was split into `Host` +
+`HostProcess` for this.
+
+## ADR-0064 — `vsr-exthost`: extension descriptions, activation, and a fixture for ErrorLens (2026-11-10)
+
+New UI-free crate `crates/vsr-exthost` (depends on `vsr-rpc` and `vsr-settings`, no new external
+crates). `vsr-rpc` stays the wire; `vsr-exthost` is the meaning of the `MainThread*` shapes.
+
+- **`description`**: `ExtensionDescription::from_dir` turns a folder with a `package.json` into the
+  `IExtensionDescription` JSON the host takes: the manifest plus `identifier`, `id`,
+  `extensionLocation` (the canonicalised path: the host indexes real paths, and a mismatch makes
+  `require('vscode')` fall back with "Could not identify extension"), `targetPlatform: "undefined"` and
+  the four flags. `delta_adding` builds the `IExtensionDescriptionDelta` for `$startExtensionHost`.
+  Two things that are easy to get wrong, both verified against the host: `ExtensionIdentifier` goes on
+  the wire as `{ value, _lower }` (the host never revives it; its maps key on `_lower`), and activation
+  events come from the delta's `addActivationEvents`, not from the manifest (`SyncedActivationEventsReader`).
+  `configuration_defaults` reads `contributes.configuration` defaults, which `boot` folds into the
+  `defaults` layer sent with `$initializeConfiguration` (without them `getConfiguration().get()` of an
+  unset key is `undefined`).
+- **`main_thread`**: `MainThread::handle(&Call)` routes by proxy id and method. `ExtensionService`
+  records `$onWillActivateExtension`, `$onDidActivateExtension` (times and the reason),
+  `$onExtensionActivationError` (the `SerializedError` is kept: errors are surfaced, never dropped),
+  `$onExtensionRuntimeError`, and answers `$getExtension`, `$asBrowserUri`, `$setPerformanceMarks`.
+  Requests no model implements yet go to `MainThread::unhandled` and get `undefined`; the host's
+  console messages are kept in `console` (the test uses them to catch a wrong extension location).
+- **`host::ExtensionHost`**: `boot` = spawn, handshake, `Session`, then `$initializeWorkspace`,
+  `$initializeConfiguration`, `$startExtensionHost(delta)` with `autoStart: false` (ADR-0062);
+  `pump(wait)` applies the reader thread's events to the models on the caller's thread (so models need
+  no locks and the app drives them from its loop); `wait` / `call` serve the host's requests while
+  waiting for a reply, which activation needs (`$onWillActivateExtension` is awaited by the host).
+  Typed calls: `activate_by_event`, `activate`, `execute_contributed_command`, `shutdown`.
+- **Fixture**: `crates/vsr-exthost/tests/fixtures/errorlens-fixture` (plain CommonJS, written here;
+  ErrorLens itself is not copied or downloaded). It registers commands, reads configuration, creates a
+  status bar item, a decoration type and a diagnostic collection, and reports what it saw through a
+  command. It lives next to the tests that use it, not under `vsr-rpc`, because the host driver and its
+  tests moved to this crate.
+- The host answers `$activate` with `true` even when `activate()` throws; failure arrives only through
+  `$onExtensionActivationError`, so tests assert on that, not on the reply.
+
+Tests (`tests/extension_service.rs`, real host, skip without `RSCODE_CODE_OSS`): description shape (no
+host), activation by event + command round trip + contributed default reaches `getConfiguration`, activation
+error surfaced, clean shutdown.
+
+## ADR-0065 — `MainThread*` shapes for ErrorLens: commands, configuration, status bar, editors, diagnostics, documents (2026-11-10)
+
+All in `vsr-exthost`, UI-free: each shape is a plain model on `MainThread` that the app reads and paints;
+`MainThread::handle` routes by proxy id and method (the rest is recorded in `unhandled` and answered
+`undefined`). Only what the fixture (a stand-in for ErrorLens) triggers is implemented.
+
+- **Commands** (`MainThreadCommands`): `registered` (the ids the app can run with
+  `ExtensionHost::execute_contributed_command`), `$fireCommandActivationEvent`, and `$executeCommand`
+  for an extension running an app command, answered by an `Executor` closure the app sets
+  (`set_executor`; without one the command rejects "not found").
+- **Configuration**: `configuration::layers(registry, conf)` builds the nested defaults and user layers
+  from `vsr-settings`; the extension-contributed defaults (`contributes.configuration`) are merged under
+  `defaults` by `boot` and by `configuration_changed` (`$acceptConfigurationChanged`, which fires
+  `onDidChangeConfiguration`). `$updateConfigurationOption` / `$removeConfigurationOption` are recorded as
+  `ConfigUpdate`s for the app to write to settings.json (the app owns the file). `ConfigurationTarget` is
+  `platform/configuration`'s enum (`update(.., true)` arrives as 2, USER), not the extension API's.
+- **Status bar** (`$setEntry`, `$disposeEntry`): `StatusBar.entries` keyed by item id, `sorted()` in display
+  order (left first; priority nearer the edge). Note the host batches item updates, so text changes arrive
+  a tick after the API call.
+- **Text editors**: decoration types (`$registerTextEditorDecorationType`) and per-editor decorations from
+  both `$trySetDecorations` (with hover / `renderOptions`) and the compact `$trySetDecorationsFast` (four
+  1-based numbers per range); an empty set removes the entry. The other `$try*` editor calls fall through
+  to `undefined`.
+- **Diagnostics** (`$changeMany`, `$clear`): per owner and resource (`scheme://authority/path` key),
+  `markers_for(resource)` adds owners up, `counts()` for the problem counters. `MarkerSeverity` constants
+  exported.
+- **Documents and editors mirror**: `Documents` is the main thread's model of open documents and editors
+  and makes the host's messages (`$acceptDocumentsAndEditorsDelta`, `$acceptModelChanged`) through
+  `ExtensionHost::open_document` / `show_editor` / `close_editor` / `edit_document`; it answers
+  `$tryOpenDocument` (only already-open documents) and `$trySaveDocument`. Columns count `char`s: equal to
+  UTF-16 units on the BMP only (follow-up for astral characters). Untitled documents are not supported.
+
+The real-host test drives a full ErrorLens-style loop: open a document with `ERROR` lines, show an editor,
+the extension (reacting to `onDidChangeActiveTextEditor`) sets diagnostics, decorations with
+`after.contentText` and the status bar count; an edit (`onDidChangeTextDocument`) updates all three; a
+settings change flips the status prefix; the extension saves the document and updates a setting.
+
+**Not done (stretch):** wiring into the gpui workbench (painting the status bar entries, decorations and
+diagnostics in `vsr-app`, headless with `TestAppContext`). The models are the integration surface; the
+workbench needs an `ExtensionHost` owned by the app, `pump` driven from its event loop, and the editor
+view reading `editors.decorations_for` / `diagnostics.markers_for`. Also open: ESM extensions, extension
+scanning of `~/.vscode/extensions`, `$activateByEvent` for `onLanguage:`/`workspaceContains:` from the
+document model, bundling the Code-OSS host (ADR-0060), activation timing out.

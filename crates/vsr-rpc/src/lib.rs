@@ -16,6 +16,7 @@
 //! * [`rpc`]: request ids and dispatch to a [`rpc::Handler`] (the `RPCProtocol` class);
 //! * [`proxy_ids`]: the `MainContext` / `ExtHostContext` numbering, generated from
 //!   `extHost.protocol.ts` by `scripts/gen-rpc-ids`;
+//! * [`session`]: a long-lived connection: reader thread, events channel, async replies (ADR-0063);
 //! * [`handshake`]: spawn the host under Node and complete `Ready` -> init data -> `Initialized`.
 
 pub mod codec;
@@ -23,3 +24,4 @@ pub mod framing;
 pub mod handshake;
 pub mod proxy_ids;
 pub mod rpc;
+pub mod session;

@@ -75,8 +75,53 @@ pub fn find_on_path(name: &str) -> Option<PathBuf> {
 }
 
 /// A `file` URI as `UriComponents` JSON.
-fn uri(path: &Path) -> Value {
+pub fn file_uri(path: &Path) -> Value {
     json!({ "$mid": 1, "scheme": "file", "authority": "", "path": path.to_string_lossy(), "query": "", "fragment": "" })
+}
+
+/// `IWorkspaceData` for a single-folder workspace: what `ExtHostWorkspace.$initializeWorkspace`
+/// takes (and what the init data carries).
+pub fn workspace_data(name: &str, path: &Path) -> Value {
+    json!({ "id": name, "name": name, "configuration": null, "isUntitled": false, "transient": false, "folders": [{ "uri": file_uri(path), "name": name, "index": 0 }] })
+}
+
+/// An empty `IExtensionDescriptionDelta` (nothing to add or remove): the argument of
+/// `$startExtensionHost` for a host with no extensions.
+pub fn empty_delta() -> Value {
+    json!({ "versionId": 0, "toRemove": [], "toAdd": [], "addActivationEvents": {}, "myToRemove": [], "myToAdd": [] })
+}
+
+/// `IConfigurationInitData` with empty layers: the argument of `ExtHostConfiguration.$initializeConfiguration`.
+/// The host's `initialize()` (`_beforeAlmostReadyToRunExtensions`) waits for that call. `defaults`
+/// and `user` are the (nested) contents of the default and user settings layers;
+/// `getConfiguration(section).get(key)` in an extension reads them.
+pub fn configuration_data(defaults: Value, user: Value) -> Value {
+    let empty = json!({ "contents": {}, "keys": [], "overrides": [] });
+    let layer = |v: Value| json!({ "keys": flatten_keys("", &v), "contents": v, "overrides": [] });
+    json!({
+        "defaults": layer(defaults), "policy": empty, "application": empty,
+        "userLocal": layer(user),
+        "userRemote": empty, "workspace": empty, "folders": [],
+        "configurationScopes": [],
+    })
+}
+
+fn flatten_keys(prefix: &str, v: &Value) -> Vec<String> {
+    match v {
+        Value::Object(m) if !m.is_empty() => m
+            .iter()
+            .flat_map(|(k, v)| {
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                flatten_keys(&key, v)
+            })
+            .collect(),
+        _ if prefix.is_empty() => vec![],
+        _ => vec![prefix.to_string()],
+    }
 }
 
 /// What the init data needs from us. Storage folders must exist and be writable.
@@ -87,6 +132,10 @@ pub struct InitParams {
     pub storage_root: PathBuf,
     /// The workspace folder, when one is open.
     pub workspace: Option<(String, PathBuf)>,
+    /// `IExtensionHostInitData.autoStart`: when true the host calls its own `_startExtensionHost()`
+    /// as soon as the workspace is initialised, and a later `$startExtensionHost` is an error
+    /// ("Extension host is already started!"). Use false and send `$startExtensionHost` yourself.
+    pub auto_start: bool,
 }
 
 /// `IExtensionHostInitData` (`extensionHostProtocol.ts`) for a host with no extensions: what the
@@ -101,20 +150,20 @@ pub fn init_data(p: &InitParams) -> Value {
             "isExtensionDevelopmentDebug": false,
             "appName": "rscode",
             "appHost": "desktop",
-            "appRoot": uri(&p.app_root),
+            "appRoot": file_uri(&p.app_root),
             "appLanguage": "en",
             "isExtensionTelemetryLoggingOnly": false,
             "appUriScheme": "rscode",
-            "globalStorageHome": uri(&p.storage_root.join("globalStorage")),
-            "workspaceStorageHome": uri(&p.storage_root.join("workspaceStorage")),
+            "globalStorageHome": file_uri(&p.storage_root.join("globalStorage")),
+            "workspaceStorageHome": file_uri(&p.storage_root.join("workspaceStorage")),
         },
-        "workspace": p.workspace.as_ref().map(|(name, path)| json!({ "id": name, "name": name, "configuration": null, "isUntitled": false, "transient": false, "folders": [{ "uri": uri(path), "name": name, "index": 0 }] })),
+        "workspace": p.workspace.as_ref().map(|(name, path)| workspace_data(name, path)),
         "extensions": { "versionId": 0, "allExtensions": [], "activationEvents": {}, "myExtensions": [] },
         "telemetryInfo": { "sessionId": "rscode-session", "machineId": "rscode-machine", "sqmId": "", "devDeviceId": "", "firstSessionDate": "2026-01-01T00:00:00.000Z" },
         "logLevel": 3,
         "loggers": [],
-        "logsLocation": uri(&p.storage_root.join("logs")),
-        "autoStart": true,
+        "logsLocation": file_uri(&p.storage_root.join("logs")),
+        "autoStart": p.auto_start,
         "remote": { "isRemote": false, "authority": null, "connectionData": null },
         "consoleForward": { "includeStack": false, "logNative": false },
         "uiKind": 1,
@@ -186,11 +235,11 @@ impl From<std::io::Error> for HandshakeError {
 
 /// One connection to a host: the socket, the framing state and the RPC bookkeeping.
 pub struct Connection {
-    stream: UnixStream,
-    reader: FrameReader,
+    pub(crate) stream: UnixStream,
+    pub(crate) reader: FrameReader,
     pub protocol: Protocol,
     pub rpc: RpcPeer,
-    inbox: std::collections::VecDeque<Vec<u8>>,
+    pub(crate) inbox: std::collections::VecDeque<Vec<u8>>,
 }
 
 impl Connection {
@@ -275,13 +324,67 @@ pub struct Report {
     pub stdout: String,
 }
 
-/// A running host and the connection to it.
-pub struct Host {
-    pub conn: Connection,
+/// The host's operating-system process and what it printed. Separate from the connection so a
+/// [`crate::session::Session`] can own both.
+pub struct HostProcess {
     child: Child,
     socket_path: PathBuf,
     out: Arc<Mutex<String>>,
     err: Arc<Mutex<String>>,
+}
+
+impl HostProcess {
+    /// The host's stderr so far.
+    pub fn stderr(&self) -> String {
+        self.err.lock().unwrap().clone()
+    }
+
+    /// `Some(status text)` once the process has exited.
+    pub fn try_exit(&mut self) -> std::io::Result<Option<String>> {
+        Ok(self.child.try_wait()?.map(|s| s.to_string()))
+    }
+
+    /// Wait up to `grace` for the process to exit by itself (after `Terminate`), kill it
+    /// otherwise, and remove the socket file.
+    pub fn finish(mut self, grace: Duration) -> Exit {
+        let deadline = Instant::now() + grace;
+        let mut exited_cleanly = false;
+        while Instant::now() < deadline {
+            if let Ok(Some(_)) = self.child.try_wait() {
+                exited_cleanly = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        if !exited_cleanly {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+        let _ = std::fs::remove_file(&self.socket_path);
+        std::thread::sleep(Duration::from_millis(50));
+        Exit {
+            exited_cleanly,
+            stdout: self.out.lock().unwrap().clone(),
+            stderr: self.err.lock().unwrap().clone(),
+        }
+    }
+}
+
+impl Drop for HostProcess {
+    fn drop(&mut self) {
+        // Never leave a Node process behind (a no-op after `finish`).
+        if let Ok(None) = self.child.try_wait() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            let _ = std::fs::remove_file(&self.socket_path);
+        }
+    }
+}
+
+/// A running host and the connection to it.
+pub struct Host {
+    pub conn: Connection,
+    process: HostProcess,
 }
 
 fn pump<R: Read + Send + 'static>(mut r: R, into: Arc<Mutex<String>>) {
@@ -360,10 +463,12 @@ impl Host {
         stream.set_nonblocking(false)?;
         Ok(Host {
             conn: Connection::new(stream),
-            child,
-            socket_path: socket_path.to_path_buf(),
-            out,
-            err,
+            process: HostProcess {
+                child,
+                socket_path: socket_path.to_path_buf(),
+                out,
+                err,
+            },
         })
     }
 
@@ -404,10 +509,10 @@ impl Host {
             match self.conn.recv(left.min(Duration::from_millis(200))) {
                 Ok(Some(m)) => return Ok(m),
                 Ok(None) => {
-                    if let Some(status) = self.child.try_wait()? {
+                    if let Some(status) = self.process.child.try_wait()? {
                         return Err(HandshakeError::HostExited(format!(
                             "{status}; stderr: {}",
-                            self.err.lock().unwrap()
+                            self.process.err.lock().unwrap()
                         )));
                     }
                     if Instant::now() >= deadline {
@@ -417,7 +522,7 @@ impl Host {
                 Err(e) => {
                     return Err(HandshakeError::HostExited(format!(
                         "{e}; stderr: {}",
-                        self.err.lock().unwrap()
+                        self.process.err.lock().unwrap()
                     )));
                 }
             }
@@ -517,26 +622,12 @@ impl Host {
     /// Send `Terminate` and wait for the host to exit; kill it after `grace`.
     pub fn terminate(mut self, grace: Duration) -> Exit {
         let _ = self.conn.send(vec![MSG_TERMINATE]);
-        let deadline = Instant::now() + grace;
-        let mut exited_cleanly = false;
-        while Instant::now() < deadline {
-            if let Ok(Some(_)) = self.child.try_wait() {
-                exited_cleanly = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        if !exited_cleanly {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-        let _ = std::fs::remove_file(&self.socket_path);
-        std::thread::sleep(Duration::from_millis(50));
-        Exit {
-            exited_cleanly,
-            stdout: self.out.lock().unwrap().clone(),
-            stderr: self.err.lock().unwrap().clone(),
-        }
+        self.process.finish(grace)
+    }
+
+    /// Split into the connection and the process (see [`crate::session::Session`]).
+    pub fn into_parts(self) -> (Connection, HostProcess) {
+        (self.conn, self.process)
     }
 }
 

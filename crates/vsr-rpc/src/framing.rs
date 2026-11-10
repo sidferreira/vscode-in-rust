@@ -200,6 +200,11 @@ impl Protocol {
         Frame::new(FrameType::Ack, 0, self.incoming_ack_id, Vec::new())
     }
 
+    /// A `KeepAlive` frame (upstream sends one every `KeepAliveSendTime` = 5 s while idle).
+    pub fn keepalive_frame(&self) -> Frame {
+        Frame::new(FrameType::KeepAlive, 0, self.incoming_ack_id, Vec::new())
+    }
+
     /// Whether the peer asked us to stop writing (`Pause`) and has not resumed.
     pub fn peer_paused(&self) -> bool {
         self.peer_paused

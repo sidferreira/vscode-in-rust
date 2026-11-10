@@ -76,6 +76,18 @@ pub struct Handled {
     pub cancelled: Option<u32>,
 }
 
+/// The reply message for request `req` (`_receiveRequest`'s `.then` / `.catch`).
+pub fn reply_message(req: u32, result: &Result<Reply, HandlerError>) -> Vec<u8> {
+    match result {
+        Ok(reply) => codec::encode_reply_ok(req, reply),
+        Err(HandlerError::Error { name, message }) => {
+            codec::encode_reply_err(req, Some(&codec::error_value(name, message)))
+        }
+        Err(HandlerError::Value(v)) => codec::encode_reply_err(req, Some(v)),
+        Err(HandlerError::Empty) => codec::encode_reply_err(req, None),
+    }
+}
+
 #[derive(Default)]
 pub struct RpcPeer {
     last_req: u32,
@@ -111,7 +123,51 @@ impl RpcPeer {
         codec::encode_cancel(req)
     }
 
-    /// Process one incoming message.
+    /// Decode one incoming message without answering it: a request comes back in
+    /// [`Handled::call`] with only its `Acknowledged` in [`Handled::send`]; the reply is made later
+    /// with [`reply_message`] (so replies may come in any order and from any thread).
+    pub fn receive(&mut self, raw: &[u8]) -> Result<Handled, CodecError> {
+        let mut out = Handled::default();
+        match codec::decode(raw)? {
+            Message::Request {
+                req,
+                rpc_id,
+                method,
+                args,
+                cancellable,
+            } => {
+                out.send.push(codec::encode_acknowledged(req));
+                out.call = Some(Call {
+                    req,
+                    rpc_id,
+                    method,
+                    args,
+                    cancellable,
+                });
+            }
+            Message::Acknowledged { req } => out.acknowledged = Some(req),
+            Message::Cancel { req } => out.cancelled = Some(req),
+            Message::ReplyOk { req, reply } => {
+                if self.pending.remove(&req) {
+                    out.completed = Some(Completed {
+                        req,
+                        result: Ok(reply),
+                    });
+                }
+            }
+            Message::ReplyErr { req, error } => {
+                if self.pending.remove(&req) {
+                    out.completed = Some(Completed {
+                        req,
+                        result: Err(error),
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Process one incoming message, answering requests synchronously with `handler`.
     pub fn handle(&mut self, raw: &[u8], handler: &mut dyn Handler) -> Result<Handled, CodecError> {
         let mut out = Handled::default();
         match codec::decode(raw)? {
@@ -131,14 +187,7 @@ impl RpcPeer {
                 };
                 let result = handler.call(&call);
                 out.send.push(codec::encode_acknowledged(req));
-                out.send.push(match result {
-                    Ok(reply) => codec::encode_reply_ok(req, &reply),
-                    Err(HandlerError::Error { name, message }) => {
-                        codec::encode_reply_err(req, Some(&codec::error_value(&name, &message)))
-                    }
-                    Err(HandlerError::Value(v)) => codec::encode_reply_err(req, Some(&v)),
-                    Err(HandlerError::Empty) => codec::encode_reply_err(req, None),
-                });
+                out.send.push(reply_message(req, &result));
                 out.call = Some(call);
             }
             Message::Acknowledged { req } => out.acknowledged = Some(req),

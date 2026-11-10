@@ -1,0 +1,12 @@
+[package]
+name = "vsr-exthost"
+description = "UI-free main-thread side of the extension host: extension descriptions, the MainThread* services and a host driver on top of vsr-rpc (ADR-0020, ADR-0064)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+vsr-rpc.workspace = true
+vsr-settings.workspace = true
+serde_json = "1"

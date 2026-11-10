@@ -40,6 +40,7 @@ fn handshake_and_one_request_against_the_node_stand_in() {
         app_root: "/app".into(),
         storage_root: "/storage".into(),
         workspace: None,
+        auto_start: true,
     });
     let mut report = host
         .handshake(&init, Duration::from_secs(15))

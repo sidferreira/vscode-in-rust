@@ -832,15 +832,58 @@ upstream = [
   "src/vs/workbench/api/node/extensionHostProcess.ts",
   "src/vs/workbench/services/extensions/common/extensionHostProtocol.ts",
   "src/vs/workbench/services/extensions/common/extensionHostEnv.ts",
+  "src/vs/workbench/api/common/extHostExtensionService.ts",
 ]
 rust = [
   "crates/vsr-rpc/src/handshake.rs",
   "crates/vsr-rpc/tests/handshake_real_host.rs",
   "crates/vsr-rpc/tests/handshake_fake_host.rs",
+  "crates/vsr-rpc/tests/start_extension_host.rs",
+  "crates/vsr-rpc/src/session.rs",
+  "crates/vsr-rpc/tests/session.rs",
   "crates/vsr-rpc/tests/fixtures/fake_host.js",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "The main-thread side of the extension host start-up over the IPC pipe connection (VSCODE_EXTHOST_IPC_HOOK): Ready -> IExtensionHostInitData -> Initialized, then serving the host's MainThread* requests. Only the IPC (Unix socket) connection type; not the Socket (process.send handle) or MessagePort ones. The init data is the minimum for a host with no extensions and no remote. The real-host test needs a Code-OSS build (scripts/build-codeoss-exthost, RSCODE_CODE_OSS); the Node stand-in test needs only node."
+
+[[port]]
+id = "exthost-main-thread"
+status = "partial"
+upstream = [
+  "src/vs/workbench/api/common/extHost.protocol.ts",
+  "src/vs/workbench/api/browser/mainThreadExtensionService.ts",
+  "src/vs/workbench/api/common/extHostExtensionService.ts",
+  "src/vs/workbench/services/extensions/common/extensionHostManager.ts",
+  "src/vs/platform/extensions/common/extensions.ts",
+  "src/vs/workbench/services/extensions/common/extensionHostProtocol.ts",
+  "src/vs/workbench/api/browser/mainThreadCommands.ts",
+  "src/vs/workbench/api/browser/mainThreadStatusBar.ts",
+  "src/vs/workbench/api/browser/mainThreadDiagnostics.ts",
+  "src/vs/workbench/api/browser/mainThreadEditors.ts",
+  "src/vs/workbench/api/browser/mainThreadConfiguration.ts",
+  "src/vs/workbench/api/browser/mainThreadDocuments.ts",
+  "src/vs/workbench/api/browser/mainThreadDocumentsAndEditors.ts",
+  "src/vs/workbench/api/common/extHostConfiguration.ts",
+]
+rust = [
+  "crates/vsr-exthost/src/lib.rs",
+  "crates/vsr-exthost/src/commands.rs",
+  "crates/vsr-exthost/src/configuration.rs",
+  "crates/vsr-exthost/src/diagnostics.rs",
+  "crates/vsr-exthost/src/documents.rs",
+  "crates/vsr-exthost/src/editors.rs",
+  "crates/vsr-exthost/src/status_bar.rs",
+  "crates/vsr-exthost/tests/api_surface.rs",
+  "crates/vsr-exthost/tests/models.rs",
+  "crates/vsr-exthost/src/description.rs",
+  "crates/vsr-exthost/src/main_thread.rs",
+  "crates/vsr-exthost/src/host.rs",
+  "crates/vsr-exthost/tests/common/mod.rs",
+  "crates/vsr-exthost/tests/extension_service.rs",
+  "crates/vsr-exthost/tests/fixtures/errorlens-fixture/extension.js",
+]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "The UI-free main-thread side of the extension host (ADR-0064): IExtensionDescription from a folder, the MainThread* shapes as models (extension service first), and ExtensionHost, which boots the real host, pumps its events and makes the typed calls. Tested against upstream's real extension host with a fixture extension written in this repo (it stands in for ErrorLens); needs RSCODE_CODE_OSS."
 
 [[port]]
 id = "explorer-file-nesting"

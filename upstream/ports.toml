@@ -991,3 +991,26 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Untitled text editors (ADR-0057, ADR-0058): naming, dirty rules, first-line titles and the new file's language are the pure rules in vsr-editor. The service, input and working copy tests are covered headlessly in the workbench. Working copy events and encodings are not modelled."
+
+[[port]]
+id = "base-common-filters"
+status = "partial"
+upstream = [
+  "src/vs/base/common/filters.ts",
+  "src/vs/base/test/common/filters.test.ts",
+]
+rust = ["crates/vsr-suggest/src/filters.rs", "crates/vsr-suggest/tests/upstream_filters.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "fuzzyScore (+ graceful, aggressive), anyScore, createMatches, isPatternInWord (fill form). 29 fuzzy-score tests ported; prefix, camel case, word and substring filters not ported yet (no consumer)."
+
+[[port]]
+id = "suggest-completion-model"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/suggest/browser/completionModel.ts",
+  "src/vs/editor/contrib/suggest/browser/suggest.ts",
+  "src/vs/editor/contrib/suggest/test/browser/completionModel.test.ts",
+]
+rust = ["crates/vsr-suggest/src/model.rs", "crates/vsr-suggest/src/item.rs", "crates/vsr-suggest/src/sort.rs", "crates/vsr-suggest/tests/upstream_completion_model.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "CompletionModel (filtering, incremental refilter, snippet placement, incomplete providers), CompletionItem and the suggestion comparators from suggest.ts. 13 of 13 completionModel tests ported. WordDistance is None (locality bonus not ported); label-details objects are plain labels; the pLabelLen statistic is not computed; suggest.ts's provideSuggestionItems (providers, ranges) and resolve are not ported."

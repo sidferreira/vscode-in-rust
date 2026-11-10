@@ -7391,6 +7391,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vsr-suggest"
+version = "0.1.0"
+
+[[package]]
 name = "vsr-syntax"
 version = "0.1.0"
 dependencies = [

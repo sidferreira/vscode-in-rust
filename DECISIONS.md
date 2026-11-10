@@ -2381,3 +2381,54 @@ a host (`tests/language_features_dto.rs`).
 8. *Needed from the host side later:* `$tryApplyWorkspaceEdit` (MainThreadBulkEdits), `$executeCommand`
    results back into editors, and the remaining provider kinds listed in ADR-0072 (semantic tokens first:
    it unblocks `editor.semanticHighlighting`).
+
+## ADR-0080 — Suggest core: fuzzy scoring in `vsr-suggest`, UI-free and ported from `filters.ts` (2026-11-10)
+
+The completion widget (ADR-0073's "suggest widget" work) needs a scorer that ranks and highlights items
+exactly as upstream does, so the users' muscle memory carries over. The core lives in a new UI-free crate,
+`crates/vsr-suggest`, with no dependencies (no new external crates; the proxy token is not available).
+
+**Decisions.**
+- `filters` ports `fuzzyScore`, `fuzzyScoreGraceful`, `fuzzyScoreGracefulAggressive`, `anyScore`,
+  `createMatches` and the `isPatternInWord` fill form. It is the DP from upstream, line for line; the global
+  tables become per-call buffers sized to the pattern and word, which is the same result (upstream only
+  reads cells it wrote in the same call).
+- Indices are UTF-16 code units, like `charCodeAt`. `codePointAt` for separators combines surrogate pairs.
+  The caller passes the lowercased strings (upstream's contract). A lowercasing that changes the UTF-16 length
+  falls back to per-unit ASCII lowercasing, so the scorer never reads out of range.
+- The emoji check is upstream's `isEmojiImprecise` range list (not an exact emoji grammar).
+- The "not possible" throw in upstream becomes a `None` result (no panics in the scorer).
+- `FuzzyScore.score` is `i64` (upstream numbers are doubles; values stay small integers).
+
+**Ported tests.** 29 of upstream `filters.test.ts` (the fuzzy-score section, including the graceful and
+`anyScore` cases; `test.skip` cases are not ported). Prefix, camel-case, word and substring filters are not
+ported: no consumer yet.
+
+**Not done in this step (next steps of the suggest work).** The completion model (`completionModel.ts`),
+suggest memory, the snippet parser, the trigger and widget, and the editor.suggest settings. See the
+progress of this branch in the commit log.
+
+## ADR-0081 — Completion model: items, sorting and incremental filtering in `vsr-suggest` (2026-11-10)
+
+`vsr-suggest::item` is the UI-free `CompletionItem` of upstream `suggest.ts` (position, completion, provider,
+the derived edit positions, `isInvalid`, score, distance, index). `vsr-suggest::sort` holds the comparators
+of `getSuggestionComparator` (sort text, then label, then kind; snippets first or last for the snippet
+placement). `vsr-suggest::model` is `CompletionModel`.
+
+**Decisions.**
+- The model owns the provider's items and keeps the filtered view separately. Upstream mutates shared
+  items in place; here the filtered view holds copies, so the source list is never changed by a refilter.
+- Refiltering has upstream's three modes: nothing (cached), all items (the default, and when the word
+  shrinks), and incremental (the word grew, so only the previously matching items are scored again).
+  `computations()` counts rebuilds; upstream's identity check on the cached array becomes this count.
+- Scoring uses `fuzzy_score_graceful_aggressive` when `filterGraceful` is on and there are at most 2,000
+  items, else `fuzzy_score` (upstream's switch).
+- Word extraction (`leading.slice(-wordLen)`) works on UTF-16 units, and a negative length slices from the
+  start, as `slice` does.
+- Incomplete providers come from each provider's first valid item, as `getIncompleteProvider` does.
+- Not ported in this step: `WordDistance` beyond `None` (the locality bonus needs the worker's word ranges),
+  the `pLabelLen` statistic, label-details objects (a label is its text), and `provideSuggestionItems`
+  (the request to the providers and the default ranges; that is the trigger step).
+
+**Ported tests.** 13 of 13 `completionModel.test.ts` cases (suite `CompletionModel`), with the
+`suggest.ts` comparator behaviour they depend on.

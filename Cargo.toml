@@ -22,3 +22,4 @@ vsr-textmate = { path = "crates/vsr-textmate" }
 vsr-syntax = { path = "crates/vsr-syntax" }
 vsr-rpc = { path = "crates/vsr-rpc" }
 vsr-exthost = { path = "crates/vsr-exthost" }
+vsr-suggest = { path = "crates/vsr-suggest" }

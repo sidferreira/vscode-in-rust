@@ -20,6 +20,7 @@ fn comments(line: Option<&str>, no_indent: bool, block: Option<(&str, &str)>) ->
     CommentRule { line_comment: line.map(String::from), line_comment_no_indent: no_indent, block_comment: block.map(|(a, b)| (a.to_string(), b.to_string())) }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(rule: &CommentRule, lines: &[&str], selection: Selection, kind: CommentType, insert_space: bool, ignore_empty: bool, expected: &[&str], expected_selection: Selection) {
     let mut e = Editor::new(TextBuffer::new(&lines.join("\n"), DefaultEol::Lf, true), EditorOptions { tab_size: 4, insert_spaces: true });
     e.set_language_support(Some(Arc::new(LanguageSupport::new(LanguageConfiguration { comments: Some(rule.clone()), ..Default::default() }))));

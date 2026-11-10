@@ -85,22 +85,22 @@ impl AutoClosingPairs {
 
     /// Pairs whose open text starts with `ch`.
     pub fn open_by_start(&self, ch: char) -> Vec<&StandardAutoClosingPair> {
-        self.pairs.iter().filter(|p| p.open.chars().next() == Some(ch)).collect()
+        self.pairs.iter().filter(|p| p.open.starts_with(ch)).collect()
     }
 
     /// Pairs whose open text ends with `ch`.
     pub fn open_by_end(&self, ch: char) -> Vec<&StandardAutoClosingPair> {
-        self.pairs.iter().filter(|p| p.open.chars().last() == Some(ch)).collect()
+        self.pairs.iter().filter(|p| p.open.ends_with(ch)).collect()
     }
 
     /// Pairs whose close text starts with `ch`.
     pub fn close_by_start(&self, ch: char) -> Vec<&StandardAutoClosingPair> {
-        self.pairs.iter().filter(|p| p.close.chars().next() == Some(ch)).collect()
+        self.pairs.iter().filter(|p| p.close.starts_with(ch)).collect()
     }
 
     /// Pairs whose close text ends with `ch`.
     pub fn close_by_end(&self, ch: char) -> Vec<&StandardAutoClosingPair> {
-        self.pairs.iter().filter(|p| p.close.chars().last() == Some(ch)).collect()
+        self.pairs.iter().filter(|p| p.close.ends_with(ch)).collect()
     }
 
     /// Whether some pair has the one character open and close, and `ch` is its close.

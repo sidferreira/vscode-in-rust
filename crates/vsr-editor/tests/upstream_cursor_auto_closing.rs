@@ -7,6 +7,8 @@
 //! composition (IME) cases, decorations listeners and the `#338693` undo-stop cases (a
 //! multi-character auto close is one undo step here, see `typing.rs`).
 
+#![allow(clippy::needless_range_loop)] // the columns are indexed by column number, like upstream's arrays
+
 use std::sync::Arc;
 
 use vsr_editor::{

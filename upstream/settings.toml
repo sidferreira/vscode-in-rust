@@ -517,6 +517,167 @@ reason = "needs caret animation (a tween of the caret across frames)"
 comment = "cursorSmoothCaretAnimation moves the caret from its old position to the new one over a short time. The caret jumps now, and the blink timer is the only per-frame work."
 match = ["editor.cursorSmoothCaretAnimation"]
 
+# The general `editor` group and `editor.auto*` (ADR-0046). Wired: autoClosing* (5), autoSurround,
+# autoIndent, detectIndentation, indentSize, useTabStops, trimAutoWhitespace, trimWhitespaceOnDelete,
+# comments.insertSpace, comments.ignoreEmptyLines, emptySelectionClipboard. The rest, by what it needs:
+
+[[rule]]
+status = "blocked"
+reason = "needs paste re-indentation (the AutoIndentOnPaste contribution)"
+comment = "autoIndentOnPaste and autoIndentOnPasteWithinString re-indent pasted lines with getGoodIndentForLine (ported in vsr-languages/auto_indent.rs) after a paste. Paste is a plain insert in vsr-editor (`Editor::paste`); indentation.ts's paste handler is not ported."
+match = ["editor.autoIndentOnPaste", "editor.autoIndentOnPasteWithinString"]
+
+[[rule]]
+status = "blocked"
+reason = "needs atomic soft tab cursor moves in vsr-editor"
+comment = "stickyTabStops makes Left, Right and a click inside space indentation jump over a whole indent unit (cursorAtomicMoveOperations.ts). vsr-editor moves by one character."
+match = ["editor.stickyTabStops"]
+
+[[rule]]
+status = "blocked"
+reason = "needs per-language setting scopes ([language] overrides) in the configuration service"
+comment = "editor.language.brackets and editor.language.colorizedBracketPairs override the bracket pairs of the language being edited and are meant to be set under a [language] key. The bundled language configurations (ADR-0046) have the brackets; the override needs the language scope."
+match = ["editor.language.brackets", "editor.language.colorizedBracketPairs"]
+
+[[rule]]
+status = "blocked"
+reason = "needs bracket pair colorization (a pair model over the whole buffer)"
+comment = "bracketPairColorization.* colour every bracket by its nesting depth. Same missing pair scan as the bracket pair guides (ADR-0043)."
+match = ["editor.bracketPairColorization.enabled", "editor.bracketPairColorization.independentColorPoolPerBracketType"]
+
+[[rule]]
+status = "blocked"
+reason = "needs screen reader support (an accessibility tree from gpui)"
+comment = "accessibilitySupport, accessibilityPageSize and the two screen reader announcements configure the screen reader mode of the editor. gpui draws its own text and exposes no accessibility tree on macOS yet."
+match = ["editor.accessibilitySupport", "editor.accessibilityPageSize", "editor.screenReaderAnnounceInlineSuggestion", "editor.inlineCompletionsAccessibilityVerbose"]
+
+[[rule]]
+status = "blocked"
+reason = "needs multi-cursor editing (column selection creates a cursor per line)"
+comment = "columnSelection turns mouse and key selection into rectangular selections, which are one cursor per line. vsr-editor has one cursor."
+match = ["editor.columnSelection"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a rich clipboard (the HTML flavour with token colours)"
+comment = "copyWithSyntaxHighlighting adds the highlighted HTML of the selection to the pasteboard next to the plain text. The clipboard here is plain text only."
+match = ["editor.copyWithSyntaxHighlighting"]
+
+[[rule]]
+status = "blocked"
+reason = "needs text drag and drop in the editor (dragging a selection with the mouse)"
+comment = "dragAndDrop moves the selected text when it is dragged. The mouse handler only extends selections."
+match = ["editor.dragAndDrop"]
+
+[[rule]]
+status = "n/a"
+reason = "the EditContext API is a browser input path"
+comment = "editContext chooses between a textarea and the browser EditContext API. rscode takes input from the platform text input handler (ADR-0018)."
+match = ["editor.editContext"]
+
+[[rule]]
+status = "n/a"
+reason = "touchpad inertia is a Linux setting"
+comment = "inertialScroll is documented as mostly useful with a touchpad on Linux; macOS scrolls with inertia natively."
+match = ["editor.inertialScroll"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a scroll capture on the editor surface"
+comment = "fastScrollSensitivity scales the wheel delta while Alt is held (same missing scroll capture as mouseWheelScrollSensitivity, ADR-0043)."
+match = ["editor.fastScrollSensitivity"]
+
+[[rule]]
+status = "blocked"
+reason = "needs scroll animation (a tween of the scroll position across frames)"
+comment = "smoothScrolling animates scrolls caused by keys and commands. Scroll position changes jump now."
+match = ["editor.smoothScrolling"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the glyph margin and the overview ruler (decoration lanes next to the editor)"
+comment = "glyphMargin reserves the margin for breakpoints and the code action lightbulb; hideCursorInOverviewRuler and overviewRulerBorder style the overview ruler. Neither exists yet (the minimap is the only side strip)."
+match = ["editor.glyphMargin", "editor.hideCursorInOverviewRuler", "editor.overviewRulerBorder"]
+
+[[rule]]
+status = "blocked"
+reason = "needs letter spacing in gpui text (and full-width cell widths in the text layout)"
+comment = "letterSpacing adds pixels between glyphs (the same gap as minimap.sectionHeaderLetterSpacing, ADR-0042); fullwidthCharacterWidth sets the cell width of full-width characters, which the layout takes from the shaped text."
+match = ["editor.letterSpacing", "editor.fullwidthCharacterWidth"]
+
+[[rule]]
+status = "blocked"
+reason = "needs link detection and Cmd+click (the link provider and opener)"
+comment = "links makes URLs in the text clickable (linkComputer.ts is not ported); the same gap blocks mouseMiddleClickAction (ADR-0043)."
+match = ["editor.links"]
+
+[[rule]]
+status = "blocked"
+reason = "needs overtype input mode (the Insert key toggle) in vsr-editor"
+comment = "overtypeCursorStyle styles the caret in overtype mode and overtypeOnPaste overwrites on paste; both need the mode itself (ReplaceOvertypeCommand), which typing does not have."
+match = ["editor.overtypeCursorStyle", "editor.overtypeOnPaste"]
+
+[[rule]]
+status = "blocked"
+reason = "needs top and bottom padding in the editor list (scroll height and hit testing)"
+comment = "padding.top and padding.bottom add space above the first and below the last line; the uniform list, the minimap and the hit test all assume row 0 is at the top."
+match = ["editor.padding.top", "editor.padding.bottom"]
+
+[[rule]]
+status = "blocked"
+reason = "needs multi-cursor selection commands (Add Selection To Next Find Match) and selection match modes"
+comment = "selectedTextMatchMode picks strict, word or case-insensitive matching for the selection highlight and for the next-occurrence commands. The highlight (selectionHighlight) matches as it did before the setting existed."
+match = ["editor.selectedTextMatchMode"]
+
+[[rule]]
+status = "blocked"
+reason = "needs Expand Selection (smart select) with selection range providers"
+comment = "smartSelect.* tune the Expand and Shrink Selection commands, which are not implemented."
+match = ["editor.smartSelect.selectLeadingAndTrailingWhitespace", "editor.smartSelect.selectSubwords"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the unusual line terminators prompt on open and save"
+comment = "unusualLineTerminators removes or asks about LS and PS characters in a file. TextBuffer treats them as ordinary text."
+match = ["editor.unusualLineTerminators"]
+
+[[rule]]
+status = "blocked"
+reason = "needs wrapping at literal escaped line feeds in the wrap projection"
+comment = "wrapOnEscapedLineFeeds is an experimental option of the monospace line breaks computer (ADR-0036); the port does not have the escaped-LF mode."
+match = ["editor.wrapOnEscapedLineFeeds"]
+
+[[rule]]
+status = "blocked"
+reason = "needs double click block selection in the mouse handler"
+comment = "doubleClickSelectsBlock selects the content inside a bracket pair or quotes when double clicking next to one. A double click selects the word."
+match = ["editor.doubleClickSelectsBlock"]
+
+[[rule]]
+status = "blocked"
+reason = "needs large file mode (features switched off for very big files)"
+comment = "largeFileOptimizations turns tokenization, folding, word wrap and the minimap off above 20 MB or 300,000 lines. rscode opens every file the same way."
+match = ["editor.largeFileOptimizations"]
+
+[[rule]]
+status = "blocked"
+reason = "needs language features (peek, rename, code actions and linked editing through the extension host)"
+comment = "stablePeek, peekWidgetDefaultFocus, rename.enablePreview, codeActionWidget.*, codeActions.triggerOnFocusChange, snippets.codeActions.enabled and linkedEditing configure features that run on language server providers (ADR-0020)."
+match = ["editor.stablePeek", "editor.peekWidgetDefaultFocus", "editor.rename.enablePreview", "editor.codeActionWidget.*", "editor.codeActions.triggerOnFocusChange",
+         "editor.snippets.codeActions.enabled", "editor.linkedEditing"]
+
+[[rule]]
+status = "blocked"
+reason = "needs semantic highlighting (semantic token providers via the extension host)"
+comment = "semanticTokenColorCustomizations styles semantic tokens; the existing editor.semanticHighlighting.enabled rule has the same reason."
+match = ["editor.semanticTokenColorCustomizations"]
+
+[[rule]]
+status = "n/a"
+reason = "AI statistics (a product service)"
+comment = "aiStats.enabled shows how much of the code AI wrote; rscode ships no AI features."
+match = ["editor.aiStats.*"]
+
 [[component]]
 match = ["editor", "editor.*", "diffEditor*", "multiDiffEditor*"]
 path = "crates/vsr-app/src/editor_view.rs (and crates/vsr-editor / vsr-text for behaviour)"

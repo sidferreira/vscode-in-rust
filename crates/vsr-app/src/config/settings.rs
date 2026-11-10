@@ -1208,4 +1208,31 @@ mod search_tests {
         let bad = search_settings(&config(r#"{ "search.sortOrder": "random", "search.ripgrep.maxThreads": -2 }"#));
         assert_eq!((bad.sort_order, bad.threads), (ResultSortOrder::Default, 0));
     }
+    #[test]
+    fn typing_settings_default_to_upstream_and_are_read() {
+        use vsr_editor::{AutoClosing, AutoClosingEdit, AutoIndentStrategy, AutoSurround};
+        let d = EditorSettings::from_configuration(&config("{}"));
+        assert_eq!(d.typing, vsr_editor::TypingOptions::default(), "the registered defaults");
+        assert_eq!(d.typing.auto_indent, AutoIndentStrategy::Full);
+        assert!(d.detect_indentation && d.empty_selection_clipboard && d.comments_insert_space && d.comments_ignore_empty_lines);
+        assert_eq!(d.typing.indent_size, None, "indentSize `tabSize` follows the tab size");
+
+        let e = EditorSettings::from_configuration(&config(
+            r#"{ "editor.autoClosingBrackets": "never", "editor.autoClosingQuotes": "beforeWhitespace",
+                 "editor.autoClosingComments": "always", "editor.autoClosingDelete": "never",
+                 "editor.autoClosingOvertype": "always", "editor.autoSurround": "quotes", "editor.autoIndent": "brackets",
+                 "editor.useTabStops": false, "editor.trimAutoWhitespace": false, "editor.trimWhitespaceOnDelete": true,
+                 "editor.indentSize": 2, "editor.detectIndentation": false, "editor.emptySelectionClipboard": false,
+                 "editor.comments.insertSpace": false, "editor.comments.ignoreEmptyLines": false }"#,
+        ));
+        let t = e.typing;
+        assert_eq!((t.auto_closing_brackets, t.auto_closing_quotes, t.auto_closing_comments), (AutoClosing::Never, AutoClosing::BeforeWhitespace, AutoClosing::Always));
+        assert_eq!((t.auto_closing_delete, t.auto_closing_overtype), (AutoClosingEdit::Never, AutoClosingEdit::Always));
+        assert_eq!((t.auto_surround, t.auto_indent), (AutoSurround::Quotes, AutoIndentStrategy::Brackets));
+        assert!(!t.use_tab_stops && !t.trim_auto_whitespace && t.trim_whitespace_on_delete);
+        assert_eq!(t.indent_size, Some(2));
+        assert!(!e.detect_indentation && !e.empty_selection_clipboard && !e.comments_insert_space && !e.comments_ignore_empty_lines);
+        let bad = EditorSettings::from_configuration(&config(r#"{ "editor.autoIndent": "sideways", "editor.autoSurround": 3 }"#));
+        assert_eq!((bad.typing.auto_indent, bad.typing.auto_surround), (AutoIndentStrategy::Full, AutoSurround::LanguageDefined));
+    }
 }

@@ -3,7 +3,7 @@
 //!
 //! upstream: src/vs/editor/common/cursor/cursorTypeOperations.ts @ 50e1350fc78d
 //! upstream: src/vs/editor/common/cursor/cursorTypeEditOperations.ts @ 50e1350fc78d
-//! upstream: src/vs/editor/common/cursor/cursorCommon.ts @ 50e1350fc78d
+//! upstream: src/vs/editor/common/cursorCommon.ts @ 50e1350fc78d
 //! upstream: src/vs/editor/common/cursor/cursor.ts @ 50e1350fc78d
 //! upstream: src/vs/editor/common/commands/surroundSelectionCommand.ts @ 50e1350fc78d
 //! upstream: src/vs/editor/common/commands/shiftCommand.ts @ 50e1350fc78d

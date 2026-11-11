@@ -288,6 +288,27 @@ fn open_mode_double_click_leaves_a_single_click_on_a_file_as_a_selection(cx: &mu
 }
 
 #[gpui::test]
+fn expand_mode_double_click_expands_a_folder_on_its_second_click_or_its_chevron(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("expand-mode");
+    fs::create_dir_all(ws.path().join("docs")).unwrap();
+    fs::write(ws.path().join("docs/guide.md"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "workbench.tree.expandMode", json!("doubleClick"));
+    let dir = ws.path().join("docs");
+    // debug selectors are `&'static str`; a test leaks the ones it needs
+    let row: &'static str = Box::leak(format!("tree-row:{}", dir.display()).into_boxed_str());
+    let chevron: &'static str = Box::leak(format!("dir-toggle:{}", dir.display()).into_boxed_str());
+    let center = cx.debug_bounds(row).expect("the folder has a row").center();
+    cx.simulate_click(center, Default::default());
+    cx.run_until_parked();
+    assert_eq!(row_names(&wb, cx), ["docs", "src"], "doubleClick: a single click on the name does not expand");
+    let twistie = cx.debug_bounds(chevron).expect("the folder has a chevron").center();
+    cx.simulate_click(twistie, Default::default());
+    cx.run_until_parked();
+    assert_eq!(row_names(&wb, cx), ["docs", "guide.md", "src"], "the chevron always expands");
+}
+
+#[gpui::test]
 fn auto_reveal_expands_and_selects_the_opened_file(cx: &mut TestAppContext) {
     let (ws, bin) = workspace("auto-reveal");
     fs::create_dir_all(ws.path().join("src/deep/er")).unwrap();

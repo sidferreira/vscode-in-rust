@@ -89,6 +89,9 @@ pub struct ExplorerSettings {
     pub enable_trash: bool,
     /// `workbench.list.openMode` `doubleClick`: a file opens on a double click only.
     pub open_on_double_click: bool,
+    /// `workbench.tree.expandMode` `doubleClick`: a folder expands on a double click only (its chevron
+    /// always toggles it).
+    pub expand_on_double_click: bool,
     /// `explorer.excludeGitIgnore`: entries that a `.gitignore` excludes are hidden.
     pub exclude_git_ignore: bool,
     pub copy_path_separator: PathSeparator,
@@ -112,6 +115,7 @@ impl Default for ExplorerSettings {
             confirm_delete: true,
             enable_trash: true,
             open_on_double_click: false,
+            expand_on_double_click: false,
             exclude_git_ignore: false,
             copy_path_separator: PathSeparator::Auto,
             copy_relative_path_separator: PathSeparator::Auto,
@@ -131,10 +135,11 @@ pub fn copied_path_text(path: &Path, root: &Path, relative: bool, separator: Pat
     if sep == std::path::MAIN_SEPARATOR { text.into_owned() } else { text.replace(std::path::MAIN_SEPARATOR, &sep.to_string()) }
 }
 
-/// Whether a click on a file opens it (`workbench.list.openMode`): always on a single click, and
-/// with `doubleClick` only from the second click of a double click.
-pub fn file_opens_on_click(open_on_double_click: bool, click_count: usize) -> bool {
-    !open_on_double_click || click_count >= 2
+/// Whether a click on a row activates it (opens a file, expands a folder): always on a single click,
+/// and in a `doubleClick` mode (`workbench.list.openMode`, `workbench.tree.expandMode`) only from the
+/// second click of a double click.
+pub fn click_activates(double_click_mode: bool, click_count: usize) -> bool {
+    !double_click_mode || click_count >= 2
 }
 
 impl ExplorerSettings {
@@ -167,6 +172,7 @@ impl ExplorerSettings {
             confirm_delete: c.get_bool("explorer.confirmDelete").unwrap_or(d.confirm_delete),
             enable_trash: c.get_bool("files.enableTrash").unwrap_or(d.enable_trash),
             open_on_double_click: c.get_str("workbench.list.openMode") == Some("doubleClick"),
+            expand_on_double_click: c.get_str("workbench.tree.expandMode") == Some("doubleClick"),
             exclude_git_ignore: c.get_bool("explorer.excludeGitIgnore").unwrap_or(d.exclude_git_ignore),
             copy_path_separator: PathSeparator::from_value(c.get_str("explorer.copyPathSeparator")),
             copy_relative_path_separator: PathSeparator::from_value(c.get_str("explorer.copyRelativePathSeparator")),
@@ -205,9 +211,15 @@ mod tests {
     fn open_mode_decides_which_clicks_open_a_file() {
         assert!(ExplorerSettings::from_configuration(&config("")).open_on_double_click == false);
         assert!(ExplorerSettings::from_configuration(&config(r#"{ "workbench.list.openMode": "doubleClick" }"#)).open_on_double_click);
-        assert!(file_opens_on_click(false, 1), "singleClick: a single click opens");
-        assert!(!file_opens_on_click(true, 1), "doubleClick: a single click only selects");
-        assert!(file_opens_on_click(true, 2), "doubleClick: the second click opens");
+        assert!(click_activates(false, 1), "singleClick: a single click opens");
+        assert!(!click_activates(true, 1), "doubleClick: a single click only selects");
+        assert!(click_activates(true, 2), "doubleClick: the second click opens");
+    }
+
+    #[test]
+    fn expand_mode_is_read_from_the_tree_setting() {
+        assert!(!ExplorerSettings::from_configuration(&config("")).expand_on_double_click);
+        assert!(ExplorerSettings::from_configuration(&config(r#"{ "workbench.tree.expandMode": "doubleClick" }"#)).expand_on_double_click);
     }
 
     #[test]

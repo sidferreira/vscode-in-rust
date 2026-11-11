@@ -19,7 +19,7 @@ use super::nesting::{ExplorerFileNestingTrie, Nests};
 
 /// The group of the Explorer header: its title actions show while it is hovered.
 const HEADER_GROUP: &str = "explorer-header";
-use super::settings::{AutoReveal, ExplorerSettings, copied_path_text, click_activates};
+use super::settings::{AutoReveal, ExplorerSettings, copied_path_text, click_activates, indent_guide_count, IndentGuides};
 use crate::config::AppConfig;
 use super::actions::{
     CancelDelete, CollapseAll, CollapseOrParent, CopyPath, CopyRelativePath, DeleteFile, ExpandOrFirstChild, MoveFileToTrash,
@@ -478,7 +478,24 @@ impl Workbench {
             let path = entry.path.clone();
             let is_dir = entry.is_dir;
             let row_key = format!("tree-row:{}", path.display());
+            let row_group = format!("tree-row-{i}");
+            let guides_mode = self.explorer.settings.indent_guides;
+            let guides = (0..indent_guide_count(guides_mode, depth)).map(|k| {
+                let key = format!("indent-guide:{}:{k}", path.display());
+                let hover_group = row_group.clone();
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(px(8. + k as f32 * indent + indent / 2.))
+                    .w(px(1.))
+                    .bg(to_gpui(t.indent_guide_fg))
+                    .when(guides_mode == IndentGuides::OnHover, |d| d.opacity(0.).group_hover(hover_group, |s| s.opacity(1.)))
+                    .debug_selector(move || key.clone())
+            }).collect::<Vec<_>>();
             div()
+                .group(row_group)
+                .relative()
                 .debug_selector(move || row_key.clone())
                 .id(("tree", i))
                 .flex_none()
@@ -491,6 +508,7 @@ impl Workbench {
                 .cursor_pointer()
                 .when(is_active || is_selected, |d| d.bg(to_gpui(t.list_active_bg)))
                 .when(!(is_active || is_selected), |d| d.hover(|s| s.bg(to_gpui(t.list_hover_bg))))
+                .children(guides)
                 .child(match (is_dir, open) {
                     // A folder's chevron always toggles it, whatever `workbench.tree.expandMode` says.
                     (true, _) => {

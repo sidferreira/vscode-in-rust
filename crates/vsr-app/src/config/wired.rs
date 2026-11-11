@@ -68,6 +68,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "explorer.copyRelativePathSeparator",
             "workbench.list.openMode",
             "workbench.tree.expandMode",
+            "workbench.tree.renderIndentGuides",
         ],
     ),
     (

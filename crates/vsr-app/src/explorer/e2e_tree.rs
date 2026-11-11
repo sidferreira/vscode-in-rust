@@ -309,6 +309,27 @@ fn expand_mode_double_click_expands_a_folder_on_its_second_click_or_its_chevron(
 }
 
 #[gpui::test]
+fn indent_guides_draw_one_line_per_ancestor_when_always_and_none_when_off(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("indent-guides");
+    fs::create_dir_all(ws.path().join("docs")).unwrap();
+    fs::write(ws.path().join("docs/guide.md"), "").unwrap();
+    let (_wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "workbench.tree.renderIndentGuides", json!("always"));
+    let dir = ws.path().join("docs");
+    let row: &'static str = Box::leak(format!("tree-row:{}", dir.display()).into_boxed_str());
+    let twistie: &'static str = Box::leak(format!("dir-toggle:{}", dir.display()).into_boxed_str());
+    let center = cx.debug_bounds(twistie).expect("the folder has a chevron").center();
+    cx.simulate_click(center, Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds(row).is_some());
+    let guide = ws.path().join("docs/guide.md");
+    let key: &'static str = Box::leak(format!("indent-guide:{}:0", guide.display()).into_boxed_str());
+    assert!(cx.debug_bounds(key).is_some(), "always: the nested file has a guide for its folder");
+    set(cx, "workbench.tree.renderIndentGuides", json!("none"));
+    assert!(cx.debug_bounds(key).is_none(), "none: no guides");
+}
+
+#[gpui::test]
 fn auto_reveal_expands_and_selects_the_opened_file(cx: &mut TestAppContext) {
     let (ws, bin) = workspace("auto-reveal");
     fs::create_dir_all(ws.path().join("src/deep/er")).unwrap();

@@ -3068,3 +3068,83 @@ Evidence:
 Consequences: `child-process-main` is done in `docs/dependencies.toml`. The terminal (pty) part stays
 with the terminal node, not with LSP. A real language server (oxc, lemminx) is still unverified, which
 is the remaining `lsp-client` gap; `lsp-client` stays open in `docs/dependencies.toml`.
+## ADR-0108 — Go to Definition, Declaration, Type Definition and Implementation (2026-11-10)
+
+`vsr-app::navigation` (the app side) and two additive messages in the extension host worker, following
+the completion and symbol requests (ADR-0082, ADR-0086).
+
+- **Commands.** `Nav` has four variants. F12 is `editor.action.revealDefinition`, Cmd+F12 is
+  `editor.action.goToImplementation` (upstream's macOS keys). Declaration and type definition have no key,
+  as upstream. Each one is also in the Command Palette through the command table.
+- **Request.** `ToHost::Navigate { id, nav, path, line, column }` starts `begin_provide` with the
+  provider method (`$provideDefinition`, `$provideDeclaration`, `$provideTypeDefinition`,
+  `$provideImplementation`). The column comes from the caret in chars and is converted to UTF-16 in the
+  worker, where the open document's text is. A newer request cancels the one in flight. A document that
+  is not open in the host answers with no links.
+- **Answer.** `FromHost::Locations { id, nav, links }` carries the `LocationLink`s of every provider that
+  answered. The app keeps only the request it awaits (`NavState::take`); an older answer is dropped.
+- **Targets.** `navigation::targets` keeps file links, converts the UTF-16 columns to chars with the
+  target's text (the open editor's buffer, else the file on disk), sorts by position and drops duplicates.
+  The target's `targetSelectionRange` is what gets selected, else its range.
+- **Open.** The first target opens through `select_symbol` with `OpenSource::CodeNavigation`, which is what
+  that source was reserved for.
+- **Alternative command** (`editor.gotoLocation.alternative*Command`). When there is exactly one target and
+  the caret is inside its range, the setting's command runs if it is one of the four go-to commands. The
+  default `editor.action.goToReferences` has no counterpart in rscode, so the default does nothing.
+- **Cmd+click.** `is_goto_click`: a single click with Cmd and no Shift or Alt (upstream's default
+  `editor.multiCursorModifier` of `alt`). The caret is placed as usual, the drag does not start, and then
+  Go to Definition runs through the editor's command hook. `editor.multiCursorModifier` is not wired, so
+  its other values are not honoured.
+- **Settings wired (4).** `editor.gotoLocation.alternativeDefinitionCommand`,
+  `...alternativeDeclarationCommand`, `...alternativeTypeDefinitionCommand`,
+  `...alternativeImplementationCommand`. Each has a headless test (`navigation/e2e_tests.rs`).
+- **Not done (gaps).**
+  - No peek view and no picker. With several targets the first one opens, whatever `multiple*` says, so
+    `editor.gotoLocation.multiple{Definitions,Declarations,TypeDefinitions,Implementations,References}`
+    stay blocked. `definitionLinkOpensInPeek` stays blocked.
+  - `NavState::message` ("No definition found") is set but nothing paints it yet.
+  - References (Shift+F12) and the `alternativeReferenceCommand` setting are not done.
+  - No real-host E2E yet (the fixture would need a definition provider), and no test that the F12 key
+    binding resolves in gpui's keymap. The unit tests cover the command table, not the key.
+  - Hover, code lens and inlay hints (ADR-0108 steps 2 to 4 of the plan) are not started, so
+    `navigation-providers` stays `todo` in `docs/dependencies.toml`.
+
+## ADR-0109 — Hover: the provider query on the worker, the delay on an injectable clock, and the widget (2026-11-10)
+
+Step 2 of the navigation providers (ADR-0108 plan). `vsr-app::hover` (state, settings, overlay) and two
+additive messages in the extension host worker, the same job shape as Navigate.
+
+- **Request.** `ToHost::Hover { id, path, line, column }` starts `begin_provide(Kind::Hover, "$provideHover")`.
+  The column is in `char`s from the caret and is converted to UTF-16 in the worker, where the open document's
+  text is. A newer request cancels the one in flight. A document that is not open answers with no hovers.
+- **Answer.** `FromHost::Hovers { id, hovers }`. The hover ranges are converted to `char` columns in the worker
+  (the text is kept with the job). `HoverState::deliver` takes only the request awaited; an older answer is
+  dropped. A request with no provider still answers, with none.
+- **Delay and clock.** `HoverState::pointer(now, point, settings)` arms the word under the pointer for
+  `editor.hover.delay`. `Workbench::hover_sync_at(now)` (called every frame next to `outline_sync_at`) returns
+  the due request, so the tests drive `Instant`s directly. A timer in the editor's mouse move wakes the editor
+  when the delay ends, so the request goes out without another mouse move.
+- **Widget.** `hover::overlay` is the one call from the editor element (next to the sticky-scroll overlay). It
+  shows the answer's text lines above or below the word (`editor.hover.above`). Markdown is shown as plain
+  lines (`plain_lines`: fences, emphasis and heading marks dropped). The overlay's pointer events feed
+  `over_widget`, which keeps it while the pointer is on it.
+- **Hiding.** Leaving the word hides the widget at once when `editor.hover.sticky` is off. When it is on, the
+  widget hides after `editor.hover.hidingDelay` unless the pointer is over it.
+- **Settings wired (5).** `editor.hover.enabled` (only `on` shows it for the mouse; the enum is `on`, `off`,
+  `onKeyboardModifier`), `editor.hover.delay`, `editor.hover.hidingDelay`, `editor.hover.sticky`,
+  `editor.hover.above`. Each has a headless test in `hover/mod.rs` that reads the value through a real
+  `Configuration`, and a `TestAppContext` test (`hover/e2e_tests.rs`) drives the workbench with an injected
+  clock. The timing and sticky behaviour also have unit tests on the state machine.
+- **Not done (gaps).**
+  - The widget is anchored at the pointer, not at the word's box, and is not corrected for scroll after the
+    answer arrives.
+  - Markdown is plain text: no code blocks, links, theme icons or verbosity controls.
+  - `editor.hover.showLongLineWarning` is not wired.
+  - The E2E tests (`hover/e2e_tests.rs`) answer in process through `HoverState::fake`; the worker's
+    `ToHost::Hover` job is not exercised by any test (the Navigate job has none either).
+  - The widget does not avoid the suggest widget; the two may overlap.
+  - Dismissal: upstream hides the content hover on mouse down, on a key press and on scroll. Here it hides
+    only when the pointer leaves the word (or the widget, when sticky), and `hover_pointer` keeps arming
+    while a drag selects text.
+  - Code lens and inlay hints (ADR-0108 steps 3 and 4) are not started, so `navigation-providers` stays `todo`
+    in `docs/dependencies.toml`.

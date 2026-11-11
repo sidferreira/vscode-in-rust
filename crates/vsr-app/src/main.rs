@@ -19,6 +19,8 @@ mod model;
 mod quick_access; // Command Palette, Go to Line, help on the Quick Pick (ADR-0030)
 mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
+mod hover; // Hover widget (ADR-0109)
+mod navigation; // Go to Definition, Declaration, Type Definition, Implementation (ADR-0108)
 mod outline; // the document outline: symbols per document, debounced (ADR-0086)
 mod suggest; // completion suggestions: requests to the worker, answers kept (ADR-0082)
 mod search_view; // Search view (ADR-0023)
@@ -173,6 +175,9 @@ impl EditorHost for Workbench {
     }
 
     fn editor_command(&mut self, cmd: keymap::Command, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if let keymap::Command::Navigate(nav) = cmd {
+            return self.navigation_command(nav, window, cx);
+        }
         self.suggest_command(cmd, window, cx)
     }
 
@@ -244,6 +249,7 @@ struct Workbench {
     ext: extensions::Extensions,
     /// The document outline the breadcrumbs and Go to Symbol read (ADR-0086).
     outline: outline::OutlineState,
+    navigation: navigation::NavState,
     suggest: suggest::SuggestState,
     branch: Option<String>,
     error: Option<String>,
@@ -322,6 +328,7 @@ impl Workbench {
             auto_save: Default::default(),
             ext: Default::default(),
             outline: outline::OutlineState::with_focus(cx.focus_handle()),
+            navigation: navigation::NavState::default(),
             suggest: Default::default(),
             branch: git_branch(&root),
             error: None,
@@ -1343,6 +1350,7 @@ impl Render for Workbench {
         self.session_render_hook(window, cx);
         self.ext_render_hook(window, cx);
         self.outline_sync();
+        self.hover_sync();
         self.suggest_sync(cx);
         // The OS window title and the dirty dot (macOS shows it in the close button).
         let title = self.window_title(cx);

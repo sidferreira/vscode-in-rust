@@ -347,6 +347,7 @@ fn editor_command(cmd: Command) -> (&'static str, &'static str, bool) {
         SuggestPreviousPage => ("selectPrevPageSuggestion", "Select the Previous Page Suggestion", false),
         AcceptSuggest => ("acceptSelectedSuggestion", "Accept Selected Suggestion", false),
         AcceptSuggestOnEnter => ("acceptSelectedSuggestionOnEnter", "Accept Selected Suggestion on Enter", false),
+        Navigate(nav) => (nav.command_id(), nav.title(), true),
     }
 }
 

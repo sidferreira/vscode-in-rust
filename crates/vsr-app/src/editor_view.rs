@@ -152,6 +152,8 @@ pub struct EditorView {
     dragging: bool,
     /// The mouse is over the gutter (`editor.showFoldingControls: mouseover`).
     fold_hover: bool,
+    /// The hover widget (ADR-0109): the word under the pointer, its delay and the answer.
+    pub hover: crate::hover::HoverState,
     /// The path the editor was last auto-focused for (focus follows tab changes).
     focused_for: Option<PathBuf>,
     /// The editor settings of the last `element` call (fonts, cursor, line numbers, ...).
@@ -386,6 +388,7 @@ impl EditorView {
         let pinned = sticky_scroll::lines(editor, &scroll, &cfg);
         let (_, scroll_x) = sticky_scroll::viewport_top(&scroll, cfg.line_height);
         let sticky = sticky_scroll::overlay(pinned, &cfg, &theme, gutter, scroll_x, fold_paint, cx);
+        let hover = crate::hover::overlay(&self.hover, cfg.line_height, &theme, cx);
         let id: SharedString = editor.path.display().to_string().into();
         let list_focus = focus.clone();
         // `editor.scrollBeyondLastLine`: empty rows after the last line (the page is measured at paint).
@@ -526,6 +529,10 @@ impl EditorView {
                     view.fold_hover = false;
                     cx.notify();
                 }
+                if !*hovered {
+                    let settings = crate::hover::settings(cx);
+                    this.editor_host().1.hover.pointer(Instant::now(), None, settings);
+                }
             }))
             .on_mouse_up(
                 MouseButton::Left,
@@ -536,7 +543,8 @@ impl EditorView {
             .child(list)
             .child(input_surface)
             .children(sticky)
-            .children(suggest_overlay);
+            .children(suggest_overlay)
+            .children(hover);
         // The editor and the Find widget side by side, so the find keys work from both.
         find::register_actions(
             div()
@@ -682,7 +690,8 @@ fn command_event<T: EditorHost>(this: &mut T, cmd: Command) -> Option<EditorEven
         | Command::SuggestNextPage
         | Command::SuggestPreviousPage
         | Command::AcceptSuggest
-        | Command::AcceptSuggestOnEnter => None,
+        | Command::AcceptSuggestOnEnter
+        | Command::Navigate(_) => None,
         Command::Backspace => Some(EditorEvent::DeleteLeft),
         Command::Enter => Some(EditorEvent::Typed("\n".into())),
         Command::Tab => Some(EditorEvent::Typed("\t".into())),
@@ -791,10 +800,15 @@ fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Win
             e.editor.set_cursor(Position::new(line + 1, 1), true);
         }
     }
-    view.dragging = true;
+    // Cmd+click places the caret and goes to the definition (ADR-0108): no drag starts.
+    let goto = crate::navigation::is_goto_click(ev.click_count, ev.modifiers.platform, ev.modifiers.shift, ev.modifiers.alt);
+    view.dragging = !goto;
     view.marked = None;
     view.after_change(e, false, true, window);
     this.editor_event(EditorEvent::Other, window, cx);
+    if goto {
+        this.editor_command(Command::Navigate(crate::navigation::Nav::Definition), window, cx);
+    }
     cx.notify();
 }
 
@@ -835,6 +849,7 @@ fn mouse_move<T: EditorHost>(this: &mut T, ev: &MouseMoveEvent, window: &mut Win
         view.fold_hover = over_gutter;
         cx.notify();
     }
+    hover_pointer(editors, view, ev, window, cx);
     if !view.dragging {
         return;
     }
@@ -848,6 +863,27 @@ fn mouse_move<T: EditorHost>(this: &mut T, ev: &MouseMoveEvent, window: &mut Win
         e.editor.set_cursor_with_affinity(pos, true, trailing);
         view.after_change(e, false, true, window);
         cx.notify();
+    }
+}
+
+/// The pointer moved over the text: the word under it starts its hover delay (ADR-0109). A timer
+/// wakes the editor when the delay ends, so the request goes out without another mouse move.
+fn hover_pointer<T: EditorHost>(editors: &Editors, view: &mut EditorView, ev: &MouseMoveEvent, window: &Window, cx: &mut Context<T>) {
+    let settings = crate::hover::settings(cx);
+    let point = editors.active.and_then(|i| editors.open.get(i)).filter(|e| e.path.is_absolute() && !e.is_untitled()).map(|e| {
+        let (pos, _) = hit_test(view, e, ev.position, window);
+        let b = view.bounds.get();
+        let at = (f32::from(ev.position.x - b.origin.x), f32::from(ev.position.y - b.origin.y));
+        (crate::hover::Point { path: e.path.clone(), line: pos.line as u32, column: pos.column as u32 }, at)
+    });
+    if let Some(delay) = view.hover.pointer(Instant::now(), point, settings) {
+        let weak = cx.weak_entity();
+        // A little past the delay, so the frame that follows sees the request due.
+        let wait = delay + Duration::from_millis(5);
+        view.hover.timer = Some(cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(wait).await;
+            let _ = weak.update(cx, |_, cx| cx.notify());
+        }));
     }
 }
 

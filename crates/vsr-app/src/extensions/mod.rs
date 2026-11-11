@@ -257,6 +257,12 @@ impl Workbench {
                     cx.notify();
                 }
             }
+            FromHost::Locations { id, nav, links } => self.navigation_deliver(id, nav, links, window, cx),
+            FromHost::Hovers { id, hovers, .. } => {
+                if self.editor_view.hover.deliver(id, hovers) {
+                    cx.notify();
+                }
+            }
             FromHost::AppCommand { id, args, reply } => {
                 let known = cx.try_global::<Commands>().is_some_and(|c| c.execution(&id).is_some());
                 if known {

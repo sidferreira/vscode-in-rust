@@ -1680,7 +1680,6 @@ already. Upstream 1.147 defines the compact layout in `ActivitybarPart` (default
 `activity_bar_icon_click_focus_keeps_the_side_bar_open`. The upstream test titles are cited in comments; the
 unit ports (`activitybarPart.test.ts`) are not ported, so the references are "Upstream source" comments.
 
-
 ## ADR-0051 — Sash settings: size wired, grippers blocked (2026-11-10)
 
 **Superseded by ADR-0056** (the grip is drawn; `autoHideGrippers` and `autoHideGrippersDelay` are wired).
@@ -2690,39 +2689,6 @@ Step 3 of the suggest work (ADR-0080..0083 gave the model and the trigger).
 `vsr-app` `suggest::e2e_tests`: 6 new (keys and context key, Enter as one undo step, Tab with typing on
 before accepting, snippet, release, rows with icon and matches).
 
-## ADR-0095 — Suggest settings: 38 `editor.*` keys read every frame by the workbench (2026-11-10)
-
-`suggest/settings.rs` reads `SuggestSettings` from the configuration in `suggest_sync` (every frame; applied
-when it differs). Wired: `editor.quickSuggestions` (boolean, string or object per token kind),
-`quickSuggestionsDelay`, `suggestOnTriggerCharacters`, `wordBasedSuggestions` (the legacy boolean `false` is `off`),
-`acceptSuggestionOnEnter` (`on`, `smart`: only when accepting changes the text, `off`: Enter is a line
-break, the list closes), `snippetSuggestions` (`top`, `bottom`, `inline`, `none` hides them),
-`suggest.insertMode`, `suggest.filterGraceful`, `suggest.showIcons`, `suggest.showInlineDetails` (the resolved
-detail of the focused row) and the 28 `suggest.show<Kind>` keys (a hidden kind is dropped from every
-provider's items and from the word-based ones; `showWords` is the text kind).
-
-Enter and Tab are two commands (`AcceptSuggestOnEnter`, `AcceptSuggest`); one the list does not take runs as
-the plain key (Enter, Tab).
-
-**Not wired yet** (step 4 remainder): `tabCompletion`, `suggestSelection` and `suggest.selectionMode` (need
-suggest memory), `acceptSuggestionOnCommitCharacter` (needs commit-character handling before the character
-is typed), `suggest.preview`, `showStatusBar`, `snippetsPreventQuickSuggestions`, `localityBonus`,
-`matchOnWordStartOnly`, `filteredTypes`, `showDeprecated`, `shareSuggestSelections`, `maxVisibleSuggestions`,
-`suggest.insertMode` toggling with Ctrl+Enter, and the real-host E2E. Tests: `suggest::e2e_tests` has one
-headless test per behaviour (quick suggestions and delay, trigger characters, word modes, Enter modes, snippet
-placement, insert mode, graceful filter, all kind filters, icons and inline details) and `settings.rs` three
-parse tests.
-
-## ADR-0096 — Real-host E2E for the suggest list (2026-11-10)
-
-`extensions::e2e::the_suggest_list_works_against_the_real_host` (runs with `RSCODE_CODE_OSS`, skips without):
-the `lang-features-fixture` extension (its selector patched to `plaintext`) answers Ctrl+Space; the list holds
-the host's list (cache id) while it shows, the focused item is resolved by the host, Enter inserts the snippet
-`alpha(${1:a}, ${2:b})` with the first placeholder selected as one undo step, the list is released, and Cmd+Z
-returns to the typed text. This exercises `ToHost::Complete`, `ResolveCompletion` and `ReleaseCompletions`
-end to end. Not covered against the host: that the host's cache is really empty after the release (the
-fixture exposes no probe).
-
 ## ADR-0085 — The outline model: symbols grouped by provider, ids, markers, sort and kind filter (2026-11-10)
 
 `vsr-exthost::language_features::outline` (UI-free; next to the `DocumentSymbol` DTO it consumes, as
@@ -3025,6 +2991,39 @@ through `KindFilter` (the view's rows, so a hidden kind hides its subtree). The 
 removes the icon from every row. Upstream smoke has no Outline area, so there is no scenario row for it;
 the headless tests in `crates/vsr-app/src/outline/` are the coverage.
 
+## ADR-0095 — Suggest settings: 38 `editor.*` keys read every frame by the workbench (2026-11-10)
+
+`suggest/settings.rs` reads `SuggestSettings` from the configuration in `suggest_sync` (every frame; applied
+when it differs). Wired: `editor.quickSuggestions` (boolean, string or object per token kind),
+`quickSuggestionsDelay`, `suggestOnTriggerCharacters`, `wordBasedSuggestions` (the legacy boolean `false` is `off`),
+`acceptSuggestionOnEnter` (`on`, `smart`: only when accepting changes the text, `off`: Enter is a line
+break, the list closes), `snippetSuggestions` (`top`, `bottom`, `inline`, `none` hides them),
+`suggest.insertMode`, `suggest.filterGraceful`, `suggest.showIcons`, `suggest.showInlineDetails` (the resolved
+detail of the focused row) and the 28 `suggest.show<Kind>` keys (a hidden kind is dropped from every
+provider's items and from the word-based ones; `showWords` is the text kind).
+
+Enter and Tab are two commands (`AcceptSuggestOnEnter`, `AcceptSuggest`); one the list does not take runs as
+the plain key (Enter, Tab).
+
+**Not wired yet** (step 4 remainder): `tabCompletion`, `suggestSelection` and `suggest.selectionMode` (need
+suggest memory), `acceptSuggestionOnCommitCharacter` (needs commit-character handling before the character
+is typed), `suggest.preview`, `showStatusBar`, `snippetsPreventQuickSuggestions`, `localityBonus`,
+`matchOnWordStartOnly`, `filteredTypes`, `showDeprecated`, `shareSuggestSelections`, `maxVisibleSuggestions`,
+`suggest.insertMode` toggling with Ctrl+Enter, and the real-host E2E. Tests: `suggest::e2e_tests` has one
+headless test per behaviour (quick suggestions and delay, trigger characters, word modes, Enter modes, snippet
+placement, insert mode, graceful filter, all kind filters, icons and inline details) and `settings.rs` three
+parse tests.
+
+## ADR-0096 — Real-host E2E for the suggest list (2026-11-10)
+
+`extensions::e2e::the_suggest_list_works_against_the_real_host` (runs with `RSCODE_CODE_OSS`, skips without):
+the `lang-features-fixture` extension (its selector patched to `plaintext`) answers Ctrl+Space; the list holds
+the host's list (cache id) while it shows, the focused item is resolved by the host, Enter inserts the snippet
+`alpha(${1:a}, ${2:b})` with the first placeholder selected as one undo step, the list is released, and Cmd+Z
+returns to the typed text. This exercises `ToHost::Complete`, `ResolveCompletion` and `ReleaseCompletions`
+end to end. Not covered against the host: that the host's cache is really empty after the release (the
+fixture exposes no probe).
+
 ## ADR-0100 — The extension host's environment is the login shell's: `vsr-exthost::shell_env`, the timeout setting wired (2026-11-10)
 
 Context: ADR-0078 left one main-side duty for language servers: a Finder- or Dock-launched rscode
@@ -3068,6 +3067,59 @@ Evidence:
 Consequences: `child-process-main` is done in `docs/dependencies.toml`. The terminal (pty) part stays
 with the terminal node, not with LSP. A real language server (oxc, lemminx) is still unverified, which
 is the remaining `lsp-client` gap; `lsp-client` stays open in `docs/dependencies.toml`.
+
+## ADR-0101 — Built-in language features (json, css, html) in the Code-OSS host build: pinned deps and bundles, and a json probe in the real host (2026-11-10)
+
+Context: `lsp-client` (docs/dependencies.toml) needs the built-in JSON, CSS and HTML language features
+running in the real host. The shared build (`codeoss-exthost`) had their sources only: no installed
+dependencies and no compiled `client/out` or `server/out`, because `build-codeoss-exthost` runs
+`pnpm --ignore-scripts` at the root and upstream's extension workspace is installed by its own
+postinstall, which never ran.
+
+Decision:
+
+- `scripts/build-codeoss-exthost --language-features json,css,html` (any subset) adds the step. It
+  installs with `pnpm install --frozen-lockfile --ignore-scripts` in `extensions/`, filtered to the
+  selected packages and their `server/` packages and the extensions root (for esbuild), so only the
+  versions Code-OSS's `extensions/pnpm-lock.yaml` pins are installed. Then each extension's own
+  `esbuild.mts` bundles client and server, and `dist/node` is mirrored into `out/node`, the layout its
+  manifest `main` names (the client chooses `dist` only when `main` contains `/dist/`).
+  `--plan` prints the steps and exits, so the argument handling is unit-tested without a network.
+  Unknown names are refused with exit 2. The script still refuses a non-empty destination.
+- For the json extension the packages are the lockfile's pins: `vscode-languageclient` 10.1.1,
+  `vscode-languageserver` 10.1.1, `vscode-json-languageservice` 6.0.0-next.4, `request-light` 0.8.0,
+  `@vscode/extension-telemetry` 0.9.9, `@vscode/l10n` 0.0.18 (plus the extensions root's
+  `esbuild` 0.28.1 and `typescript` 6.0.3). Nothing outside the lockfile was added.
+- The `onLanguage:<id>` activation on document open was already wired (`vsr-app` worker `fire` on
+  the language event). Nothing to add.
+
+Measured (headless, `crates/vsr-exthost/tests/json_real_host.rs`, Node 24.22.1): json-language-features
+boots, activates on `onLanguage:json` with no activation error, registers 10 language providers, and
+its server is spawned (`server/out/node/jsonServerMain` as a child process). Unhandled main-thread
+methods seen on the way in: `MainThreadWindow.$getInitialState`, `MainThreadTerminalService.$registerProcessSupport`,
+`MainThreadSearch.$registerTextSearchProvider`, `MainThreadTask.$registerSupportedExecutions` and
+`$registerTaskSystem`, `MainThreadChatSkills.$getTools`, `MainThreadDebugService.$registerDebugTypes`,
+`MainThreadTelemetry.$publicLog2`, `MainThreadStorage.$initializeExtensionStorage`,
+`MainThreadLogger.$registerLogger`. The spdlog native binding is missing (ADR-0060): the host logs it and
+carries on.
+
+Not done (the open gap, recorded here rather than guessed): diagnostics for a JSON syntax error do
+not reach `MainThreadDiagnostics` (the store is empty after 15 s), so the end-to-end check
+(diagnostics, then completion with a schema) is not yet green. The next step is to find out
+whether the client sent `didOpen` to the server and whether the server's `initialize` completed. The
+server's stderr and the client's output channel are the place to look (`MainThreadOutputService` is
+still a stub). `lsp-client` stays `todo` in docs/dependencies.toml until that passes.
+
+What the probe ruled out (2026-11-10, 18:07): (a) the client is started and answers requests: a
+completion request on the open document returns a provider result with no errors, so the
+`initialize` handshake completed; (b) the defaults: `default_settings` is `{}`, but the extension's
+own manifest defaults are merged in (`host.rs`), so `json.validate.enable` is on; (c) document sync
+at startup: a second `.json` file opened after activation also gets no markers; (d) the server trace
+(`json.trace.server: verbose`) wrote nothing to the console or to an unhandled output channel. So the
+server may publish diagnostics that the host never receives, or the server never validates. The
+next check is the server's own `publishDiagnostics` on the wire (a tap on the host's stdio),
+not more main-thread shapes.
+
 ## ADR-0108 — Go to Definition, Declaration, Type Definition and Implementation (2026-11-10)
 
 `vsr-app::navigation` (the app side) and two additive messages in the extension host worker, following

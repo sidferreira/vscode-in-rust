@@ -272,6 +272,64 @@ fn compact_folders_shows_a_single_child_chain_as_one_row(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn open_mode_double_click_leaves_a_single_click_on_a_file_as_a_selection(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("open-mode");
+    fs::write(ws.path().join("a.txt"), "a").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "workbench.list.openMode", json!("doubleClick"));
+    let file = ws.path().join("a.txt");
+    // debug selectors are `&'static str`; a test leaks the one string it needs
+    let key: &'static str = Box::leak(format!("tree-row:{}", file.display()).into_boxed_str());
+    let center = cx.debug_bounds(key).expect("the file has a row").center();
+    cx.simulate_click(center, Default::default());
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.explorer.selected.clone()), Some(file.clone()), "the click selects the file");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.active_editor().is_none()), "doubleClick: a single click does not open it");
+}
+
+#[gpui::test]
+fn expand_mode_double_click_expands_a_folder_on_its_second_click_or_its_chevron(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("expand-mode");
+    fs::create_dir_all(ws.path().join("docs")).unwrap();
+    fs::write(ws.path().join("docs/guide.md"), "").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "workbench.tree.expandMode", json!("doubleClick"));
+    let dir = ws.path().join("docs");
+    // debug selectors are `&'static str`; a test leaks the ones it needs
+    let row: &'static str = Box::leak(format!("tree-row:{}", dir.display()).into_boxed_str());
+    let chevron: &'static str = Box::leak(format!("dir-toggle:{}", dir.display()).into_boxed_str());
+    let center = cx.debug_bounds(row).expect("the folder has a row").center();
+    cx.simulate_click(center, Default::default());
+    cx.run_until_parked();
+    assert_eq!(row_names(&wb, cx), ["docs", "src"], "doubleClick: a single click on the name does not expand");
+    let twistie = cx.debug_bounds(chevron).expect("the folder has a chevron").center();
+    cx.simulate_click(twistie, Default::default());
+    cx.run_until_parked();
+    assert_eq!(row_names(&wb, cx), ["docs", "guide.md", "src"], "the chevron always expands");
+}
+
+#[gpui::test]
+fn indent_guides_draw_one_line_per_ancestor_when_always_and_none_when_off(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("indent-guides");
+    fs::create_dir_all(ws.path().join("docs")).unwrap();
+    fs::write(ws.path().join("docs/guide.md"), "").unwrap();
+    let (_wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "workbench.tree.renderIndentGuides", json!("always"));
+    let dir = ws.path().join("docs");
+    let row: &'static str = Box::leak(format!("tree-row:{}", dir.display()).into_boxed_str());
+    let twistie: &'static str = Box::leak(format!("dir-toggle:{}", dir.display()).into_boxed_str());
+    let center = cx.debug_bounds(twistie).expect("the folder has a chevron").center();
+    cx.simulate_click(center, Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds(row).is_some());
+    let guide = ws.path().join("docs/guide.md");
+    let key: &'static str = Box::leak(format!("indent-guide:{}:0", guide.display()).into_boxed_str());
+    assert!(cx.debug_bounds(key).is_some(), "always: the nested file has a guide for its folder");
+    set(cx, "workbench.tree.renderIndentGuides", json!("none"));
+    assert!(cx.debug_bounds(key).is_none(), "none: no guides");
+}
+
+#[gpui::test]
 fn auto_reveal_expands_and_selects_the_opened_file(cx: &mut TestAppContext) {
     let (ws, bin) = workspace("auto-reveal");
     fs::create_dir_all(ws.path().join("src/deep/er")).unwrap();

@@ -19,7 +19,7 @@ use super::nesting::{ExplorerFileNestingTrie, Nests};
 
 /// The group of the Explorer header: its title actions show while it is hovered.
 const HEADER_GROUP: &str = "explorer-header";
-use super::settings::{AutoReveal, ExplorerSettings, copied_path_text};
+use super::settings::{AutoReveal, ExplorerSettings, copied_path_text, click_activates, indent_guide_count, IndentGuides};
 use crate::config::AppConfig;
 use super::actions::{
     CancelDelete, CollapseAll, CollapseOrParent, CopyPath, CopyRelativePath, DeleteFile, ExpandOrFirstChild, MoveFileToTrash,
@@ -477,7 +477,26 @@ impl Workbench {
             let open = self.expanded.contains(&entry.path);
             let path = entry.path.clone();
             let is_dir = entry.is_dir;
+            let row_key = format!("tree-row:{}", path.display());
+            let row_group = format!("tree-row-{i}");
+            let guides_mode = self.explorer.settings.indent_guides;
+            let guides = (0..indent_guide_count(guides_mode, depth)).map(|k| {
+                let key = format!("indent-guide:{}:{k}", path.display());
+                let hover_group = row_group.clone();
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(px(8. + k as f32 * indent + indent / 2.))
+                    .w(px(1.))
+                    .bg(to_gpui(t.indent_guide_fg))
+                    .when(guides_mode == IndentGuides::OnHover, |d| d.opacity(0.).group_hover(hover_group, |s| s.opacity(1.)))
+                    .debug_selector(move || key.clone())
+            }).collect::<Vec<_>>();
             div()
+                .group(row_group)
+                .relative()
+                .debug_selector(move || row_key.clone())
                 .id(("tree", i))
                 .flex_none()
                 .h(px(22.))
@@ -489,9 +508,24 @@ impl Workbench {
                 .cursor_pointer()
                 .when(is_active || is_selected, |d| d.bg(to_gpui(t.list_active_bg)))
                 .when(!(is_active || is_selected), |d| d.hover(|s| s.bg(to_gpui(t.list_hover_bg))))
+                .children(guides)
                 .child(match (is_dir, open) {
-                    (true, true) => chevron(icons::CHEVRON_DOWN).into_any_element(),
-                    (true, false) => chevron(icons::CHEVRON_RIGHT).into_any_element(),
+                    // A folder's chevron always toggles it, whatever `workbench.tree.expandMode` says.
+                    (true, _) => {
+                        let dir = entry.path.clone();
+                        let shown = entry.path.display().to_string();
+                        let glyph = if open { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT };
+                        chevron(glyph)
+                            .id(("dir-toggle", i))
+                            .cursor_pointer()
+                            .debug_selector(move || format!("dir-toggle:{shown}"))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.toggle_dir(&dir);
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    }
                     // A file with nests: its chevron shows and hides them, and does not open the file.
                     _ if nest_parents.contains(&entry.path) => {
                         let parent = entry.path.clone();
@@ -514,8 +548,10 @@ impl Workbench {
                 .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
                     this.select(&path);
                     if is_dir {
-                        this.toggle_dir(&path);
-                    } else {
+                        if click_activates(this.explorer.settings.expand_on_double_click, ev.click_count()) {
+                            this.toggle_dir(&path);
+                        }
+                    } else if click_activates(this.explorer.settings.open_on_double_click, ev.click_count()) {
                         // A single click previews, a double click pins (`workbench.editor.enablePreview`).
                         let source = OpenSource::Explorer { double_click: ev.click_count() >= 2 };
                         this.open_from(&path, source);

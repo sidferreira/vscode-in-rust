@@ -52,13 +52,15 @@ pub struct OutlineSettings {
 impl OutlineSettings {
     pub fn from_configuration(c: &Configuration) -> Self {
         let on = |key: &str| c.get_bool(key).unwrap_or(true);
+        // `problems.visibility` off hides every problem marker, as upstream's overwrite does.
+        let visible = on("problems.visibility");
         Self {
             collapse_all: c.get_str("outline.collapseItems") == Some("alwaysCollapse"),
             icons: on("outline.icons"),
             filter: KindFilter::from_settings("outline", |key| c.get_bool(key)),
-            problems: on("outline.problems.enabled"),
-            problem_colors: on("outline.problems.colors"),
-            problem_badges: on("outline.problems.badges"),
+            problems: visible && on("outline.problems.enabled"),
+            problem_colors: visible && on("outline.problems.colors"),
+            problem_badges: visible && on("outline.problems.badges"),
         }
     }
 }

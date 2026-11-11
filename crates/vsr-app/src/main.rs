@@ -55,6 +55,7 @@ use config::files::ReadonlyRules;
 use config::glob::ExcludeMatcher;
 use config::settings::{
     ActivityBarLocation, EditorGroupSettings, EditorSettings, LayoutSettings, OpenSource, ShowTabs, SideBarLocation,
+    tab_index_badge,
 };
 use config::AppConfig;
 use editor_view::{EditorHost, EditorView};
@@ -1233,6 +1234,10 @@ impl Workbench {
                     // `files.readonly*` (ADR-0034): a lock in front of the name, as upstream.
                     d.child(div().font_family(icons::FAMILY).text_size(px(12.)).child(icons::glyph(icons::LOCK)))
                 })
+                .children(
+                    tab_index_badge(self.editors.settings.show_tab_index, show_tabs, i)
+                        .map(|n| div().text_color(to_gpui(t.description_fg)).child(n.to_string())),
+                )
                 .child(labels[i].title.clone())
                 .children(labels[i].description.clone().map(|d| div().text_color(to_gpui(t.description_fg)).child(d)))
                 .child(close)

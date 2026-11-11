@@ -583,6 +583,26 @@ fn problems_settings_turn_the_badges_and_the_markers_off(cx: &mut TestAppContext
     );
 }
 
+#[gpui::test]
+fn problems_visibility_off_hides_every_outline_marker(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench_with(cx, "view-problems-visibility", "{}");
+    let main_file = proj.join("src/main.rs");
+    open(&wb, cx, &main_file);
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    set_diagnostics(&wb, cx, &main_file, vec![main_error()]);
+    ask(&wb, cx);
+    click(cx, "outline-header");
+    let main = view_row_id(&wb, cx, "main");
+    assert!(cx.debug_bounds(selector(format!("outline-badge:{main}"))).is_some(), "the badge is shown by default");
+    set(cx, "problems.visibility", serde_json::json!(false));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds(selector(format!("outline-badge:{main}"))).is_none(), "problems.visibility off hides the badge");
+    assert!(
+        wb.read_with(cx, |wb, app| wb.outline_rows(app).iter().all(|r| r.marker.is_none())),
+        "problems.visibility off: no problems on any symbol"
+    );
+}
+
 /// `outline.show<Kind>`, in the order of the symbol kinds (`SymbolKind` 0 to 25, as upstream lists them).
 const SHOW_SETTINGS: [&str; 26] = [
     "showFiles",

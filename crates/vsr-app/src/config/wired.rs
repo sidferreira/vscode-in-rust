@@ -113,6 +113,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "outline.problems.enabled",
             "outline.problems.colors",
             "outline.problems.badges",
+            "problems.visibility",
             "outline.showFiles",
             "outline.showModules",
             "outline.showNamespaces",

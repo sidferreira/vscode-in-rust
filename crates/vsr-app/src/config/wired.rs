@@ -72,6 +72,15 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         &["breadcrumbs.enabled", "breadcrumbs.filePath", "breadcrumbs.icons"],
     ),
     (
+        "Go to definition and friends (ADR-0108)",
+        &[
+            "editor.gotoLocation.alternativeDefinitionCommand",
+            "editor.gotoLocation.alternativeDeclarationCommand",
+            "editor.gotoLocation.alternativeTypeDefinitionCommand",
+            "editor.gotoLocation.alternativeImplementationCommand",
+        ],
+    ),
+    (
         "Breadcrumbs symbols (ADR-0087)",
         &[
             "breadcrumbs.symbolPath",

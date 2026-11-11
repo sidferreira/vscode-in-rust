@@ -7,6 +7,7 @@
 
 use super::snapshot::Snapshot;
 use crate::config::glob::Glob;
+use crate::navigation::Nav;
 use futures::channel::mpsc::UnboundedSender;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
@@ -20,7 +21,7 @@ use vsr_exthost::configuration::ConfigUpdate;
 use vsr_exthost::description::ExtensionDescription;
 use vsr_exthost::discovery::{self, ContributedCommand};
 use vsr_exthost::host::{BootParams, ExtensionHost};
-use vsr_exthost::language_features::dto::{CompletionList, DocumentSymbol, Position};
+use vsr_exthost::language_features::dto::{CompletionList, DocumentSymbol, LocationLink, Position};
 use vsr_exthost::language_features::main_thread::Kind;
 use vsr_exthost::language_features::outline::ProviderSymbols;
 use vsr_exthost::language_features::query::{CompletionTrigger, Query};
@@ -57,6 +58,9 @@ pub enum ToHost {
     /// The document symbols of an open document at this version (ADR-0086). A newer request
     /// replaces the one in flight.
     Symbols { path: PathBuf, version: u64 },
+    /// Go to definition, declaration, type definition or implementation at a 1-based position of
+    /// an open document (ADR-0108). `column` counts `char`s. A newer request replaces the one in flight.
+    Navigate { id: u64, nav: Nav, path: PathBuf, line: u32, column: u32 },
     /// Completions at a 1-based position of an open document (ADR-0082). `column` counts `char`s,
     /// as the editor does. A newer request replaces the one in flight.
     Complete { id: u64, path: PathBuf, line: u32, column: u32, trigger: CompletionTrigger },
@@ -76,6 +80,9 @@ pub enum FromHost {
     AppCommand { id: String, args: Vec<Value>, reply: Sender<Result<Option<Value>, String>> },
     /// The providers' document symbols for `path` at `version`, one group per provider.
     Symbols { path: PathBuf, version: u64, groups: Vec<ProviderSymbols> },
+    /// The targets of go-to request `id`, from every provider that answered, in the protocol's
+    /// (UTF-16) columns. A request with no provider or no target still answers, with no links.
+    Locations { id: u64, nav: Nav, links: Vec<LocationLink> },
     /// The providers' completion lists for request `id`, one per provider that answered. Ranges
     /// are in `char`s (converted here, where the document's text is); the lists stay cached in the
     /// host until released (ADR-0082).
@@ -176,6 +183,7 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
     let mut last: Option<Snapshot> = None;
     let mut symbols: Option<SymbolJob> = None;
     let mut completion: Option<CompletionJob> = None;
+    let mut navigation: Option<NavJob> = None;
     'main: loop {
         let mut dirty = false;
         loop {
@@ -186,6 +194,18 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
                         host.cancel_query(&mut old.query);
                     }
                     symbols = start_symbols(&mut host, path, version);
+                }
+                Ok(ToHost::Navigate { id, nav, path, line, column }) => {
+                    if let Some(mut old) = navigation.take() {
+                        host.cancel_query(&mut old.query);
+                    }
+                    navigation = match start_navigate(&mut host, id, nav, &path, line, column) {
+                        Some(job) => Some(job),
+                        None => {
+                            let _ = out.unbounded_send(FromHost::Locations { id, nav, links: Vec::new() });
+                            None
+                        }
+                    };
                 }
                 Ok(ToHost::Complete { id, path, line, column, trigger }) => {
                     if let Some(mut old) = completion.take() {
@@ -206,6 +226,12 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
         {
             let job = symbols.take().expect("the job is in flight");
             finish_symbols(&mut host, job, &out);
+        }
+        if let Some(job) = navigation.as_mut()
+            && host.poll_query(&mut job.query)
+        {
+            let job = navigation.take().expect("the job is in flight");
+            finish_navigate(&mut host, job, &out);
         }
         if let Some(job) = completion.as_mut()
             && let Some(q) = job.query.as_mut()
@@ -269,6 +295,35 @@ fn finish_symbols(host: &mut ExtensionHost, mut job: SymbolJob, out: &UnboundedS
         })
         .collect();
     let _ = out.unbounded_send(FromHost::Symbols { path: job.path, version: job.version, groups });
+}
+
+/// A go-to request on its way (ADR-0108): the providers' answers, polled from the loop.
+struct NavJob {
+    id: u64,
+    nav: Nav,
+    query: Query<Vec<LocationLink>>,
+}
+
+/// Asks the providers of `nav` for the targets at a 1-based position (`column` in `char`s, as the
+/// editor counts them; converted to the protocol's UTF-16 here, where the text is). `None` when the
+/// document is not open in the host or no call could start.
+fn start_navigate(host: &mut ExtensionHost, id: u64, nav: Nav, path: &Path, line: u32, column: u32) -> Option<NavJob> {
+    let text = host.main_thread.documents.open.get(&resource_key(path))?.text.clone();
+    let column = char_to_utf16_column(line_text(&text, line), column);
+    let convert = Box::new(|v: &Value| Some(v.as_array()?.iter().filter_map(LocationLink::from_json).collect()));
+    let query = host.begin_provide(nav.kind(), path, nav.method(), &[Position::new(line, column).to_json()], convert).ok()?;
+    Some(NavJob { id, nav, query })
+}
+
+/// Sends the links of the providers that answered, and reports the ones that failed.
+fn finish_navigate(host: &mut ExtensionHost, mut job: NavJob, out: &UnboundedSender<FromHost>) {
+    let provided = job.query.take();
+    for (handle, message) in &provided.errors {
+        let name = host.main_thread.language_features.registration(*handle).and_then(|r| r.meta_str("displayName").map(String::from));
+        let _ = out.unbounded_send(FromHost::Problem(format!("{} ({}): {message}", job.nav.noun(), name.unwrap_or_default())));
+    }
+    let links = provided.results.into_iter().flat_map(|(_, links)| links).collect();
+    let _ = out.unbounded_send(FromHost::Locations { id: job.id, nav: job.nav, links });
 }
 
 /// A completion request on its way (ADR-0082). The providers are asked group by group (upstream's
@@ -429,7 +484,7 @@ fn handle(host: &mut ExtensionHost, index: &EventIndex, fired: &mut HashSet<Stri
             }
             problem(&id, host.execute_contributed_command(&id, args, CALL).map(|_| ()));
         }
-        ToHost::Symbols { .. } | ToHost::Complete { .. } | ToHost::Shutdown => {}
+        ToHost::Symbols { .. } | ToHost::Navigate { .. } | ToHost::Complete { .. } | ToHost::Shutdown => {}
     }
 }
 

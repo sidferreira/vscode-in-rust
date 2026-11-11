@@ -59,6 +59,9 @@ pub enum Command {
     TriggerSuggest,
     /// Escape while the suggest widget shows (`hideSuggestWidget`).
     HideSuggest,
+    /// F12 (`editor.action.revealDefinition`), Cmd+F12 (`goToImplementation`) and the other go-to
+    /// commands (ADR-0108).
+    Navigate(crate::navigation::Nav),
 }
 
 use Command::*;
@@ -115,6 +118,9 @@ pub const BINDINGS: &[(&str, Command)] = &[
     ("cmd-k cmd-u", LineComment(CommentType::ForceRemove)),
     ("shift-alt-a", BlockComment),
     ("ctrl-space", TriggerSuggest),
+    // Go to Definition (F12), Go to Implementations (Cmd+F12): upstream's macOS keys (ADR-0108).
+    ("f12", Navigate(crate::navigation::Nav::Definition)),
+    ("cmd-f12", Navigate(crate::navigation::Nav::Implementation)),
     // Folding (folding.ts): macOS keys.
     ("alt-cmd-[", Fold(FoldAction::Fold)),
     ("alt-cmd-]", Fold(FoldAction::Unfold)),
@@ -193,7 +199,7 @@ pub fn apply(editor: &mut Editor, cmd: Command, page: usize) -> bool {
         Fold(action) => {
             editor.fold_action(action);
         }
-        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest => {
+        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest | Navigate(_) => {
             return false;
         }
     }

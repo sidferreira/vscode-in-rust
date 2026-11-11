@@ -2954,3 +2954,44 @@ through `KindFilter` (the view's rows, so a hidden kind hides its subtree). The 
 `outline.show<Kind>` to false in turn and checks that only that kind leaves the view; `outline.icons` off
 removes the icon from every row. Upstream smoke has no Outline area, so there is no scenario row for it;
 the headless tests in `crates/vsr-app/src/outline/` are the coverage.
+
+## ADR-0108 — Go to Definition, Declaration, Type Definition and Implementation (2026-11-10)
+
+`vsr-app::navigation` (the app side) and two additive messages in the extension host worker, following
+the completion and symbol requests (ADR-0082, ADR-0086).
+
+- **Commands.** `Nav` has four variants. F12 is `editor.action.revealDefinition`, Cmd+F12 is
+  `editor.action.goToImplementation` (upstream's macOS keys). Declaration and type definition have no key,
+  as upstream. Each one is also in the Command Palette through the command table.
+- **Request.** `ToHost::Navigate { id, nav, path, line, column }` starts `begin_provide` with the
+  provider method (`$provideDefinition`, `$provideDeclaration`, `$provideTypeDefinition`,
+  `$provideImplementation`). The column comes from the caret in chars and is converted to UTF-16 in the
+  worker, where the open document's text is. A newer request cancels the one in flight. A document that
+  is not open in the host answers with no links.
+- **Answer.** `FromHost::Locations { id, nav, links }` carries the `LocationLink`s of every provider that
+  answered. The app keeps only the request it awaits (`NavState::take`); an older answer is dropped.
+- **Targets.** `navigation::targets` keeps file links, converts the UTF-16 columns to chars with the
+  target's text (the open editor's buffer, else the file on disk), sorts by position and drops duplicates.
+  The target's `targetSelectionRange` is what gets selected, else its range.
+- **Open.** The first target opens through `select_symbol` with `OpenSource::CodeNavigation`, which is what
+  that source was reserved for.
+- **Alternative command** (`editor.gotoLocation.alternative*Command`). When there is exactly one target and
+  the caret is inside its range, the setting's command runs if it is one of the four go-to commands. The
+  default `editor.action.goToReferences` has no counterpart in rscode, so the default does nothing.
+- **Cmd+click.** `is_goto_click`: a single click with Cmd and no Shift or Alt (upstream's default
+  `editor.multiCursorModifier` of `alt`). The caret is placed as usual, the drag does not start, and then
+  Go to Definition runs through the editor's command hook. `editor.multiCursorModifier` is not wired, so
+  its other values are not honoured.
+- **Settings wired (4).** `editor.gotoLocation.alternativeDefinitionCommand`,
+  `...alternativeDeclarationCommand`, `...alternativeTypeDefinitionCommand`,
+  `...alternativeImplementationCommand`. Each has a headless test (`navigation/e2e_tests.rs`).
+- **Not done (gaps).**
+  - No peek view and no picker. With several targets the first one opens, whatever `multiple*` says, so
+    `editor.gotoLocation.multiple{Definitions,Declarations,TypeDefinitions,Implementations,References}`
+    stay blocked. `definitionLinkOpensInPeek` stays blocked.
+  - `NavState::message` ("No definition found") is set but nothing paints it yet.
+  - References (Shift+F12) and the `alternativeReferenceCommand` setting are not done.
+  - No real-host E2E yet (the fixture would need a definition provider), and no test that the F12 key
+    binding resolves in gpui's keymap. The unit tests cover the command table, not the key.
+  - Hover, code lens and inlay hints (ADR-0108 steps 2 to 4 of the plan) are not started, so
+    `navigation-providers` stays `todo` in `docs/dependencies.toml`.

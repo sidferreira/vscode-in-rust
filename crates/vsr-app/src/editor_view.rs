@@ -616,7 +616,8 @@ fn command_event<T: EditorHost>(this: &mut T, cmd: Command) -> Option<EditorEven
         | Command::ToggleWordWrap
         | Command::Fold(_)
         | Command::TriggerSuggest
-        | Command::HideSuggest => None,
+        | Command::HideSuggest
+        | Command::Navigate(_) => None,
         Command::Backspace => Some(EditorEvent::DeleteLeft),
         Command::Enter => Some(EditorEvent::Typed("\n".into())),
         Command::Tab => Some(EditorEvent::Typed("\t".into())),
@@ -725,10 +726,15 @@ fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Win
             e.editor.set_cursor(Position::new(line + 1, 1), true);
         }
     }
-    view.dragging = true;
+    // Cmd+click places the caret and goes to the definition (ADR-0108): no drag starts.
+    let goto = crate::navigation::is_goto_click(ev.click_count, ev.modifiers.platform, ev.modifiers.shift, ev.modifiers.alt);
+    view.dragging = !goto;
     view.marked = None;
     view.after_change(e, false, true, window);
     this.editor_event(EditorEvent::Other, window, cx);
+    if goto {
+        this.editor_command(Command::Navigate(crate::navigation::Nav::Definition), window, cx);
+    }
     cx.notify();
 }
 

@@ -341,6 +341,7 @@ fn editor_command(cmd: Command) -> (&'static str, &'static str, bool) {
         BlockComment => ("editor.action.blockComment", "Toggle Block Comment", true),
         TriggerSuggest => ("editor.action.triggerSuggest", "Trigger Suggest", true),
         HideSuggest => ("hideSuggestWidget", "Close Suggest Widget", false),
+        Navigate(nav) => (nav.command_id(), nav.title(), true),
     }
 }
 

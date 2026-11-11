@@ -20,10 +20,10 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 
 | source | count | attributed to a node |
 |---|---|---|
-| settings: wired | 292 | n/a (done) |
+| settings: wired | 297 | n/a (done) |
 | settings: blocked | 316 | 316 of 316 (by reason) |
 | settings: exthost | 426 | 426 of 426 (by built-in extension) |
-| settings: todo | 470 | 276 of 470 matched by a node's todo_globs |
+| settings: todo | 465 | 275 of 465 matched by a node's todo_globs |
 | settings: n/a | 558 | not dependency-blocked (policy: product, Windows, deprecated) |
 | smoke scenarios: ready | 73 | not blocked |
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
@@ -339,8 +339,8 @@ None.
 | cross-version-migration | Cross-version state migration (needs a stable VS Code install) | blocked-external | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | custom-editors | Custom editors (editor types per file) | todo | feature | L (guess) | - | 1 (+0) | 70 (+22) | 0 (+0) | 0 | 7 (+0) | 0 (+0) |
 | debugger-dap | Debugger: debug adapter protocol and debug views | todo | feature | XL (guess) | ext-host-p1 | 12 (+34) | 12 (+34) | 0 (+0) | 0 | 0 (+0) | 0 (+1) |
-| diagnostics-model | Diagnostics store (problems reported by language features) | done | feature | S (guess) | ext-host-p1 | 1 (+0) | 1 (+6) | 0 (+0) | 0 | 3 (+0) | 1 (+0) |
-| diagnostics-view | Problems view (diagnostics list) | todo | feature | M (guess) | diagnostics-model | 0 (+6) | 0 (+6) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
+| diagnostics-model | Diagnostics store (problems reported by language features) | done | feature | S (guess) | ext-host-p1 | 1 (+0) | 1 (+5) | 0 (+0) | 0 | 3 (+0) | 1 (+0) |
+| diagnostics-view | Problems view (diagnostics list) | todo | feature | M (guess) | diagnostics-model | 0 (+5) | 0 (+5) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | diff-editor | Diff editor (side by side and inline) | todo | feature | XL (guess) | custom-editors | 1 (+22) | 1 (+22) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | document-symbols | Document symbols: outline model, breadcrumb symbols, Go to Symbol | done | feature | M (guess) | lang-providers-main | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-double-click-block | Double click block selection | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -359,8 +359,8 @@ None.
 | ext-emmet | Emmet (built-in) | todo | extension | M (guess) | lang-providers-main | 12 (+0) | 12 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-errorlens | ErrorLens | in-progress | extension | M (source) | ext-host-p1, text-decorations, diagnostics-model | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-gitlens | GitLens | todo | extension | XL (source) | ext-host-p1, webview-service, tree-views, integrated-terminal, tasks-runner, git-scm | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 337 (+57) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
-| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 337 (+57) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
+| ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 337 (+56) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
+| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 337 (+56) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
 | ext-kotlin | Kotlin (LSP, runtime server download, DAP) | todo | extension | L (source) | lsp-client, lang-providers-main, debugger-dap | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-merge-conflict | Merge conflict (CodeLens and decorations, built-in) | todo | extension | S (guess) | lang-providers-main, text-decorations | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-oxc | oxc (LSP over stdio) | todo | extension | L (source) | lsp-client, lang-providers-main, workspace-fs-api | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -469,7 +469,7 @@ None.
 - Orphan nodes (not done, no edges, nothing attributed): none.
 - Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, child-process-main, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, settings-editor.
 - Blocked settings with no node: 0. Exthost settings with no node: 0. Blocked smoke rows that name a feature with no node: 0.
-- Todo settings matched by no node's `todo_globs`: 194. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
+- Todo settings matched by no node's `todo_globs`: 190. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
 - DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is "needs sash grippers (the drawn handle in the middle of a sash)" has a second `comment` and `match` pair after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show settings (29) therefore land on the sash reason. They need document symbols. The graph maps that reason to `document-symbols` with a note.
 - Known gap in `scripts/progress-report`: it reads only the first status table of each scenario file. `search.md` has a second table (rows 8-11), so its scenario total is 170, not 174.
 

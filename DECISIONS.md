@@ -3030,5 +3030,8 @@ additive messages in the extension host worker, the same job shape as Navigate.
   - The E2E tests (`hover/e2e_tests.rs`) answer in process through `HoverState::fake`; the worker's
     `ToHost::Hover` job is not exercised by any test (the Navigate job has none either).
   - The widget does not avoid the suggest widget; the two may overlap.
+  - Dismissal: upstream hides the content hover on mouse down, on a key press and on scroll. Here it hides
+    only when the pointer leaves the word (or the widget, when sticky), and `hover_pointer` keeps arming
+    while a drag selects text.
   - Code lens and inlay hints (ADR-0108 steps 3 and 4) are not started, so `navigation-providers` stays `todo`
     in `docs/dependencies.toml`.

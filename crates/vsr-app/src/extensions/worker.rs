@@ -365,7 +365,9 @@ fn start_hover(host: &mut ExtensionHost, id: u64, path: PathBuf, line: u32, colu
     let text = host.main_thread.documents.open.get(&resource_key(&path))?.text.clone();
     let utf16 = char_to_utf16_column(line_text(&text, line), column);
     let convert = Box::new(|v: &Value| Hover::from_json(v));
-    let query = host.begin_provide(Kind::Hover, &path, "$provideHover", &[Position::new(line, utf16).to_json()], convert).ok()?;
+    // `$provideHover(handle, resource, position, context, token)`: the context is null for a plain hover.
+    let rest = [Position::new(line, utf16).to_json(), Value::Null];
+    let query = host.begin_provide(Kind::Hover, &path, "$provideHover", &rest, convert).ok()?;
     Some(HoverJob { id, text, query })
 }
 

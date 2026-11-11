@@ -20,8 +20,8 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 
 | source | count | attributed to a node |
 |---|---|---|
-| settings: wired | 245 | n/a (done) |
-| settings: blocked | 363 | 363 of 363 (by reason) |
+| settings: wired | 292 | n/a (done) |
+| settings: blocked | 316 | 316 of 316 (by reason) |
 | settings: exthost | 426 | 426 of 426 (by built-in extension) |
 | settings: todo | 470 | 276 of 470 matched by a node's todo_globs |
 | settings: n/a | 558 | not dependency-blocked (policy: product, Windows, deprecated) |
@@ -29,8 +29,8 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 87 | every ADR cited by a node exists (latest ADR-0101) |
-| upstream/ports.toml entries | 57 | not nodes (file ports, not features): partial 54, planned 1, ported 2 |
+| ADR headings in DECISIONS.md | 92 | every ADR cited by a node exists (latest ADR-0109) |
+| upstream/ports.toml entries | 58 | not nodes (file ports, not features): partial 55, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.
 
@@ -296,8 +296,8 @@ flowchart LR
 | 1 | lsp-client | LSP client over stdio (vscode-languageclient) | L (source) | 132 (+0) | 0 (+0) | 0 (+0) | 3 (+1) | builtin-lsp-css-html-json, ext-kotlin, ext-oxc, ext-xml, folding-providers |
 | 2 | ext-ts-features | TypeScript and JavaScript features (tsserver) | M (source) | 90 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 3 | custom-editors | Custom editors (editor types per file) | L (guess) | 70 (+0) | 22 (+0) | 7 (+0) | 0 (+0) | diff-editor, non-text-editors, notebook-editor |
-| 4 | completion-suggest | Completion provider and suggest widget | M (guess) | 70 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 5 | navigation-providers | Definition, hover, code lens and inlay hint providers | M (guess) | 28 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 4 | completion-suggest | Completion provider and suggest widget | M (guess) | 32 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 5 | navigation-providers | Definition, hover, code lens and inlay hint providers | M (guess) | 19 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 6 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | M (guess) | 17 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 7 | debugger-dap | Debugger: debug adapter protocol and debug views | XL (guess) | 12 (+0) | 34 (+0) | 0 (+0) | 0 (+1) | ext-kotlin |
 | 8 | ext-emmet | Emmet (built-in) | M (guess) | 12 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
@@ -332,7 +332,7 @@ None.
 | command-palette-suggestions | Suggested commands in the Command Palette | todo | feature | S (guess) | command-registry | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | command-registry | Command registry and Command Palette (ADR-0030) | done | feature | - | - | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | comments-api | Comments API (comment controller, proposed comment APIs) | todo | feature | L (guess) | ext-host-p1, text-decorations | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+1) |
-| completion-suggest | Completion provider and suggest widget | todo | feature | M (guess) | lang-providers-main | 70 (+0) | 70 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| completion-suggest | Completion provider and suggest widget | todo | feature | M (guess) | lang-providers-main | 32 (+0) | 32 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | config-service | Configuration service and live reload (ADR-0022) | done | feature | - | - | 0 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | context-menus | Context menus | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | copy-breadcrumbs-path | Copy Breadcrumbs Path command | todo | feature | S (guess) | document-symbols | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -359,8 +359,8 @@ None.
 | ext-emmet | Emmet (built-in) | todo | extension | M (guess) | lang-providers-main | 12 (+0) | 12 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-errorlens | ErrorLens | in-progress | extension | M (source) | ext-host-p1, text-decorations, diagnostics-model | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-gitlens | GitLens | todo | extension | XL (source) | ext-host-p1, webview-service, tree-views, integrated-terminal, tasks-runner, git-scm | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 384 (+57) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
-| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 384 (+57) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
+| ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 337 (+57) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
+| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 337 (+57) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
 | ext-kotlin | Kotlin (LSP, runtime server download, DAP) | todo | extension | L (source) | lsp-client, lang-providers-main, debugger-dap | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-merge-conflict | Merge conflict (CodeLens and decorations, built-in) | todo | extension | S (guess) | lang-providers-main, text-decorations | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-oxc | oxc (LSP over stdio) | todo | extension | L (source) | lsp-client, lang-providers-main, workspace-fs-api | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -383,7 +383,7 @@ None.
 | hot-exit-undo | Undo history saved with the hot exit backup | todo | feature | S (guess) | session-restore | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | hover-delay | Hover widgets with a configurable delay | todo | feature | S (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | integrated-terminal | Integrated terminal (pty, shell integration, terminal editors) | blocked-external | feature | L (guess) | cargo-proxy-token, bottom-panel | 0 (+119) | 13 (+131) | 0 (+0) | 52 | 56 (+0) | 1 (+2) |
-| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 369 (+0) | 54 (+0) | 4 | 4 (+0) | 7 (+2) |
+| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 322 (+0) | 54 (+0) | 4 | 4 (+0) | 7 (+2) |
 | language-config | Language configuration: typing rules, comments, indentation (ADR-0046) | done | feature | - | - | 0 (+0) | 7 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | language-detection | Language detection for untitled and unknown files | todo | feature | M (guess) | untitled-editors | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | large-file-mode | Large file mode (features off for very big files) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -400,7 +400,7 @@ None.
 | native-policy-proxy | Native policy and HTTP proxy | todo | feature | M (guess) | - | 0 (+14) | 0 (+14) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | native-window-chrome | Native title bar, full screen and first-mouse click | todo | feature | L (guess) | session-restore | 5 (+0) | 11 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | navigation-history | Navigation history (Go Back, Go Forward) | todo | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| navigation-providers | Definition, hover, code lens and inlay hint providers | todo | feature | M (guess) | lang-providers-main | 28 (+0) | 28 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| navigation-providers | Definition, hover, code lens and inlay hint providers | todo | feature | M (guess) | lang-providers-main | 19 (+0) | 19 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | non-text-editors | Untitled, binary, custom and large-file editors | todo | feature | L (guess) | untitled-editors, custom-editors | 9 (+0) | 9 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | notebook-editor | Notebook editor (cells, outputs, ipynb) | todo | feature | XL (guess) | custom-editors | 59 (+0) | 59 (+0) | 0 (+0) | 7 | 7 (+0) | 0 (+0) |
 | notifications | Notification toasts and the notifications centre | todo | feature | M (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |

@@ -2954,3 +2954,47 @@ through `KindFilter` (the view's rows, so a hidden kind hides its subtree). The 
 `outline.show<Kind>` to false in turn and checks that only that kind leaves the view; `outline.icons` off
 removes the icon from every row. Upstream smoke has no Outline area, so there is no scenario row for it;
 the headless tests in `crates/vsr-app/src/outline/` are the coverage.
+
+## ADR-0100 — The extension host's environment is the login shell's: `vsr-exthost::shell_env`, the timeout setting wired (2026-11-10)
+
+Context: ADR-0078 left one main-side duty for language servers: a Finder- or Dock-launched rscode
+inherits launchd's `PATH`, so a server started by its bare name (`java`, `node` from a version
+manager) is not found. Upstream merges `getShellEnv()` under the host's own environment
+(`localProcessExtensionHost.ts`, `shellEnv.ts`). `docs/dependencies.toml` node `child-process-main`.
+
+Decision: resolve the login shell's environment on the extension worker thread, before the host
+boots, and pass it as `BootParams.env`. The resolution lives in `crates/vsr-exthost/src/shell_env.rs`:
+
+- runs `$SHELL -i -l -c` (`/bin/sh` when unset) with stdin closed and its own process group;
+- prints `env -0` between two unique markers, so rc-file output is discarded (the parser keeps only
+  what is between the first two markers);
+- sets `RSCODE_RESOLVING_ENVIRONMENT=1` in the shell (upstream's `VSCODE_RESOLVING_ENVIRONMENT`), so a
+  resolution started from inside one is skipped, and strips that variable from the result;
+- gives up after `application.shellEnvironmentResolutionTimeout` seconds (default 10, clamped 1..120,
+  upstream), killing the process group;
+- on any failure the reason goes to stderr and the inherited environment is used. A broken shell
+  configuration never stops extensions from starting.
+
+The host's `Host::spawn` already applies `BootParams.env` on top of the inherited environment, so the
+resolved `PATH` wins. `worker::Config.env` (explicit, for tests) is applied after the resolved set.
+
+Not done, on purpose: upstream skips resolution when launched from the CLI (`VSCODE_CLI`), and caches
+the result for the process. rscode resolves once per host start (a host restarts only on a new
+window), which is the same once-per-run cost. Windows is out of scope (ADR-0019).
+
+Evidence:
+- `crates/vsr-exthost/tests/shell_env.rs` (11 headless tests, a fake `$SHELL` script): the parser drops rc
+  noise, the guard and nameless entries; the login `PATH` and `FROM_RC` come through; a shell that sleeps
+  past the timeout is killed within 5 s; a shell that fails without markers reports its stderr; a missing
+  shell is a spawn error; a guarded call never runs the shell; `for_host` falls back to nothing.
+- `crates/vsr-exthost/tests/shell_env_real_host.rs` (real host, `RSCODE_CODE_OSS`): the `lsp-fixture`
+  command `lsp-fixture.probe` spawns `rscode-probe` by bare name. Without the resolved environment it is
+  `missing`; with the environment resolved from a fake login shell whose `PATH` has the probe's
+  directory, it prints `found`. This is the ADR-0078 follow-up, checked on the real host.
+- `crates/vsr-app/src/extensions/mod.rs` (`shell_env_timeout_tests`): the setting's default is 10 s and
+  it is clamped to 1..120 s. `application.shellEnvironmentResolutionTimeout` is wired in
+  `crates/vsr-app/src/config/wired.rs` ("Application").
+
+Consequences: `child-process-main` is done in `docs/dependencies.toml`. The terminal (pty) part stays
+with the terminal node, not with LSP. A real language server (oxc, lemminx) is still unverified, which
+is the remaining `lsp-client` gap; `lsp-client` stays open in `docs/dependencies.toml`.

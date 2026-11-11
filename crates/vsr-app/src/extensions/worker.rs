@@ -41,6 +41,10 @@ pub struct Config {
     pub workspace: PathBuf,
     /// Nested `(defaults, user)` settings layers at startup.
     pub settings: (Value, Value),
+    /// The login shell's environment is resolved with this timeout (ADR-0100); `None` keeps the
+    /// inherited one.
+    pub shell_env: Option<Duration>,
+    /// Extra environment, after the resolved one (it wins).
     pub env: Vec<(String, String)>,
 }
 
@@ -137,6 +141,12 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
     let index = EventIndex::new(&found.extensions);
     let name = config.workspace.file_name().map_or_else(|| "workspace".into(), |n| n.to_string_lossy().into_owned());
     let ids: Vec<String> = found.extensions.iter().map(|e| e.id.clone()).collect();
+    // Resolved here, on the worker thread: the shell can take seconds (ADR-0100, ADR-0066).
+    let mut env = match config.shell_env {
+        Some(timeout) => vsr_exthost::shell_env::for_host(&vsr_exthost::shell_env::default_shell(), timeout),
+        None => Vec::new(),
+    };
+    env.extend(config.env.iter().cloned());
     let mut host = match ExtensionHost::boot(&BootParams {
         launch: config.launch.clone(),
         version,
@@ -145,7 +155,7 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
         extensions: found.extensions.clone(),
         default_settings: config.settings.0.clone(),
         user_settings: config.settings.1.clone(),
-        env: config.env.clone(),
+        env,
     }) {
         Ok(h) => h,
         Err(e) => {

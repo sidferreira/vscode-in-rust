@@ -259,6 +259,7 @@ impl Workbench {
             _ => ActivityView::Explorer,
         };
         self.session.pending_search = state.search.clone();
+        self.outline.view.restore(&state.outline);
         self.editor_view.restore_find_histories(state.find_history.clone(), state.replace_history.clone());
     }
 
@@ -391,6 +392,7 @@ impl Workbench {
                 .into(),
             },
             search: self.search.as_ref().map(|s| s.read(cx).session_state(cx)).or_else(|| self.session.pending_search.clone()),
+            outline: self.outline.view.persisted(),
         }
     }
 

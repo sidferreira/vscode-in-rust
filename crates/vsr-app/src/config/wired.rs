@@ -105,6 +105,42 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "Outline (ADR-0092, ADR-0093, ADR-0094)",
+        &[
+            "outline.collapseItems",
+            "outline.icons",
+            "outline.problems.enabled",
+            "outline.problems.colors",
+            "outline.problems.badges",
+            "outline.showFiles",
+            "outline.showModules",
+            "outline.showNamespaces",
+            "outline.showPackages",
+            "outline.showClasses",
+            "outline.showMethods",
+            "outline.showProperties",
+            "outline.showFields",
+            "outline.showConstructors",
+            "outline.showEnums",
+            "outline.showInterfaces",
+            "outline.showFunctions",
+            "outline.showVariables",
+            "outline.showConstants",
+            "outline.showStrings",
+            "outline.showNumbers",
+            "outline.showBooleans",
+            "outline.showArrays",
+            "outline.showObjects",
+            "outline.showKeys",
+            "outline.showNull",
+            "outline.showEnumMembers",
+            "outline.showStructs",
+            "outline.showEvents",
+            "outline.showOperators",
+            "outline.showTypeParameters",
+        ],
+    ),
+    (
         "Editor text",
         &[
             "editor.fontSize",
@@ -347,7 +383,7 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- Find widget: regular expressions use Rust `regex` syntax (no look-around or backreferences, as in the Search view); Whole Word uses `\\b` rather than `editor.wordSeparators`; there is one cursor, so no \"Select All Occurrences of Find Match\". `editor.find.addExtraSpaceOnTop` is not implemented (see `upstream/settings.toml`).\n");
     out.push_str("- `editor.detectIndentation` is not implemented: `editor.tabSize` and `editor.insertSpaces` always apply.\n");
     out.push_str("- Search reads `files.exclude` too (it is listed under Explorer). Entries of `search.exclude` and `files.exclude` whose value is an object (`when` clauses) are ignored by the search.\n");
-    out.push_str("- `workbench.editor.enablePreviewFromCodeNavigation` is read, but nothing opens from code navigation yet, so it has no effect.\n");
+    out.push_str("- `workbench.editor.enablePreviewFromCodeNavigation` is read by the Outline's click (ADR-0092), the only code navigation rscode has so far; go to definition is not implemented.\n");
     out.push_str("- `search.sortOrder` orders the files of the current results and places the files of later searches by the same order. `modified` reads each file's modification time when it is found.\n");
     out.push_str("- `search.seedOnFocus` and `search.seedWithNearestWord` apply when the Search view is focused with Find in Files (Shift+Cmd+F). Other ways of showing the view do not seed the query.\n");
     out.push_str("- `search.ripgrep.maxThreads` sets the walker threads of a search (0 is automatic).\n");

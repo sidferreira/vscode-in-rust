@@ -307,8 +307,8 @@ fn clicking_a_symbol_crumb_lists_its_siblings_and_accepting_selects_the_symbol(c
     cx.run_until_parked();
     let sel = wb.read_with(cx, |wb, _| wb.editors.active_editor().map(|e| e.editor.selection()));
     let sel = sel.expect("an editor is active");
-    assert_eq!((sel.anchor.line, sel.anchor.column), (1, 7), "the selection range of len, 0-based");
-    assert_eq!((sel.active.line, sel.active.column), (1, 10));
+    assert_eq!((sel.anchor.line, sel.anchor.column), (2, 8), "the selection range of len, 1-based");
+    assert_eq!((sel.active.line, sel.active.column), (2, 11));
 }
 
 #[gpui::test]

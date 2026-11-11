@@ -234,14 +234,14 @@ note = "ADR-0078: extensions spawn their language servers themselves inside the 
 [[node]]
 id = "workspace-fs-api"
 title = "workspace.fs and file system provider API (ext host)"
-status = "todo"
+status = "done"
 effort = "M"
 effort_source = "guess"
 needs = ["ext-host-p1"]
 reasons = [
   "needs the extension host's findFiles API (extensions)",
 ]
-note = "findFiles is the reason for search.experimental.useIgnoreFilesInFindFiles. workspace.fs is P2 in extensions-compat §4."
+note = "Done (ADR-0088..0090): MainThreadFileSystem, findFiles, watchers. The setting behind the findFiles reason can now be wired. App saves/renames do not yet feed file_changed (ADR-0090)."
 
 [[node]]
 id = "text-decorations"
@@ -408,14 +408,11 @@ note = "Done (ADR-0085..0087): OutlineModel, worker query with debounce, breadcr
 [[node]]
 id = "outline-view"
 title = "Outline view (symbols of the active file in the Explorer)"
-status = "todo"
+status = "done"
 effort = "M"
 effort_source = "guess"
 needs = ["document-symbols"]
-reasons = [
-  "needs the Outline view (the symbols of the active file in a view of the Explorer)",
-]
-note = "The model, query and cache exist (ADR-0085, ADR-0086); the tree view, follow cursor, sort/filter actions and problem markers on symbols do not."
+note = "Done (ADR-0092..0094): tree, follow cursor, sort/filter, problems; 31 outline settings wired."
 
 [[node]]
 id = "copy-breadcrumbs-path"

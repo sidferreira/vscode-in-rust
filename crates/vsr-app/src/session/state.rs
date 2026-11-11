@@ -55,6 +55,17 @@ pub struct WorkspaceState {
     /// The Find and Replace box histories, newest first (`editor.find.history`, `replaceHistory`).
     pub find_history: Vec<String>,
     pub replace_history: Vec<String>,
+    /// The Outline view's follow cursor, sort and filter on type (ADR-0093).
+    pub outline: OutlineViewState,
+}
+
+/// What the Outline view keeps per workspace (ADR-0093). `sort_by` is `position`, `name` or `category`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OutlineViewState {
+    pub follow_cursor: bool,
+    pub sort_by: String,
+    pub filter_on_type: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -178,6 +189,7 @@ mod tests {
             search: Some(SearchState { query: "fo\"o\n".into(), use_regex: true, ..SearchState::default() }),
             find_history: vec!["fo\"o".into(), "bar".into()],
             replace_history: vec!["baz".into()],
+            outline: OutlineViewState { follow_cursor: true, sort_by: "name".into(), filter_on_type: true },
         }
     }
 

@@ -9,10 +9,10 @@
 use vsr_exthost::language_features::dto::symbol_kind_name;
 use vsr_exthost::language_features::outline::natural_cmp;
 use vsr_quickinput::pick::{PickItem, PickRow, filter_items};
+use vsr_exthost::language_features::dto::Range as SymbolRange;
 
 use crate::Workbench;
 use crate::config::settings::OpenSource;
-use vsr_search::SearchRange;
 
 impl Workbench {
     /// The rows for the typed `query` (`@name` or `@:name`).
@@ -78,14 +78,8 @@ impl Workbench {
             .collect();
         let [sl, sc, el, ec] = nums[..] else { return };
         self.hide_quick_open(false, window, cx);
-        // The picker's values are 1-based (as the symbols are); the editor's are 0-based.
-        let range = SearchRange {
-            start_line: sl.saturating_sub(1),
-            start_column: sc.saturating_sub(1),
-            end_line: el.saturating_sub(1),
-            end_column: ec.saturating_sub(1),
-        };
-        self.open_at(&path, range, OpenSource::QuickOpen, window, cx);
-        cx.notify();
+        // The picker's values are the symbol's 1-based range.
+        let range = SymbolRange::new(sl as u32, sc as u32, el as u32, ec as u32);
+        self.select_symbol(&path, range, OpenSource::QuickOpen, window, cx);
     }
 }

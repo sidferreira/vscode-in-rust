@@ -2653,6 +2653,43 @@ characters and the words. `vsr-app` `suggest::e2e_tests`: typing asks after the 
 new request, leaving the word, Enter / select all / Escape, a late answer, Ctrl+Space, a trigger character,
 the space (#17400) and the word-based list from two documents.
 
+## ADR-0084 — The suggest list: focus and keys, accept as one undo step, snippets expanded, lazy resolve, caches released (2026-11-10)
+
+Step 3 of the suggest work (ADR-0080..0083 gave the model and the trigger).
+
+- **UI-free** (`vsr-suggest`): `list::ListView` (focus and top row; Down/Up wrap as upstream `focusNext(1, true)`;
+  Page Down goes to the last visible row, then a page further; 12 rows), `list::initial_focus` (`Memory.select`:
+  the first preselected item among those with the best score), `accept::plan` (the replaced range relative
+  to the cursor now: `overwriteBefore`/`overwriteAfter` as `getOverwriteInfo`; `InsertMode` insert/replace;
+  multi-line text indented to the cursor line unless `KeepWhitespace`; additional edits), `snippet::expand`
+  (grammar of `snippetParser.ts`: tab stops, placeholders, nesting, choices -> first option, variables,
+  escapes, mirrors repeat the placeholder text; transforms dropped) and `item::kind::icon` (codicon of each
+  completion kind, checked against `languages.ts` and `codiconsLibrary.ts`).
+- **Editor** (`vsr-editor::completion_ops`): `Editor::apply_completion` applies the completion and the
+  additional edits through `replace_ranges` (one undo step) and leaves the snippet's selection, which redo restores.
+- **Workbench**: keys are bound under `Editor && suggestWidgetVisible` (Up, Down, Page Up, Page Down, Enter, Tab,
+  Escape), so with no list they are the editor's. Enter and Tab accept (`acceptSelectedSuggestion`), and are not
+  seen as typing. A click on a row accepts. The widget (`suggest/widget.rs`) draws at the word being completed,
+  below the caret line or above it when there is no room: kind icon, label with matched characters
+  highlighted, label detail and description dimmed, the focused row's `detail` (resolved). It uses the colours
+  `editorSuggestWidget.*` default to (editor widget, quick input list focus, list highlight).
+- **Resolve**: focusing an item sends `ToHost::ResolveCompletion` (the worker waits at most 2 s on the host);
+  the answer is cached by the list cache id and used by accept (additional edits, detail).
+- **Release (closes ADR-0082's gap)**: the lists of an answer are held until the session ends, the item is
+  accepted, or a newer answer from the same provider replaces them (lists of providers that stayed silent are
+  kept: their items are reused by the retrigger). An answer dropped by `deliver` is released at once.
+  `ToHost::ReleaseCompletions` carries `(handle, cache id)`.
+- **Differences, on purpose.** No snippet session: after accepting there is no Tab to the next tab stop, the
+  first tab stop (placeholder selected) or `$0` takes the caret. Accept uses the resolved item only if it
+  already came back (upstream awaits it). Additional edits on lines other than the cursor line keep `char`
+  columns (the worker only gives the request line's text). No documentation panel, status bar or details
+  expansion; no `editorSuggestWidget.*` colour keys; commit characters, suggest memory and the settings are
+  step 4.
+
+**Tests.** `vsr-suggest`: 12 unit tests (list, accept, snippet mirrors). `vsr-editor` `completion_ops`: 4.
+`vsr-app` `suggest::e2e_tests`: 6 new (keys and context key, Enter as one undo step, Tab with typing on
+before accepting, snippet, release, rows with icon and matches).
+
 ## ADR-0085 — The outline model: symbols grouped by provider, ids, markers, sort and kind filter (2026-11-10)
 
 `vsr-exthost::language_features::outline` (UI-free; next to the `DocumentSymbol` DTO it consumes, as

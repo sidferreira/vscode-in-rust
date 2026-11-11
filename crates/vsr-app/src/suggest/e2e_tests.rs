@@ -214,11 +214,11 @@ fn the_list_ends_when_the_cursor_leaves_the_word(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn enter_a_selection_and_escape_end_the_session(cx: &mut TestAppContext) {
+fn a_selection_and_escape_end_the_session(cx: &mut TestAppContext) {
     let (wb, cx, proj) = workbench(cx, "cancel");
     let _ = fake(&wb, cx, &["main", "make"]);
     open(&wb, cx, &blank(&proj, "a.txt", ""));
-    for ends in ["enter", "cmd-a", "escape"] {
+    for ends in ["cmd-a", "escape"] {
         cx.simulate_keystrokes("m");
         pass(cx, 20);
         assert_eq!(state(&wb, cx), State::Auto, "before {ends}");
@@ -298,4 +298,141 @@ fn without_a_host_the_words_of_the_open_documents_are_offered(cx: &mut TestAppCo
     cx.simulate_keystrokes("l i");
     pass(cx, 20);
     assert_eq!(shown(&wb, cx), ["lib"]);
+}
+
+// ---- the list widget: keys, accept, snippets, release (ADR-0084) ------------------------------
+
+fn text(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> String {
+    wb.read_with(cx, |wb, _| wb.editors.active_editor().map(|e| e.buffer().value()).unwrap_or_default())
+}
+
+fn focused(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> usize {
+    wb.read_with(cx, |wb, _| wb.suggest.list.focused)
+}
+
+#[gpui::test]
+fn the_context_key_follows_the_list_and_arrows_move_the_focus_not_the_caret(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "keys");
+    let _ = fake(&wb, cx, &["main", "make", "mask"]);
+    open(&wb, cx, &blank(&proj, "a.txt", "x\n"));
+    cx.simulate_keystrokes("cmd-down m");
+    assert!(!wb.read_with(cx, |wb, _| wb.editor_view.suggest_visible), "not before the answer");
+    pass(cx, 20);
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.suggest.visible));
+    assert_eq!(focused(&wb, cx), 0);
+    cx.simulate_keystrokes("down");
+    assert_eq!(focused(&wb, cx), 1);
+    cx.simulate_keystrokes("up up");
+    assert_eq!(focused(&wb, cx), 2, "up wraps to the last item");
+    cx.simulate_keystrokes("down");
+    assert_eq!(focused(&wb, cx), 0, "down wraps to the first");
+    cx.simulate_keystrokes("pagedown");
+    assert_eq!(focused(&wb, cx), 2, "page down goes to the last visible row");
+    let caret = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().editor.selection().active);
+    assert_eq!((caret.line, caret.column), (2, 2), "the caret did not move");
+    cx.simulate_keystrokes("escape");
+    assert!(!wb.read_with(cx, |wb, _| wb.suggest.visible));
+    assert_eq!(text(&wb, cx), "x\nm");
+    // With the list gone the arrows move the caret again.
+    cx.simulate_keystrokes("up");
+    let caret = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().editor.selection().active);
+    assert_eq!(caret.line, 1);
+}
+
+#[gpui::test]
+fn enter_accepts_the_focused_item_as_one_undo_step(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "enter");
+    let _ = fake(&wb, cx, &["main", "make"]);
+    open(&wb, cx, &blank(&proj, "a.txt", ""));
+    cx.simulate_keystrokes("m");
+    pass(cx, 20);
+    cx.simulate_keystrokes("down enter");
+    assert_eq!(text(&wb, cx), "make", "Enter inserts the item and no line break");
+    assert!(!wb.read_with(cx, |wb, _| wb.suggest.visible));
+    let caret = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().editor.selection().active);
+    assert_eq!(caret.column, 5);
+    cx.simulate_keystrokes("cmd-z");
+    assert_eq!(text(&wb, cx), "m", "one undo returns to what was typed");
+}
+
+#[gpui::test]
+fn tab_accepts_and_typing_on_before_accepting_replaces_the_whole_word(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "tab");
+    let _ = fake(&wb, cx, &["maker", "make"]);
+    open(&wb, cx, &blank(&proj, "a.txt", ""));
+    cx.simulate_keystrokes("m");
+    pass(cx, 20);
+    cx.simulate_keystrokes("a k");
+    assert_eq!(shown(&wb, cx), ["make", "maker"]);
+    cx.simulate_keystrokes("down tab");
+    assert_eq!(text(&wb, cx), "maker", "the range follows the cursor: mak became maker");
+}
+
+#[gpui::test]
+fn a_snippet_is_expanded_with_its_first_placeholder_selected(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "snippet");
+    wb.update(cx, |wb, _| {
+        wb.suggest.fake = Some(Box::new(|_, line, column, _| {
+            let l = CompletionList::from_json(&json!({"b": [{
+                "a": "fn", "h": "fn ${1:name}(${2:args}) {\n\t$0\n}", "i": 4,
+                "j": { "startLineNumber": line, "startColumn": column - 1, "endLineNumber": line, "endColumn": column } }]}))
+            .unwrap();
+            vec![(1, l)]
+        }));
+    });
+    open(&wb, cx, &blank(&proj, "a.txt", "  "));
+    cx.simulate_keystrokes("cmd-down f");
+    pass(cx, 20);
+    cx.simulate_keystrokes("enter");
+    assert_eq!(text(&wb, cx), "  fn name(args) {\n  \t\n  }");
+    let sel = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().editor.selection());
+    assert_eq!((sel.anchor.column, sel.active.column), (6, 10), "`name` is selected");
+    cx.simulate_keystrokes("cmd-z");
+    assert_eq!(text(&wb, cx), "  f");
+}
+
+#[gpui::test]
+fn the_host_caches_are_held_for_the_session_and_released_with_it(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "release");
+    wb.update(cx, |wb, _| {
+        wb.suggest.fake = Some(Box::new(|_, line, column, _| {
+            let mut l = items_up_to(&["main"], line, column);
+            l.cache_id = Some(41);
+            vec![(7, l)]
+        }));
+    });
+    open(&wb, cx, &blank(&proj, "a.txt", ""));
+    cx.simulate_keystrokes("m");
+    pass(cx, 20);
+    assert_eq!(wb.read_with(cx, |wb, _| wb.suggest.held_lists()), [(7, 41)]);
+    cx.simulate_keystrokes("escape");
+    assert!(wb.read_with(cx, |wb, _| wb.suggest.held_lists().is_empty()), "escape releases the list");
+    cx.simulate_keystrokes("m");
+    pass(cx, 20);
+    cx.simulate_keystrokes("enter");
+    assert!(wb.read_with(cx, |wb, _| wb.suggest.held_lists().is_empty()), "accepting releases it too");
+}
+
+#[gpui::test]
+fn the_widget_rows_have_the_kind_icon_and_the_matched_characters(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "rows");
+    wb.update(cx, |wb, _| {
+        wb.suggest.fake = Some(Box::new(|_, line, column, _| {
+            let l = CompletionList::from_json(&json!({"b": [
+                {"a": {"label": "makeThing", "detail": "(x)"}, "b": 1, "j": {"startLineNumber": line, "startColumn": 1, "endLineNumber": line, "endColumn": column}},
+            ]}))
+            .unwrap();
+            vec![(1, l)]
+        }));
+    });
+    open(&wb, cx, &blank(&proj, "a.txt", ""));
+    cx.simulate_keystrokes("m");
+    pass(cx, 20);
+    cx.simulate_keystrokes("t");
+    let data = wb.update(cx, |wb, _| wb.suggest_widget_data()).expect("a list shows");
+    assert_eq!(data.rows.len(), 1);
+    let row = &data.rows[0];
+    assert_eq!((row.label.as_str(), row.icon, row.detail.as_str(), row.focused), ("makeThing", '\u{ea8c}', "(x)", true));
+    assert_eq!(row.matches, [0..1, 4..5], "m and T");
 }

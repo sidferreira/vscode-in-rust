@@ -172,8 +172,12 @@ impl EditorHost for Workbench {
         }
     }
 
-    fn editor_command(&mut self, cmd: keymap::Command, _window: &mut Window, cx: &mut Context<Self>) -> bool {
-        self.suggest_command(cmd, cx)
+    fn editor_command(&mut self, cmd: keymap::Command, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.suggest_command(cmd, window, cx)
+    }
+
+    fn suggest_accept_row(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.suggest_accept_at(index, window, cx);
     }
 
     fn editor_event(&mut self, event: editor_view::EditorEvent, _window: &mut Window, cx: &mut Context<Self>) {

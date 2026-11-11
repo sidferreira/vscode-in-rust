@@ -71,6 +71,8 @@ struct Parser<'a> {
     units: usize,
     /// `(index, start, end)` of each tab stop, in order of appearance.
     stops: Vec<(u32, usize, usize)>,
+    /// The text of each placeholder seen so far: a later `$n` or `${n}` mirrors it.
+    texts: std::collections::HashMap<u32, String>,
 }
 
 /// Expands `snippet`.
@@ -82,6 +84,7 @@ pub fn expand(snippet: &str) -> Expanded {
         out: String::new(),
         units: 0,
         stops: Vec::new(),
+        texts: std::collections::HashMap::new(),
     };
     p.seq(false);
     // The first tab stop by index (not zero), then `$0`, then the end.
@@ -186,7 +189,11 @@ impl Parser<'_> {
         match self.peek() {
             Some(c) if c.is_ascii_digit() => {
                 let n = self.number();
-                self.stops.push((n, self.units, self.units));
+                let start = self.units;
+                if let Some(text) = self.texts.get(&n).cloned() {
+                    self.push_str(&text);
+                }
+                self.stops.push((n, start, self.units));
             }
             Some('{') => {
                 self.i += 1;
@@ -194,10 +201,15 @@ impl Parser<'_> {
                     Some(c) if c.is_ascii_digit() => {
                         let n = self.number();
                         let start = self.units;
+                        let start_byte = self.out.len();
+                        let mirror = self.texts.get(&n).cloned();
                         match self.peek() {
                             Some(':') => {
                                 self.i += 1;
                                 self.seq(true);
+                            }
+                            Some('}') if mirror.is_some() => {
+                                self.push_str(&mirror.unwrap_or_default());
                             }
                             Some('|') => {
                                 self.i += 1;
@@ -228,6 +240,7 @@ impl Parser<'_> {
                             Some('/') => self.skip_transform(),
                             _ => {}
                         }
+                        self.texts.entry(n).or_insert_with(|| self.out[start_byte..].to_string());
                         self.stops.push((n, start, self.units));
                         self.close();
                     }
@@ -289,7 +302,7 @@ mod tests {
     fn nested_placeholders_choices_and_escapes() {
         assert_eq!(ex("${1:a ${2:b}}"), ("a b".into(), (0, 3)));
         assert_eq!(ex("${1|one,two,three|}"), ("one".into(), (0, 3)));
-        assert_eq!(ex("\\$1 \\} \\\\ \\n"), ("$1 } \\ \\n".into(), (10, 10)));
+        assert_eq!(ex("\\$1 \\} \\\\ \\n"), ("$1 } \\ \\n".into(), (9, 9)));
         assert_eq!(ex("${1:a\\}b}"), ("a}b".into(), (0, 3)));
     }
 
@@ -299,6 +312,11 @@ mod tests {
         assert_eq!(ex("${TM_FILENAME:none}|"), ("none|".into(), (5, 5)));
         assert_eq!(ex("$unknown|"), ("unknown|".into(), (8, 8)));
         assert_eq!(ex("${foo/(.*)/$1/}|"), ("foo|".into(), (4, 4)));
+    }
+
+    #[test]
+    fn a_mirror_repeats_the_placeholder_text() {
+        assert_eq!(ex("${1:x} = $1; ${1}"), ("x = x; x".into(), (0, 1)));
     }
 
     #[test]

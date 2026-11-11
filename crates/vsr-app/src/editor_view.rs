@@ -77,7 +77,16 @@ pub fn init(cx: &mut App) {
     find::bind(cx); // Find widget keys (ADR-0027)
     // Keys that only apply while the suggest widget shows (ADR-0083). Bound after the plain ones:
     // among bindings that match, the later one wins.
-    cx.bind_keys([KeyBinding::new("escape", Run(Command::HideSuggest), Some("Editor && suggestWidgetVisible"))]);
+    let ctx = Some("Editor && suggestWidgetVisible");
+    cx.bind_keys([
+        KeyBinding::new("escape", Run(Command::HideSuggest), ctx),
+        KeyBinding::new("down", Run(Command::SuggestNext), ctx),
+        KeyBinding::new("up", Run(Command::SuggestPrevious), ctx),
+        KeyBinding::new("pagedown", Run(Command::SuggestNextPage), ctx),
+        KeyBinding::new("pageup", Run(Command::SuggestPreviousPage), ctx),
+        KeyBinding::new("enter", Run(Command::AcceptSuggest), ctx),
+        KeyBinding::new("tab", Run(Command::AcceptSuggest), ctx),
+    ]);
 }
 
 /// What happened in the active editor, for features that follow the cursor (completion suggestions,
@@ -120,6 +129,9 @@ pub trait EditorHost: Sized + 'static {
 
     /// Something happened in the active editor (see [`EditorEvent`]). The default ignores it.
     fn editor_event(&mut self, _event: EditorEvent, _window: &mut Window, _cx: &mut Context<Self>) {}
+
+    /// A row of the suggest list was clicked (ADR-0084).
+    fn suggest_accept_row(&mut self, _index: usize, _window: &mut Window, _cx: &mut Context<Self>) {}
 }
 
 #[derive(Default)]
@@ -164,6 +176,8 @@ pub struct EditorView {
     /// The suggest widget shows: the editor's key context gains `suggestWidgetVisible` (ADR-0083),
     /// set by the workbench before each build.
     pub suggest_visible: bool,
+    /// What the suggest list draws, set by the workbench before each build (ADR-0084).
+    pub suggest_widget: Option<Rc<crate::suggest::widget::WidgetData>>,
     /// What extensions decorate and flag in the active document (ADR-0067), set by the workbench.
     pub ext_paint: Option<Rc<crate::extensions::paint::PathPaint>>,
     /// Tests: the viewport width in columns, instead of measuring the painted size.
@@ -257,6 +271,36 @@ impl EditorView {
         if let Some(target) = decorations::scroll_top_with_margin(top, self.rows_per_page(), row, margin, margin.max(1)) {
             scroll.scroll_to_item_strict(target, ScrollStrategy::Top);
         }
+    }
+
+    /// Where the suggest list goes: `(x, top of the caret line, bottom of it)` within the editor surface,
+    /// for `column` (1-based UTF-16) on the caret line.
+    pub(crate) fn text_anchor(&self, e: &OpenEditor, column: usize) -> (f32, f32, f32) {
+        let buf = e.buffer();
+        let line = e.editor.selection().active.line;
+        let tab = e.editor.options().tab_size;
+        let pos = Position::new(line, column.max(1));
+        let (row, text, col) = match e.editor.view_lines() {
+            Some(v) => {
+                let (vline, vcol) = v.view_position_of(pos, vsr_editor::wrap::PositionAffinity::None);
+                (vline, v.view_line_content(buf, vline), vcol)
+            }
+            None => (line - 1, buf.line_content(line).to_string(), pos.column),
+        };
+        let (ox, oy) = self.scrolls.get(&e.path).map_or((0.0, 0.0), |s| {
+            let o = s.0.borrow().base_handle.offset();
+            (f32::from(o.x), f32::from(o.y))
+        });
+        let x = self.gutter + (visual_column(&text, tab, col) - 1) as f32 * self.char_width() + ox;
+        let top = row as f32 * self.cfg.line_height + oy;
+        (x, top, top + self.cfg.line_height)
+    }
+
+    /// The text of `e` changed outside the key commands (accepting a completion): the caret shows and the
+    /// platform input is told.
+    pub(crate) fn edited(&mut self, e: &OpenEditor, window: &mut Window) {
+        self.marked = None;
+        self.after_change(e, true, false, window);
     }
 
     /// One character's advance: as shaped at the last paint, else estimated from the font size.
@@ -376,6 +420,15 @@ impl EditorView {
             ),
             border: cfg.overview_ruler_border.then_some(theme.overview_border),
         };
+        let suggest_overlay = self.suggest_widget.clone().map(|data| {
+            let (x, top, bottom) = self.text_anchor(editor, data.anchor_column);
+            let height = data.rows.len() as f32 * crate::suggest::widget::ROW_HEIGHT + 2.0;
+            let view_h = f32::from(self.bounds.get().size.height);
+            let below = bottom + height <= view_h || top < height;
+            let y = if below { bottom } else { top - height };
+            let left = (x - crate::suggest::widget::ICON_ROOM).max(0.0);
+            crate::suggest::widget::element(data, &theme, &cfg.font_family, cfg.font_size, left, y, cx)
+        });
         let list = uniform_list(
             id,
             rows_total,
@@ -482,7 +535,8 @@ impl EditorView {
             )
             .child(list)
             .child(input_surface)
-            .children(sticky);
+            .children(sticky)
+            .children(suggest_overlay);
         // The editor and the Find widget side by side, so the find keys work from both.
         find::register_actions(
             div()
@@ -616,7 +670,12 @@ fn command_event<T: EditorHost>(this: &mut T, cmd: Command) -> Option<EditorEven
         | Command::ToggleWordWrap
         | Command::Fold(_)
         | Command::TriggerSuggest
-        | Command::HideSuggest => None,
+        | Command::HideSuggest
+        | Command::SuggestNext
+        | Command::SuggestPrevious
+        | Command::SuggestNextPage
+        | Command::SuggestPreviousPage
+        | Command::AcceptSuggest => None,
         Command::Backspace => Some(EditorEvent::DeleteLeft),
         Command::Enter => Some(EditorEvent::Typed("\n".into())),
         Command::Tab => Some(EditorEvent::Typed("\t".into())),

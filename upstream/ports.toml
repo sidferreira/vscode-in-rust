@@ -1068,3 +1068,14 @@ rust = [
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "The outline model (ADR-0085): groups per provider, ids, compaction, enclosing symbol, markers (outlineModel.ts), kind filter and sort (documentSymbolsTree.ts), and a per-document OutlineService. The two service tests in outlineModel.test.ts run against OutlineService with a fake provider. Not ported: the async OutlineModel.create retry on provider change, the adaptive debounce, and the Intl.Collator (natural_cmp approximates it)."
+
+[[port]]
+id = "suggest-accept"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/suggest/browser/suggestController.ts",
+  "src/vs/editor/contrib/suggest/browser/suggestWidget.ts",
+]
+rust = ["crates/vsr-editor/src/completion_ops.rs", "crates/vsr-editor/tests/completion_ops.rs", "crates/vsr-suggest/src/accept.rs", "crates/vsr-suggest/src/list.rs", "crates/vsr-app/src/suggest/accept.rs", "crates/vsr-app/src/suggest/widget.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "Accepting a completion as one undo step (overwrite range relative to the cursor, snippet expanded, additional edits), list focus and paging, resolve and release. No snippet session, documentation panel, status bar, memory or commit characters yet (ADR-0084)."

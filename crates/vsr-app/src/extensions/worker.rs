@@ -20,7 +20,7 @@ use vsr_exthost::configuration::ConfigUpdate;
 use vsr_exthost::description::ExtensionDescription;
 use vsr_exthost::discovery::{self, ContributedCommand};
 use vsr_exthost::host::{BootParams, ExtensionHost};
-use vsr_exthost::language_features::dto::{CompletionList, DocumentSymbol, Position};
+use vsr_exthost::language_features::dto::{CompletionItem, CompletionList, DocumentSymbol, Position};
 use vsr_exthost::language_features::main_thread::Kind;
 use vsr_exthost::language_features::outline::ProviderSymbols;
 use vsr_exthost::language_features::query::{CompletionTrigger, Query};
@@ -29,6 +29,8 @@ use vsr_suggest::adapter::{char_to_utf16_column, line_text, list_to_chars};
 
 /// How long one call into the host may take before the worker gives up on it.
 const CALL: Duration = Duration::from_secs(30);
+/// A provider's `resolveCompletionItem` is asked while the user waits at a row: it gets little time.
+const RESOLVE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// What to start: a Code-OSS build and Node, the extension folders and where the host keeps its
 /// files.
@@ -60,6 +62,11 @@ pub enum ToHost {
     /// Completions at a 1-based position of an open document (ADR-0082). `column` counts `char`s,
     /// as the editor does. A newer request replaces the one in flight.
     Complete { id: u64, path: PathBuf, line: u32, column: u32, trigger: CompletionTrigger },
+    /// `resolveCompletionItem` for the focused item of the list (ADR-0084). The item's columns are
+    /// UTF-16, as the host counts them.
+    ResolveCompletion { id: u64, handle: u32, item: Box<CompletionItem> },
+    /// The lists the UI is done with: `(provider handle, list cache id)` (`$releaseCompletionItems`).
+    ReleaseCompletions(Vec<(u32, u64)>),
     Shutdown,
 }
 
@@ -80,6 +87,8 @@ pub enum FromHost {
     /// are in `char`s (converted here, where the document's text is); the lists stay cached in the
     /// host until released (ADR-0082).
     Completions { id: u64, path: PathBuf, line: u32, column: u32, results: Vec<(u32, CompletionList)> },
+    /// The provider's answer to `ResolveCompletion` `id` (the item as sent when it could not resolve).
+    CompletionResolved { id: u64, item: Box<CompletionItem> },
     /// Something went wrong that is worth showing (a command that failed, a call that timed out).
     Problem(String),
     /// The host process is gone.
@@ -428,6 +437,21 @@ fn handle(host: &mut ExtensionHost, index: &EventIndex, fired: &mut HashSet<Stri
                 let _ = out.unbounded_send(FromHost::Problem(format!("{id}: {e}")));
             }
             problem(&id, host.execute_contributed_command(&id, args, CALL).map(|_| ()));
+        }
+        ToHost::ResolveCompletion { id, handle, item } => {
+            let resolved = match host.resolve_completion_item(handle, &item, RESOLVE_TIMEOUT) {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = out.unbounded_send(FromHost::Problem(format!("resolve completion: {e}")));
+                    *item
+                }
+            };
+            let _ = out.unbounded_send(FromHost::CompletionResolved { id, item: Box::new(resolved) });
+        }
+        ToHost::ReleaseCompletions(lists) => {
+            for (handle, cache) in lists {
+                host.release(Kind::Completion, handle, cache);
+            }
         }
         ToHost::Symbols { .. } | ToHost::Complete { .. } | ToHost::Shutdown => {}
     }

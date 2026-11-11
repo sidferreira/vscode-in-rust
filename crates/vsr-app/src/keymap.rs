@@ -59,6 +59,13 @@ pub enum Command {
     TriggerSuggest,
     /// Escape while the suggest widget shows (`hideSuggestWidget`).
     HideSuggest,
+    /// While the suggest widget shows: Down, Up, Page Down, Page Up (`selectNextSuggestion`, ...).
+    SuggestNext,
+    SuggestPrevious,
+    SuggestNextPage,
+    SuggestPreviousPage,
+    /// Enter and Tab while the widget shows (`acceptSelectedSuggestion`).
+    AcceptSuggest,
 }
 
 use Command::*;
@@ -193,7 +200,7 @@ pub fn apply(editor: &mut Editor, cmd: Command, page: usize) -> bool {
         Fold(action) => {
             editor.fold_action(action);
         }
-        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest => {
+        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest | SuggestNext | SuggestPrevious | SuggestNextPage | SuggestPreviousPage | AcceptSuggest => {
             return false;
         }
     }

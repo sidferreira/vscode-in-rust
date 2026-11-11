@@ -4,10 +4,13 @@
 //! (the completion model). Nothing here knows about gpui or the workbench; `adapter` reads the extension
 //! host's completion DTOs (ADR-0082).
 
+pub mod accept;
 pub mod adapter;
 pub mod filters;
 pub mod item;
+pub mod list;
 pub mod model;
+pub mod snippet;
 pub mod sort;
 pub mod trigger;
 pub mod words;

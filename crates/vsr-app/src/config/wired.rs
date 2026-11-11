@@ -328,6 +328,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "workbench.editor.limit.value",
             "workbench.editor.limit.excludeDirty",
             "workbench.editor.highlightModifiedTabs",
+            "workbench.editor.showTabIndex",
             "workbench.editor.labelFormat",
             "workbench.editor.untitled.labelFormat",
             "workbench.editor.scrollToSwitchTabs",

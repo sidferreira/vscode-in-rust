@@ -862,6 +862,8 @@ pub struct EditorGroupSettings {
     pub limit_value: usize,
     pub limit_exclude_dirty: bool,
     pub highlight_modified_tabs: bool,
+    /// `workbench.editor.showTabIndex`: a 1-based number before each tab title.
+    pub show_tab_index: bool,
     pub label_format: LabelFormat,
     /// `workbench.editor.untitled.labelFormat`: the tab title of an untitled text (ADR-0059).
     pub untitled_label_format: vsr_editor::untitled::LabelFormat,
@@ -883,12 +885,19 @@ impl Default for EditorGroupSettings {
             limit_value: 10,
             limit_exclude_dirty: false,
             highlight_modified_tabs: false,
+            show_tab_index: false,
             label_format: LabelFormat::Default,
             untitled_label_format: vsr_editor::untitled::LabelFormat::Content,
             scroll_to_switch_tabs: false,
             empty_hint: true,
         }
     }
+}
+
+/// The number `workbench.editor.showTabIndex` shows before the tab at `index` (0-based), if any.
+/// Upstream ignores the setting unless `workbench.editor.showTabs` is `multiple`.
+pub fn tab_index_badge(show_index: bool, show_tabs: ShowTabs, index: usize) -> Option<usize> {
+    (show_index && show_tabs == ShowTabs::Multiple).then_some(index + 1)
 }
 
 impl EditorGroupSettings {
@@ -913,6 +922,7 @@ impl EditorGroupSettings {
             highlight_modified_tabs: c
                 .get_bool("workbench.editor.highlightModifiedTabs")
                 .unwrap_or(d.highlight_modified_tabs),
+            show_tab_index: c.get_bool("workbench.editor.showTabIndex").unwrap_or(d.show_tab_index),
             label_format: c.get_enum("workbench.editor.labelFormat").unwrap_or(d.label_format),
             untitled_label_format: c
                 .get_str("workbench.editor.untitled.labelFormat")
@@ -999,6 +1009,17 @@ mod tests {
 
     fn config(user: &str) -> Configuration {
         Configuration::new(&SettingsRegistry::load_default(), UserSettings::parse(user).unwrap())
+    }
+
+    #[test]
+    fn tab_index_badge_follows_the_setting_and_show_tabs() {
+        assert_eq!(tab_index_badge(true, ShowTabs::Multiple, 0), Some(1));
+        assert_eq!(tab_index_badge(true, ShowTabs::Multiple, 2), Some(3));
+        assert_eq!(tab_index_badge(false, ShowTabs::Multiple, 0), None, "off by default");
+        assert_eq!(tab_index_badge(true, ShowTabs::Single, 0), None, "ignored unless showTabs is multiple");
+        assert_eq!(tab_index_badge(true, ShowTabs::None, 0), None);
+        assert!(!EditorGroupSettings::from_configuration(&config("")).show_tab_index);
+        assert!(EditorGroupSettings::from_configuration(&config(r#"{"workbench.editor.showTabIndex": true}"#)).show_tab_index);
     }
 
     #[test]

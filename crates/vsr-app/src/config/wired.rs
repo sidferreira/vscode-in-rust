@@ -32,6 +32,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Welcome", &["workbench.startupEditor"]),
+    ("Application", &["application.shellEnvironmentResolutionTimeout"]),
     (
         "Session",
         &["window.restoreWindows", "workbench.editor.restoreEditors", "workbench.editor.restoreViewState", "files.hotExit"],

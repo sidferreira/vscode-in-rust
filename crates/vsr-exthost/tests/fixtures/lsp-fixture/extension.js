@@ -150,6 +150,13 @@ exports.activate = function (ctx) {
 		};
 	}));
 
+	// Spawns a tool by its bare name, the way a language server started from `command` does; the
+	// answer is its stdout, or `missing` when the host's PATH does not have it (ADR-0100).
+	ctx.subscriptions.push(vscode.commands.registerCommand('lsp-fixture.probe', () => {
+		const r = require('child_process').spawnSync('rscode-probe', [], { encoding: 'utf8' });
+		return r.error ? 'missing' : r.stdout.trim();
+	}));
+
 	ctx.subscriptions.push({ dispose: () => client.stop() });
 };
 

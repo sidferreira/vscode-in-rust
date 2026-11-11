@@ -20,16 +20,16 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 
 | source | count | attributed to a node |
 |---|---|---|
-| settings: wired | 244 | n/a (done) |
+| settings: wired | 245 | n/a (done) |
 | settings: blocked | 283 | 283 of 283 (by reason) |
 | settings: exthost | 426 | 426 of 426 (by built-in extension) |
-| settings: todo | 559 | 335 of 559 matched by a node's todo_globs |
+| settings: todo | 558 | 335 of 558 matched by a node's todo_globs |
 | settings: n/a | 550 | not dependency-blocked (policy: product, Windows, deprecated) |
 | smoke scenarios: ready | 73 | not blocked |
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 85 | every ADR cited by a node exists (latest ADR-0094) |
+| ADR headings in DECISIONS.md | 86 | every ADR cited by a node exists (latest ADR-0100) |
 | upstream/ports.toml entries | 57 | not nodes (file ports, not features): partial 54, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.
@@ -66,7 +66,7 @@ flowchart LR
   n_overview_ruler_glyph_margin["Overview ruler (decoration lane beside the vertical scrollbar) (done)"]:::done
   n_glyph_margin["Glyph margin (breakpoints and lightbulb lane) (todo)"]:::todo
   n_sash_grippers["Sash grippers (the drawn handle on a sash) (done)"]:::done
-  n_child_process_main["Shell environment for the extension host (PATH for spawned servers) (todo)"]:::todo
+  n_child_process_main["Shell environment for the extension host (PATH for spawned servers) (done)"]:::done
   n_workspace_fs_api["workspace.fs and file system provider API (ext host) (done)"]:::done
   n_text_decorations["TextEditorDecorationType (after and before text, gutter) (done)"]:::done
   n_diagnostics_model["Diagnostics store (problems reported by language features) (done)"]:::done
@@ -306,7 +306,7 @@ flowchart LR
 | 11 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
 | 12 | accessibility-tree | Accessibility tree from gpui (screen readers) | L (guess) | 4 (+0) | 0 (+0) | 4 (+0) | 0 (+0) | - |
 
-Top 12 of 80 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
+Top 12 of 79 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
 
 ### Waiting on in-progress work
 
@@ -326,7 +326,7 @@ None.
 | builtin-lsp-css-html-json | Built-in CSS, HTML and JSON language features | todo | extension | M (guess) | lsp-client | 130 (+0) | 130 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | cargo-proxy-token | Cargo proxy token in the agent shell | blocked-external | feature | - | - | 0 (+0) | 55 (+0) | 13 (+131) | 0 | 7 (+56) | 1 (+4) |
 | chat-agents | AI chat, agents, copilot and AI search | blocked-external | feature | - | - | 3 (+0) | 3 (+0) | 0 (+0) | 22 | 22 (+0) | 0 (+1) |
-| child-process-main | Shell environment for the extension host (PATH for spawned servers) | todo | feature | S (guess) | ext-host-p1 | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| child-process-main | Shell environment for the extension host (PATH for spawned servers) | done | feature | S (guess) | ext-host-p1 | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | code-folding | Code folding and sticky scroll (ADR-0042) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | color-decorators | Colour decorators (document colour provider) | todo | feature | S (guess) | lang-providers-main | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | command-palette-suggestions | Suggested commands in the Command Palette | todo | feature | S (guess) | command-registry | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -467,9 +467,9 @@ None.
 
 - Cycles in the needs graph: none.
 - Orphan nodes (not done, no edges, nothing attributed): none.
-- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, settings-editor.
+- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, child-process-main, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, settings-editor.
 - Blocked settings with no node: 0. Exthost settings with no node: 0. Blocked smoke rows that name a feature with no node: 0.
-- Todo settings matched by no node's `todo_globs`: 224. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
+- Todo settings matched by no node's `todo_globs`: 223. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
 - DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is "needs sash grippers (the drawn handle in the middle of a sash)" has a second `comment` and `match` pair after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show settings (29) therefore land on the sash reason. They need document symbols. The graph maps that reason to `document-symbols` with a note.
 - Known gap in `scripts/progress-report`: it reads only the first status table of each scenario file. `search.md` has a second table (rows 8-11), so its scenario total is 170, not 174.
 

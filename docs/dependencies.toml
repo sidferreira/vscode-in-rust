@@ -225,11 +225,11 @@ note = "Done (ADR-0056): the sidebar sash grip; autoHideGrippers and autoHideGri
 [[node]]
 id = "child-process-main"
 title = "Shell environment for the extension host (PATH for spawned servers)"
-status = "todo"
+status = "done"
 effort = "S"
 effort_source = "guess"
 needs = ["ext-host-p1"]
-note = "ADR-0078: extensions spawn their language servers themselves inside the Node ext host, so no main-side spawning is needed for LSP over stdio. What remains is passing the user's shell environment (upstream getShellEnv) so a Finder-launched rscode resolves java, node and the like. Not a prerequisite of the LSP extensions themselves (they work from a terminal-launched rscode)."
+note = "ADR-0078: extensions spawn their language servers themselves inside the Node ext host, so no main-side spawning is needed for LSP over stdio. Done in ADR-0100: the login shell's environment (upstream getShellEnv) is resolved on the worker thread and given to the host, so a Finder-launched rscode resolves bare-name servers. The pty/terminal part stays with the terminal node."
 
 [[node]]
 id = "workspace-fs-api"

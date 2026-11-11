@@ -29,6 +29,7 @@ pub mod file_system;
 pub mod file_watcher;
 pub mod host;
 pub mod language_features;
+pub mod shell_env;
 pub mod main_thread;
 pub mod status_bar;
 pub mod workspace_search;

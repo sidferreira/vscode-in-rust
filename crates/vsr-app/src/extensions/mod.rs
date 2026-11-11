@@ -19,6 +19,7 @@ pub(crate) mod e2e;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use gpui_kit::*;
@@ -114,6 +115,12 @@ pub fn config_for(launch: Result<Launch, String>, workspace: &Path, cx: &App) ->
     Some(config(launch, roots, user_data_dir().join("ExtensionHost"), workspace, cx))
 }
 
+/// `application.shellEnvironmentResolutionTimeout` in seconds, clamped to 1..=120 like upstream.
+fn shell_env_timeout(configuration: &vsr_settings::Configuration) -> Duration {
+    let seconds = configuration.get_f64("application.shellEnvironmentResolutionTimeout").unwrap_or(10.0);
+    Duration::from_secs_f64(seconds.clamp(1.0, 120.0))
+}
+
 pub fn config(launch: Launch, roots: Vec<PathBuf>, storage_root: PathBuf, workspace: &Path, cx: &App) -> Config {
     let app = AppConfig::get(cx);
     Config {
@@ -122,6 +129,7 @@ pub fn config(launch: Launch, roots: Vec<PathBuf>, storage_root: PathBuf, worksp
         storage_root,
         workspace: workspace.to_path_buf(),
         settings: vsr_exthost::configuration::layers(&app.registry(), app.configuration()),
+        shell_env: Some(shell_env_timeout(app.configuration())),
         env: Vec::new(),
     }
 }
@@ -435,5 +443,30 @@ impl Workbench {
             );
         }
         el.into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod shell_env_timeout_tests {
+    //! upstream: src/vs/platform/shell/node/shellEnv.ts @ 50e1350fc78d (the timeout setting, ADR-0100)
+    use super::shell_env_timeout;
+    use std::time::Duration;
+    use vsr_settings::{Configuration, SettingsRegistry, UserSettings};
+
+    fn timeout(user: &str) -> Duration {
+        let c = Configuration::new(&SettingsRegistry::load_default(), UserSettings::parse(user).unwrap());
+        shell_env_timeout(&c)
+    }
+
+    #[test]
+    fn the_default_is_ten_seconds() {
+        assert_eq!(timeout(""), Duration::from_secs(10));
+    }
+
+    #[test]
+    fn the_setting_sets_the_timeout_and_is_clamped_to_one_to_120_seconds() {
+        assert_eq!(timeout(r#"{ "application.shellEnvironmentResolutionTimeout": 30 }"#), Duration::from_secs(30));
+        assert_eq!(timeout(r#"{ "application.shellEnvironmentResolutionTimeout": 0.2 }"#), Duration::from_secs(1));
+        assert_eq!(timeout(r#"{ "application.shellEnvironmentResolutionTimeout": 500 }"#), Duration::from_secs(120));
     }
 }

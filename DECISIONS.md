@@ -3040,3 +3040,13 @@ not reach `MainThreadDiagnostics` (the store is empty after 15 s), so the end-to
 whether the client sent `didOpen` to the server and whether the server's `initialize` completed. The
 server's stderr and the client's output channel are the place to look (`MainThreadOutputService` is
 still a stub). `lsp-client` stays `todo` in docs/dependencies.toml until that passes.
+
+What the probe ruled out (2026-11-10, 18:07): (a) the client is started and answers requests: a
+completion request on the open document returns a provider result with no errors, so the
+`initialize` handshake completed; (b) the defaults: `default_settings` is `{}`, but the extension's
+own manifest defaults are merged in (`host.rs`), so `json.validate.enable` is on; (c) document sync
+at startup: a second `.json` file opened after activation also gets no markers; (d) the server trace
+(`json.trace.server: verbose`) wrote nothing to the console or to an unhandled output channel. So the
+server may publish diagnostics that the host never receives, or the server never validates. The
+next check is the server's own `publishDiagnostics` on the wire (a tap on the host's stdio),
+not more main-thread shapes.

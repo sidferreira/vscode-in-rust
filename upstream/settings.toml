@@ -890,3 +890,100 @@ status = "blocked"
 reason = "needs the horizontal bar's height in the scroll height (rscode's list measures whole rows)"
 comment = "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight decides whether the horizontal bar's height adds to the scroll height (viewLayout.ts getScrollHeight). rscode's editor is a uniform list of rows, so the bar's height would need a spacer row. The other five editor.scrollbar.* settings are wired (ADR-0054)."
 match = ["editor.scrollbar.ignoreHorizontalScrollbarInContentHeight"]
+
+# ---------------------------------------------------------------------------------------------
+# Settings P2 (batch 1): blocked and n/a rules for the todo groups whose feature rscode does not
+# have yet. Each reason names the feature; the dependency tree (docs/dependencies.toml) holds the
+# matching node where one exists. Appended at the end: earlier rules keep precedence.
+# ---------------------------------------------------------------------------------------------
+
+[[rule]]
+status = "blocked"
+reason = "needs notebook editors and notebook search"
+comment = "notebook.* settings configure the notebook editor (dependency tree: notebook-editor)."
+source = ["core"]
+match = ["notebook*"]
+
+[[rule]]
+status = "n/a"
+reason = "macOS Touch Bar (rscode has no Touch Bar controls)"
+comment = "keyboard.touchbar.* controls the macOS Touch Bar buttons. rscode does not put buttons on the Touch Bar, and the hardware is being retired."
+source = ["core"]
+match = ["keyboard.touchbar*"]
+
+[[rule]]
+status = "n/a"
+reason = "Electron renderer profiling (rscode renders with gpui)"
+comment = "application.experimental.rendererProfiling profiles slow Electron renderers. rscode has no renderer process."
+source = ["core"]
+match = ["application.experimental.rendererProfiling"]
+
+[[rule]]
+status = "n/a"
+reason = "AI search (the Settings editor's AI search)"
+comment = "AI search and natural language settings search are product services."
+source = ["core"]
+match = ["workbench.settings.showAISearchToggle", "workbench.settings.enableNaturalLanguageSearch"]
+
+[[rule]]
+status = "blocked"
+reason = "needs language features (peek, rename, code actions and linked editing through the extension host)"
+comment = "editor.codeActionsOnSave runs code actions on save. rscode has no code action providers yet (dependency tree: refactor-code-actions)."
+source = ["core"]
+match = ["editor.codeActionsOnSave"]
+
+[[rule]]
+status = "blocked"
+reason = "needs color decorators in the editor (document color provider)"
+comment = "editor.colorDecorators* draw colour swatches and the colour picker. They come from document colour providers (dependency tree: color-decorators)."
+source = ["core"]
+match = ["editor.colorDecorators*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs formatting providers from the extension host"
+comment = "editor.pasteAs.* chooses how pasted content is edited, from paste edit providers (dependency tree: formatting-providers)."
+source = ["core"]
+match = ["editor.pasteAs*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs semantic highlighting (semantic token providers via the extension host)"
+comment = "editor.showUnused and editor.showDeprecated fade unused code and strike through deprecated names, from the tags that language features report (dependency tree: semantic-highlighting)."
+source = ["core"]
+match = ["editor.showUnused", "editor.showDeprecated"]
+
+[[rule]]
+status = "blocked"
+reason = "needs editor splits and editor groups (one group in rscode)"
+comment = "workbench.editor.split* settings control splitting the editor into groups (dependency tree: editor-groups)."
+source = ["core"]
+match = ["workbench.editor.split*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs tab strip presentation (scrollbars, wrapping, pinned tabs, actions)"
+comment = "workbench.editor.tabSizing*, tabAction* control the sizing and the action buttons of the editor tabs (dependency tree: tab-strip-presentation)."
+source = ["core"]
+match = ["workbench.editor.tabSizing*", "workbench.editor.tabAction*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs link detection and Cmd+click (the link provider and opener)"
+comment = "accessibility.underlineLinks underlines the links in the workbench. rscode does not detect links in the workbench yet."
+source = ["core"]
+match = ["accessibility.underlineLinks"]
+
+[[rule]]
+status = "n/a"
+reason = "AI chat, agents and copilot (product)"
+comment = "accessibility.chat*, openChatEditedFiles and verboseChatProgressUpdates describe the chat and agents, which rscode does not have."
+source = ["core"]
+match = ["accessibility.chat*", "accessibility.openChatEditedFiles", "accessibility.verboseChatProgressUpdates"]
+
+[[rule]]
+status = "blocked"
+reason = "needs binary, custom and large-file editors"
+comment = "imageCarousel.* and mediaPreview.* configure the image and media previews, which are custom editors for binary files."
+source = ["core"]
+match = ["imageCarousel*", "mediaPreview*"]

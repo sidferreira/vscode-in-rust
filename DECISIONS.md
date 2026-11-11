@@ -2998,3 +2998,45 @@ Evidence:
 Consequences: `child-process-main` is done in `docs/dependencies.toml`. The terminal (pty) part stays
 with the terminal node, not with LSP. A real language server (oxc, lemminx) is still unverified, which
 is the remaining `lsp-client` gap; `lsp-client` stays open in `docs/dependencies.toml`.
+
+## ADR-0101 — Built-in language features (json, css, html) in the Code-OSS host build: pinned deps and bundles, and a json probe in the real host (2026-11-10)
+
+Context: `lsp-client` (docs/dependencies.toml) needs the built-in JSON, CSS and HTML language features
+running in the real host. The shared build (`codeoss-exthost`) had their sources only: no installed
+dependencies and no compiled `client/out` or `server/out`, because `build-codeoss-exthost` runs
+`pnpm --ignore-scripts` at the root and upstream's extension workspace is installed by its own
+postinstall, which never ran.
+
+Decision:
+
+- `scripts/build-codeoss-exthost --language-features json,css,html` (any subset) adds the step. It
+  installs with `pnpm install --frozen-lockfile --ignore-scripts` in `extensions/`, filtered to the
+  selected packages and their `server/` packages and the extensions root (for esbuild), so only the
+  versions Code-OSS's `extensions/pnpm-lock.yaml` pins are installed. Then each extension's own
+  `esbuild.mts` bundles client and server, and `dist/node` is mirrored into `out/node`, the layout its
+  manifest `main` names (the client chooses `dist` only when `main` contains `/dist/`).
+  `--plan` prints the steps and exits, so the argument handling is unit-tested without a network.
+  Unknown names are refused with exit 2. The script still refuses a non-empty destination.
+- For the json extension the packages are the lockfile's pins: `vscode-languageclient` 10.1.1,
+  `vscode-languageserver` 10.1.1, `vscode-json-languageservice` 6.0.0-next.4, `request-light` 0.8.0,
+  `@vscode/extension-telemetry` 0.9.9, `@vscode/l10n` 0.0.18 (plus the extensions root's
+  `esbuild` 0.28.1 and `typescript` 6.0.3). Nothing outside the lockfile was added.
+- The `onLanguage:<id>` activation on document open was already wired (`vsr-app` worker `fire` on
+  the language event). Nothing to add.
+
+Measured (headless, `crates/vsr-exthost/tests/json_real_host.rs`, Node 24.22.1): json-language-features
+boots, activates on `onLanguage:json` with no activation error, registers 10 language providers, and
+its server is spawned (`server/out/node/jsonServerMain` as a child process). Unhandled main-thread
+methods seen on the way in: `MainThreadWindow.$getInitialState`, `MainThreadTerminalService.$registerProcessSupport`,
+`MainThreadSearch.$registerTextSearchProvider`, `MainThreadTask.$registerSupportedExecutions` and
+`$registerTaskSystem`, `MainThreadChatSkills.$getTools`, `MainThreadDebugService.$registerDebugTypes`,
+`MainThreadTelemetry.$publicLog2`, `MainThreadStorage.$initializeExtensionStorage`,
+`MainThreadLogger.$registerLogger`. The spdlog native binding is missing (ADR-0060): the host logs it and
+carries on.
+
+Not done (the open gap, recorded here rather than guessed): diagnostics for a JSON syntax error do
+not reach `MainThreadDiagnostics` (the store is empty after 15 s), so the end-to-end check
+(diagnostics, then completion with a schema) is not yet green. The next step is to find out
+whether the client sent `didOpen` to the server and whether the server's `initialize` completed. The
+server's stderr and the client's output channel are the place to look (`MainThreadOutputService` is
+still a stub). `lsp-client` stays `todo` in docs/dependencies.toml until that passes.

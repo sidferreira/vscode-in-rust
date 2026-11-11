@@ -16,14 +16,61 @@
 #      `@github/copilot-sdk` is dropped from the root package.json: only the Copilot agent code and
 #      tests import it, not the extension host, and the proxy answered 403 for that version.
 #   4. `node build/next/index.ts transpile` (esbuild, about 15 s) -> DEST/out.
+#   5. Only with --language-features json,css,html (any subset): install those extensions' deps
+#      from extensions/pnpm-lock.yaml with `pnpm install --frozen-lockfile --ignore-scripts`
+#      (filtered to those packages, plus the extensions root for esbuild), then bundle each one
+#      with its own extensions/<name>/esbuild.mts and mirror dist/node into out/node (the layout
+#      the manifests' `main` names). Versions are exactly the lockfile's pins.
+#      Additive: writes only extensions/node_modules and extensions/<name>/{client,server}/{dist,out}.
+#
+#   scripts/build-codeoss-exthost [--language-features json,css,html] [--plan] [DEST]
+#     --plan   print the steps for these arguments and exit 0 (no network, no disk writes).
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 clone="${UPSTREAM_CLONE:-$here/../vscode-original}"
 pinned="$(sed -n 's/^pinned *= *"\([0-9a-f]*\)".*/\1/p' "$here/upstream/ports.toml" | head -1)"
-dest="${1:-$(mktemp -d "${TMPDIR:-/tmp}/codeoss-exthost.XXXXXX")}"
+
+features=""
+plan_only=0
+dest=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --language-features)
+      [ $# -ge 2 ] || { echo "build-codeoss-exthost: --language-features needs a value (json,css,html)" >&2; exit 2; }
+      features="$2"; shift 2 ;;
+    --language-features=*) features="${1#*=}"; shift ;;
+    --plan) plan_only=1; shift ;;
+    -*) echo "build-codeoss-exthost: unknown option $1" >&2; exit 2 ;;
+    *) dest="$1"; shift ;;
+  esac
+done
+
+# Language features we know how to build: name -> extensions/ folder.
+known_features="json css html"
+selected=""
+if [ -n "$features" ]; then
+  for f in $(echo "$features" | tr ',' ' '); do
+    case " $known_features " in
+      *" $f "*) selected="$selected $f" ;;
+      *) echo "build-codeoss-exthost: unknown language feature '$f' (known: $known_features)" >&2; exit 2 ;;
+    esac
+  done
+fi
+
+dest="${dest:-$(mktemp -d "${TMPDIR:-/tmp}/codeoss-exthost.XXXXXX")}"
 if [ -e "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then
   echo "build-codeoss-exthost: $dest exists and is not empty" >&2; exit 1
 fi
+
+if [ "$plan_only" = 1 ]; then
+  echo "plan: sources -> $dest (pinned $pinned)"
+  echo "plan: transpile -> $dest/out"
+  for f in $selected; do
+    echo "plan: language-features $f -> ./$f-language-features (pnpm install --frozen-lockfile --ignore-scripts; esbuild)"
+  done
+  exit 0
+fi
+
 mkdir -p "$dest"
 tools="$(mktemp -d "${TMPDIR:-/tmp}/codeoss-tools.XXXXXX")"
 echo "sources -> $dest   pnpm -> $tools"
@@ -35,6 +82,21 @@ sed -i.bak '/"@github\/copilot-sdk"/d' package.json
 "$pnpm" install --ignore-scripts --no-frozen-lockfile
 (cd build && "$pnpm" install --ignore-scripts --ignore-workspace)
 node build/next/index.ts transpile
+
+if [ -n "$selected" ]; then
+  filters=""
+  for f in $selected; do
+    filters="$filters --filter ./$f-language-features --filter ./$f-language-features/server"
+  done
+  (cd extensions && "$pnpm" install --frozen-lockfile --ignore-scripts --filter . $filters)
+  for f in $selected; do
+    (cd "extensions/$f-language-features" && node esbuild.mts)
+    # The manifests point at out/node (gulp's layout); esbuild writes dist/node. Mirror it.
+    (cd "extensions/$f-language-features" && mkdir -p client/out/node server/out/node \
+      && cp -R client/dist/node/. client/out/node/ && cp -R server/dist/node/. server/out/node/)
+  done
+fi
+
 echo
 echo "done. run the real-host test with:"
 echo "  RSCODE_CODE_OSS=$dest cargo test -p vsr-rpc --test handshake_real_host -- --nocapture"

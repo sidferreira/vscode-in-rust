@@ -113,6 +113,12 @@ impl SuggestState {
         self.held.clone()
     }
 
+    /// A completion item was resolved by the host (tests).
+    #[cfg(test)]
+    pub fn has_resolved(&self) -> bool {
+        !self.resolved.is_empty()
+    }
+
     /// The id of the request whose answer is wanted, `None` once it came (tests).
     #[cfg(test)]
     pub fn pending_id(&self) -> Option<u64> {

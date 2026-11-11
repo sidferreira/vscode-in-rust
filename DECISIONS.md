@@ -2713,6 +2713,16 @@ headless test per behaviour (quick suggestions and delay, trigger characters, wo
 placement, insert mode, graceful filter, all kind filters, icons and inline details) and `settings.rs` three
 parse tests.
 
+## ADR-0096 — Real-host E2E for the suggest list (2026-11-10)
+
+`extensions::e2e::the_suggest_list_works_against_the_real_host` (runs with `RSCODE_CODE_OSS`, skips without):
+the `lang-features-fixture` extension (its selector patched to `plaintext`) answers Ctrl+Space; the list holds
+the host's list (cache id) while it shows, the focused item is resolved by the host, Enter inserts the snippet
+`alpha(${1:a}, ${2:b})` with the first placeholder selected as one undo step, the list is released, and Cmd+Z
+returns to the typed text. This exercises `ToHost::Complete`, `ResolveCompletion` and `ReleaseCompletions`
+end to end. Not covered against the host: that the host's cache is really empty after the release (the
+fixture exposes no probe).
+
 ## ADR-0085 — The outline model: symbols grouped by provider, ids, markers, sort and kind filter (2026-11-10)
 
 `vsr-exthost::language_features::outline` (UI-free; next to the `DocumentSymbol` DTO it consumes, as

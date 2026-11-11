@@ -298,3 +298,41 @@ fn without_a_build_extensions_are_off_and_nothing_is_reported(cx: &mut TestAppCo
         assert!(!wb.ext.is_running() && wb.ext.problems.is_empty() && wb.error.is_none());
     });
 }
+
+/// Completions from a real extension: Ctrl+Space asks the host, the list shows the provider's items, the
+/// focused one is resolved, and Enter inserts its snippet as one undo step and releases the list (ADR-0084).
+#[gpui::test]
+fn the_suggest_list_works_against_the_real_host(cx: &mut TestAppContext) {
+    let Some((wb, cx, s)) = start_fixture(
+        cx,
+        "suggest",
+        "lang-features-fixture",
+        &["*"],
+        &[("a.txt", "one\n\nal")],
+        &[],
+        |js| js.replace("const SEL = 'fakelang'", "const SEL = 'plaintext'"),
+    ) else {
+        return;
+    };
+    let file = s.ws.join("a.txt").canonicalize().unwrap();
+    open(&wb, cx, &file);
+    wait_for(&wb, cx, "the host to know the document", |wb| wb.ext.ready);
+    cx.simulate_keystrokes("cmd-down ctrl-space");
+    wait_for(&wb, cx, "the provider's list", |wb| wb.suggest.visible);
+    let labels: Vec<String> = wb.update(cx, |wb, _| {
+        wb.suggest.session.model().map(|m| m.items().iter().map(|i| i.text_label.clone()).collect()).unwrap_or_default()
+    });
+    assert!(labels.iter().any(|l| l == "alpha"), "{labels:?}");
+    assert!(!wb.read_with(cx, |wb, _| wb.suggest.held_lists().is_empty()), "the host's list is held while it shows");
+    wait_for(&wb, cx, "the focused item to resolve", |wb| wb.suggest.has_resolved());
+    cx.simulate_keystrokes("enter");
+    let text = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().buffer().value());
+    assert_eq!(text, "one\n\nalpha(a, b)");
+    let sel = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().editor.selection());
+    assert_eq!((sel.anchor.column, sel.active.column), (7, 8), "the first placeholder is selected");
+    assert!(wb.read_with(cx, |wb, _| wb.suggest.held_lists().is_empty()), "accepting releases the list");
+    cx.simulate_keystrokes("cmd-z");
+    let text = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().buffer().value());
+    assert_eq!(text, "one\n\nal", "one undo step");
+    wb.update(cx, |wb, _| wb.ext_shutdown());
+}

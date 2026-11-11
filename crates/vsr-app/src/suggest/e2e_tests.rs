@@ -436,3 +436,195 @@ fn the_widget_rows_have_the_kind_icon_and_the_matched_characters(cx: &mut TestAp
     assert_eq!((row.label.as_str(), row.icon, row.detail.as_str(), row.focused), ("makeThing", '\u{ea8c}', "(x)", true));
     assert_eq!(row.matches, [0..1, 4..5], "m and T");
 }
+
+// ---- the settings (ADR-0095) -------------------------------------------------------------------
+
+fn set(cx: &mut VisualTestContext, key: &str, value: serde_json::Value) {
+    cx.update(|_, cx| AppConfig::set_value(cx, key, Some(value))).unwrap();
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn quick_suggestions_off_and_its_delay(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "quickset");
+    let seen = fake(&wb, cx, &["main"]);
+    open(&wb, cx, &blank(&proj, "a.txt", ""));
+    set(cx, "editor.quickSuggestions", json!("off"));
+    cx.simulate_keystrokes("m");
+    pass(cx, 50);
+    assert!(seen.borrow().is_empty(), "off: typing asks nothing");
+    cx.simulate_keystrokes("ctrl-space");
+    assert_eq!(seen.borrow().len(), 1, "Ctrl+Space still asks");
+    cx.simulate_keystrokes("escape cmd-a backspace");
+
+    set(cx, "editor.quickSuggestions", json!({ "other": true, "comments": false, "strings": false }));
+    set(cx, "editor.quickSuggestionsDelay", json!(100));
+    cx.simulate_keystrokes("m");
+    pass(cx, 50);
+    assert_eq!(seen.borrow().len(), 1, "before the delay");
+    pass(cx, 100);
+    assert_eq!(seen.borrow().len(), 2, "after the delay");
+}
+
+#[gpui::test]
+fn trigger_characters_can_be_turned_off(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "charset");
+    let seen = fake(&wb, cx, &["foo.bar"]);
+    open(&wb, cx, &blank(&proj, "a.txt", "foo"));
+    set(cx, "editor.suggestOnTriggerCharacters", json!(false));
+    cx.simulate_keystrokes("cmd-down .");
+    pass(cx, 50);
+    assert!(seen.borrow().is_empty());
+}
+
+#[gpui::test]
+fn word_based_suggestions_modes(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "wordset");
+    let lib = proj.join("src/lib.rs");
+    let main = proj.join("src/main.rs");
+    fs::write(&main, "alpha alphabet\n\n").unwrap();
+    fs::write(&lib, "libword\n").unwrap();
+    open(&wb, cx, &lib);
+    open(&wb, cx, &main);
+    set(cx, "editor.wordBasedSuggestions", json!("off"));
+    cx.simulate_keystrokes("down a l");
+    pass(cx, 20);
+    assert!(shown(&wb, cx).is_empty(), "off: no words");
+    cx.simulate_keystrokes("cmd-a backspace");
+    set(cx, "editor.wordBasedSuggestions", json!("currentDocument"));
+    cx.simulate_keystrokes("l i");
+    pass(cx, 20);
+    assert!(shown(&wb, cx).is_empty(), "currentDocument: libword is in another document");
+    cx.simulate_keystrokes("cmd-a backspace");
+    set(cx, "editor.wordBasedSuggestions", json!("allDocuments"));
+    cx.simulate_keystrokes("l i");
+    pass(cx, 20);
+    assert_eq!(shown(&wb, cx), ["libword"]);
+}
+
+#[gpui::test]
+fn accept_suggestion_on_enter(cx: &mut TestAppContext) {
+    for (mode, typed, want) in [("off", "m", "m\n"), ("on", "m", "main"), ("smart", "m", "main"), ("smart", "ma", "main"), ("smart", "main", "main\n")] {
+        let (wb, cx, proj) = workbench(cx, "enterset");
+        let _ = fake(&wb, cx, &["main"]);
+        open(&wb, cx, &blank(&proj, "a.txt", ""));
+        set(cx, "editor.acceptSuggestionOnEnter", json!(mode));
+        for c in typed.chars() {
+            cx.simulate_keystrokes(&c.to_string());
+        }
+        pass(cx, 20);
+        cx.simulate_keystrokes("enter");
+        assert_eq!(text(&wb, cx), want, "{mode} after typing {typed}");
+    }
+}
+
+#[gpui::test]
+fn snippet_suggestions_placement_and_none(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "snipset");
+    wb.update(cx, |wb, _| {
+        wb.suggest.fake = Some(Box::new(|_, line, column, _| {
+            let range = json!({ "startLineNumber": line, "startColumn": 1, "endLineNumber": line, "endColumn": column });
+            let l = CompletionList::from_json(&json!({"b": [
+                {"a": "ma-snip", "b": 28, "j": range}, {"a": "ma-fn", "b": 1, "j": range}]}))
+            .unwrap();
+            vec![(1, l)]
+        }));
+    });
+    open(&wb, cx, &blank(&proj, "a.txt", ""));
+    for (mode, want) in [("top", vec!["ma-snip", "ma-fn"]), ("bottom", vec!["ma-fn", "ma-snip"]), ("none", vec!["ma-fn"])] {
+        set(cx, "editor.snippetSuggestions", json!(mode));
+        cx.simulate_keystrokes("m a");
+        pass(cx, 20);
+        assert_eq!(shown(&wb, cx), want, "{mode}");
+        cx.simulate_keystrokes("escape cmd-a backspace");
+    }
+}
+
+#[gpui::test]
+fn insert_mode_replace_takes_the_rest_of_the_word(cx: &mut TestAppContext) {
+    for (mode, want) in [("insert", "makeer"), ("replace", "make")] {
+        let (wb, cx, proj) = workbench(cx, "insertset");
+        wb.update(cx, |wb, _| {
+            wb.suggest.fake = Some(Box::new(|_, line, _, _| {
+                let l = CompletionList::from_json(&json!({"b": [{"a": "make", "j": {
+                    "insert": { "startLineNumber": line, "startColumn": 1, "endLineNumber": line, "endColumn": 3 },
+                    "replace": { "startLineNumber": line, "startColumn": 1, "endLineNumber": line, "endColumn": 7 } }}]}))
+                .unwrap();
+                vec![(1, l)]
+            }));
+        });
+        open(&wb, cx, &blank(&proj, "a.txt", "mamaer"));
+        set(cx, "editor.suggest.insertMode", json!(mode));
+        cx.simulate_keystrokes("cmd-up right right ctrl-space");
+        cx.simulate_keystrokes("enter");
+        assert_eq!(text(&wb, cx), if mode == "insert" { "makemaer" } else { want }, "{mode}");
+    }
+}
+
+#[gpui::test]
+fn graceful_filtering_keeps_a_typo(cx: &mut TestAppContext) {
+    for (graceful, want) in [(true, vec!["main"]), (false, vec![])] {
+        let (wb, cx, proj) = workbench(cx, "gracefulset");
+        let _ = fake(&wb, cx, &["main"]);
+        open(&wb, cx, &blank(&proj, "a.txt", ""));
+        set(cx, "editor.suggest.filterGraceful", json!(graceful));
+        cx.simulate_keystrokes("m");
+        pass(cx, 20);
+        cx.simulate_keystrokes("i a");
+        assert_eq!(shown(&wb, cx), want, "graceful {graceful}");
+    }
+}
+
+#[gpui::test]
+fn kind_filters_icons_and_inline_details(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "kindset");
+    wb.update(cx, |wb, _| {
+        wb.suggest.fake = Some(Box::new(|_, line, column, _| {
+            let range = json!({ "startLineNumber": line, "startColumn": 1, "endLineNumber": line, "endColumn": column });
+            let items: Vec<_> = (0..=28u32).map(|k| json!({"a": format!("m{k:02}"), "b": k, "c": "the detail", "x": [9, k], "j": range})).collect();
+            vec![(1, CompletionList::from_json(&json!({ "b": items })).unwrap())]
+        }));
+    });
+    open(&wb, cx, &blank(&proj, "a.txt", ""));
+    // Every `show*` key hides its kind (kind 22 is `showCustomcolors`, 27 has no setting).
+    let keys = [
+        (0, "Methods"), (1, "Functions"), (2, "Constructors"), (3, "Fields"), (4, "Variables"), (5, "Classes"), (6, "Structs"),
+        (7, "Interfaces"), (8, "Modules"), (9, "Properties"), (10, "Events"), (11, "Operators"), (12, "Units"), (13, "Values"),
+        (14, "Constants"), (15, "Enums"), (16, "EnumMembers"), (17, "Keywords"), (18, "Words"), (19, "Colors"), (20, "Files"),
+        (21, "References"), (22, "Customcolors"), (23, "Folders"), (24, "TypeParameters"), (25, "Users"), (26, "Issues"), (28, "Snippets"),
+    ];
+    for (k, name) in keys {
+        let key = format!("editor.suggest.show{name}");
+        set(cx, &key, json!(false));
+        cx.simulate_keystrokes("m");
+        pass(cx, 20);
+        let labels = shown(&wb, cx);
+        assert!(!labels.contains(&format!("m{k:02}")), "{key} hides kind {k}");
+        assert_eq!(labels.len(), 28, "{key} hides only its kind");
+        cx.simulate_keystrokes("escape cmd-a backspace");
+        set(cx, &key, json!(true));
+    }
+    cx.simulate_keystrokes("m");
+    pass(cx, 20);
+    let data = wb.update(cx, |wb, _| wb.suggest_widget_data()).unwrap();
+    assert!(data.show_icons);
+    cx.simulate_keystrokes("escape cmd-a backspace");
+    set(cx, "editor.suggest.showIcons", json!(false));
+    cx.simulate_keystrokes("m");
+    pass(cx, 20);
+    assert!(!wb.update(cx, |wb, _| wb.suggest_widget_data()).unwrap().show_icons);
+    cx.simulate_keystrokes("escape cmd-a backspace m");
+    pass(cx, 20);
+    // The detail (here from the list, not a resolve) is on the row; `showInlineDetails` governs the resolved one.
+    // A resolved detail shows on the focused row, unless `showInlineDetails` is off.
+    wb.update(cx, |wb, _| {
+        let mut resolved = *wb.suggest.session.model().unwrap().items()[0].source.clone().unwrap();
+        resolved.detail = Some("resolved detail".into());
+        wb.suggest.resolved.insert((9, 0), Box::new(resolved));
+    });
+    assert_eq!(wb.update(cx, |wb, _| wb.suggest_widget_data()).unwrap().focused_detail.as_deref(), Some("resolved detail"));
+    set(cx, "editor.suggest.showInlineDetails", json!(false));
+    assert!(wb.update(cx, |wb, _| wb.suggest_widget_data()).unwrap().focused_detail.is_none());
+}

@@ -346,6 +346,7 @@ fn editor_command(cmd: Command) -> (&'static str, &'static str, bool) {
         SuggestNextPage => ("selectNextPageSuggestion", "Select the Next Page Suggestion", false),
         SuggestPreviousPage => ("selectPrevPageSuggestion", "Select the Previous Page Suggestion", false),
         AcceptSuggest => ("acceptSelectedSuggestion", "Accept Selected Suggestion", false),
+        AcceptSuggestOnEnter => ("acceptSelectedSuggestionOnEnter", "Accept Selected Suggestion on Enter", false),
     }
 }
 

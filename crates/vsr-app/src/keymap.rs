@@ -66,6 +66,8 @@ pub enum Command {
     SuggestPreviousPage,
     /// Enter and Tab while the widget shows (`acceptSelectedSuggestion`).
     AcceptSuggest,
+    /// Enter while the widget shows: accepts per `editor.acceptSuggestionOnEnter`.
+    AcceptSuggestOnEnter,
 }
 
 use Command::*;
@@ -200,7 +202,7 @@ pub fn apply(editor: &mut Editor, cmd: Command, page: usize) -> bool {
         Fold(action) => {
             editor.fold_action(action);
         }
-        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest | SuggestNext | SuggestPrevious | SuggestNextPage | SuggestPreviousPage | AcceptSuggest => {
+        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest | SuggestNext | SuggestPrevious | SuggestNextPage | SuggestPreviousPage | AcceptSuggest | AcceptSuggestOnEnter => {
             return false;
         }
     }

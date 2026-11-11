@@ -14,6 +14,7 @@
 //! asked only when no other provider offered anything, and never for a trigger character.
 
 mod accept;
+pub mod settings;
 #[cfg(test)]
 mod e2e_tests;
 pub mod widget;
@@ -70,6 +71,8 @@ pub struct SuggestState {
     timer: Option<Task<()>>,
     /// The list has something to show (the widget shows it, ADR-0084).
     pub visible: bool,
+    /// The `editor.suggest*` settings, read every frame (ADR-0095).
+    pub settings: settings::SuggestSettings,
     /// The focused row and the top of the list (ADR-0084).
     pub list: vsr_suggest::list::ListView,
     /// The lists the host still caches for the session, `(provider handle, cache id)`.
@@ -257,6 +260,11 @@ impl Workbench {
 
     /// Called every frame: a session belongs to one document, and to the editor surface.
     pub(crate) fn suggest_sync(&mut self, cx: &mut Context<Self>) {
+        let read = settings::SuggestSettings::from_configuration(crate::config::AppConfig::get(cx).configuration());
+        if read != self.suggest.settings {
+            self.suggest.session.config = read.config;
+            self.suggest.settings = read;
+        }
         if self.suggest.session.state() != State::Idle || self.suggest.timer.is_some() {
             let here = self.suggest_cursor().map(|c| c.path);
             if here != self.suggest.path {
@@ -438,6 +446,8 @@ impl Workbench {
             );
         }
         self.suggest_hold(&answered_lists, &answered);
+        let allowed = self.suggest.settings.clone();
+        items.retain(|i| allowed.shows(i.completion.kind));
         let word_based = self.suggest.session.config.word_based;
         if items.is_empty()
             && !matches!(options.kind, TriggerKind::Character(_))
@@ -445,6 +455,7 @@ impl Workbench {
         {
             answered.push(WORD_PROVIDER);
             items = self.suggest_word_items(&now, word_based);
+            items.retain(|i| allowed.shows(i.completion.kind));
         }
         let reaction = self.suggest.session.receive(items, &answered, &now.ctx());
         self.suggest_react(reaction, cx);
@@ -489,7 +500,8 @@ impl Workbench {
             | Command::SuggestPrevious
             | Command::SuggestNextPage
             | Command::SuggestPreviousPage
-            | Command::AcceptSuggest => self.suggest_widget_command(cmd, window, cx),
+            | Command::AcceptSuggest
+            | Command::AcceptSuggestOnEnter => self.suggest_widget_command(cmd, window, cx),
             _ => false,
         }
     }

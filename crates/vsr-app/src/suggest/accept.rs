@@ -9,11 +9,12 @@
 use gpui_kit::{Context, Window};
 use vsr_editor::{Position as EdPos, Range};
 use vsr_exthost::language_features::dto::CompletionItem;
-use vsr_suggest::accept::{self, InsertMode};
+use vsr_suggest::accept;
 use vsr_suggest::filters::create_matches;
 use vsr_suggest::item::{Position, Span, SuggestItem};
 use vsr_suggest::list::{ListView, initial_focus};
 
+use super::settings::AcceptOnEnter;
 use super::widget::{Row, WidgetData};
 use crate::Workbench;
 use crate::extensions::worker::ToHost;
@@ -130,8 +131,21 @@ impl Workbench {
             total: items.len(),
             top: list.top,
             anchor_column: (focused.edit_start.column.max(1) as usize).min(cursor_column),
-            focused_detail: resolved_detail,
+            focused_detail: resolved_detail.filter(|_| self.suggest.settings.show_inline_details),
+            show_icons: self.suggest.settings.show_icons,
         })
+    }
+
+    /// Whether accepting item `index` would change the text (`acceptSuggestionOnEnter: smart`).
+    fn suggest_changes_text(&mut self, index: usize) -> bool {
+        let items = self.suggest_items();
+        let (Some(item), Some(cursor)) = (items.get(index), self.suggest_cursor()) else { return true };
+        let indent: String = cursor.line_text.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        let plan = accept::plan(item, Position { line: cursor.line, column: cursor.column }, self.suggest.settings.insert_mode, &indent);
+        let units: Vec<u16> = cursor.line_text.encode_utf16().collect();
+        let (s, e) = ((plan.start_column - 1).max(0) as usize, ((plan.end_column - 1).max(0) as usize).min(units.len()));
+        let current = String::from_utf16_lossy(units.get(s..e.max(s)).unwrap_or(&[]));
+        current != plan.text || !plan.additional.is_empty()
     }
 
     /// Up, Down, Page Up, Page Down and Enter / Tab while the list shows.
@@ -149,6 +163,17 @@ impl Workbench {
             Command::SuggestPreviousPage => list.previous_page(len),
             Command::AcceptSuggest => {
                 let index = list.focused;
+                self.suggest_accept_at(index, window, cx);
+                return true;
+            }
+            Command::AcceptSuggestOnEnter => {
+                let index = list.focused;
+                let mode = self.suggest.settings.accept_on_enter;
+                match mode {
+                    AcceptOnEnter::Off => return false,
+                    AcceptOnEnter::Smart if !self.suggest_changes_text(index) => return false,
+                    _ => {}
+                }
                 self.suggest_accept_at(index, window, cx);
                 return true;
             }
@@ -174,7 +199,7 @@ impl Workbench {
             item.source = Some(resolved.clone());
         }
         let indent: String = cursor.line_text.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
-        let plan = accept::plan(&item, Position { line: cursor.line, column: cursor.column }, InsertMode::Insert, &indent);
+        let plan = accept::plan(&item, Position { line: cursor.line, column: cursor.column }, self.suggest.settings.insert_mode, &indent);
         let range = |s: &Span| {
             Range::new(
                 EdPos::new(s.start_line.max(1) as usize, s.start_column.max(1) as usize),

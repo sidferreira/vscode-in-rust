@@ -2690,6 +2690,29 @@ Step 3 of the suggest work (ADR-0080..0083 gave the model and the trigger).
 `vsr-app` `suggest::e2e_tests`: 6 new (keys and context key, Enter as one undo step, Tab with typing on
 before accepting, snippet, release, rows with icon and matches).
 
+## ADR-0095 — Suggest settings: 38 `editor.*` keys read every frame by the workbench (2026-11-10)
+
+`suggest/settings.rs` reads `SuggestSettings` from the configuration in `suggest_sync` (every frame; applied
+when it differs). Wired: `editor.quickSuggestions` (boolean, string or object per token kind),
+`quickSuggestionsDelay`, `suggestOnTriggerCharacters`, `wordBasedSuggestions` (the legacy boolean `false` is `off`),
+`acceptSuggestionOnEnter` (`on`, `smart`: only when accepting changes the text, `off`: Enter is a line
+break, the list closes), `snippetSuggestions` (`top`, `bottom`, `inline`, `none` hides them),
+`suggest.insertMode`, `suggest.filterGraceful`, `suggest.showIcons`, `suggest.showInlineDetails` (the resolved
+detail of the focused row) and the 28 `suggest.show<Kind>` keys (a hidden kind is dropped from every
+provider's items and from the word-based ones; `showWords` is the text kind).
+
+Enter and Tab are two commands (`AcceptSuggestOnEnter`, `AcceptSuggest`); one the list does not take runs as
+the plain key (Enter, Tab).
+
+**Not wired yet** (step 4 remainder): `tabCompletion`, `suggestSelection` and `suggest.selectionMode` (need
+suggest memory), `acceptSuggestionOnCommitCharacter` (needs commit-character handling before the character
+is typed), `suggest.preview`, `showStatusBar`, `snippetsPreventQuickSuggestions`, `localityBonus`,
+`matchOnWordStartOnly`, `filteredTypes`, `showDeprecated`, `shareSuggestSelections`, `maxVisibleSuggestions`,
+`suggest.insertMode` toggling with Ctrl+Enter, and the real-host E2E. Tests: `suggest::e2e_tests` has one
+headless test per behaviour (quick suggestions and delay, trigger characters, word modes, Enter modes, snippet
+placement, insert mode, graceful filter, all kind filters, icons and inline details) and `settings.rs` three
+parse tests.
+
 ## ADR-0085 — The outline model: symbols grouped by provider, ids, markers, sort and kind filter (2026-11-10)
 
 `vsr-exthost::language_features::outline` (UI-free; next to the `DocumentSymbol` DTO it consumes, as

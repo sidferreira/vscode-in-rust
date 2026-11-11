@@ -84,7 +84,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("up", Run(Command::SuggestPrevious), ctx),
         KeyBinding::new("pagedown", Run(Command::SuggestNextPage), ctx),
         KeyBinding::new("pageup", Run(Command::SuggestPreviousPage), ctx),
-        KeyBinding::new("enter", Run(Command::AcceptSuggest), ctx),
+        KeyBinding::new("enter", Run(Command::AcceptSuggestOnEnter), ctx),
         KeyBinding::new("tab", Run(Command::AcceptSuggest), ctx),
     ]);
 }
@@ -567,6 +567,12 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
     if this.editor_command(cmd, window, cx) {
         return;
     }
+    // A suggest key the list did not take (`acceptSuggestionOnEnter: off`) is the key it stands for.
+    let cmd = match cmd {
+        Command::AcceptSuggestOnEnter => Command::Enter,
+        Command::AcceptSuggest => Command::Tab,
+        other => other,
+    };
     if matches!(cmd, Command::Save) && this.editor_host().0.active_editor().is_some_and(|e| e.is_untitled()) {
         this.save_untitled_requested(window, cx);
         return;
@@ -675,7 +681,8 @@ fn command_event<T: EditorHost>(this: &mut T, cmd: Command) -> Option<EditorEven
         | Command::SuggestPrevious
         | Command::SuggestNextPage
         | Command::SuggestPreviousPage
-        | Command::AcceptSuggest => None,
+        | Command::AcceptSuggest
+        | Command::AcceptSuggestOnEnter => None,
         Command::Backspace => Some(EditorEvent::DeleteLeft),
         Command::Enter => Some(EditorEvent::Typed("\n".into())),
         Command::Tab => Some(EditorEvent::Typed("\t".into())),

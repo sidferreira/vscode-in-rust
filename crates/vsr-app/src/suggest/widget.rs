@@ -52,6 +52,8 @@ pub struct WidgetData {
     pub anchor_column: usize,
     /// The detail of the focused item, once known (the provider's `detail`).
     pub focused_detail: Option<String>,
+    /// `editor.suggest.showIcons`.
+    pub show_icons: bool,
 }
 
 /// Splits `text` into runs, each flagged as matched or not. `matches` are UTF-16 ranges.
@@ -118,14 +120,9 @@ pub fn element<T: EditorHost>(
                     cx.stop_propagation();
                 }),
             )
-            .child(
-                div()
-                    .w(px(16.))
-                    .flex_none()
-                    .font_family(icons::FAMILY)
-                    .text_color(text_color)
-                    .child(icons::glyph(row.icon)),
-            )
+            .children(data.show_icons.then(|| {
+                div().w(px(16.)).flex_none().font_family(icons::FAMILY).text_color(text_color).child(icons::glyph(row.icon))
+            }))
             .child(div().flex().flex_row().flex_none().children(label))
             .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_color(dim).child(detail))
     });

@@ -272,6 +272,22 @@ fn compact_folders_shows_a_single_child_chain_as_one_row(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn open_mode_double_click_leaves_a_single_click_on_a_file_as_a_selection(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("open-mode");
+    fs::write(ws.path().join("a.txt"), "a").unwrap();
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "workbench.list.openMode", json!("doubleClick"));
+    let file = ws.path().join("a.txt");
+    // debug selectors are `&'static str`; a test leaks the one string it needs
+    let key: &'static str = Box::leak(format!("tree-row:{}", file.display()).into_boxed_str());
+    let center = cx.debug_bounds(key).expect("the file has a row").center();
+    cx.simulate_click(center, Default::default());
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.explorer.selected.clone()), Some(file.clone()), "the click selects the file");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.active_editor().is_none()), "doubleClick: a single click does not open it");
+}
+
+#[gpui::test]
 fn auto_reveal_expands_and_selects_the_opened_file(cx: &mut TestAppContext) {
     let (ws, bin) = workspace("auto-reveal");
     fs::create_dir_all(ws.path().join("src/deep/er")).unwrap();

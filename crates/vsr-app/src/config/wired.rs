@@ -66,6 +66,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "explorer.excludeGitIgnore",
             "explorer.copyPathSeparator",
             "explorer.copyRelativePathSeparator",
+            "workbench.list.openMode",
         ],
     ),
     (

@@ -19,7 +19,7 @@ use super::nesting::{ExplorerFileNestingTrie, Nests};
 
 /// The group of the Explorer header: its title actions show while it is hovered.
 const HEADER_GROUP: &str = "explorer-header";
-use super::settings::{AutoReveal, ExplorerSettings, copied_path_text};
+use super::settings::{AutoReveal, ExplorerSettings, copied_path_text, file_opens_on_click};
 use crate::config::AppConfig;
 use super::actions::{
     CancelDelete, CollapseAll, CollapseOrParent, CopyPath, CopyRelativePath, DeleteFile, ExpandOrFirstChild, MoveFileToTrash,
@@ -477,7 +477,9 @@ impl Workbench {
             let open = self.expanded.contains(&entry.path);
             let path = entry.path.clone();
             let is_dir = entry.is_dir;
+            let row_key = format!("tree-row:{}", path.display());
             div()
+                .debug_selector(move || row_key.clone())
                 .id(("tree", i))
                 .flex_none()
                 .h(px(22.))
@@ -515,7 +517,7 @@ impl Workbench {
                     this.select(&path);
                     if is_dir {
                         this.toggle_dir(&path);
-                    } else {
+                    } else if file_opens_on_click(this.explorer.settings.open_on_double_click, ev.click_count()) {
                         // A single click previews, a double click pins (`workbench.editor.enablePreview`).
                         let source = OpenSource::Explorer { double_click: ev.click_count() >= 2 };
                         this.open_from(&path, source);

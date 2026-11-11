@@ -81,6 +81,16 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "Hover (ADR-0109)",
+        &[
+            "editor.hover.enabled",
+            "editor.hover.delay",
+            "editor.hover.hidingDelay",
+            "editor.hover.sticky",
+            "editor.hover.above",
+        ],
+    ),
+    (
         "Breadcrumbs symbols (ADR-0087)",
         &[
             "breadcrumbs.symbolPath",

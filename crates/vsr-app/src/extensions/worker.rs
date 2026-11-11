@@ -21,7 +21,7 @@ use vsr_exthost::configuration::ConfigUpdate;
 use vsr_exthost::description::ExtensionDescription;
 use vsr_exthost::discovery::{self, ContributedCommand};
 use vsr_exthost::host::{BootParams, ExtensionHost};
-use vsr_exthost::language_features::dto::{CompletionList, DocumentSymbol, LocationLink, Position};
+use vsr_exthost::language_features::dto::{CompletionList, DocumentSymbol, Hover, LocationLink, Position};
 use vsr_exthost::language_features::main_thread::Kind;
 use vsr_exthost::language_features::outline::ProviderSymbols;
 use vsr_exthost::language_features::query::{CompletionTrigger, Query};
@@ -61,6 +61,9 @@ pub enum ToHost {
     /// Go to definition, declaration, type definition or implementation at a 1-based position of
     /// an open document (ADR-0108). `column` counts `char`s. A newer request replaces the one in flight.
     Navigate { id: u64, nav: Nav, path: PathBuf, line: u32, column: u32 },
+    /// The hovers at a 1-based position of an open document (ADR-0109). `column` counts `char`s.
+    /// A newer request replaces the one in flight.
+    Hover { id: u64, path: PathBuf, line: u32, column: u32 },
     /// Completions at a 1-based position of an open document (ADR-0082). `column` counts `char`s,
     /// as the editor does. A newer request replaces the one in flight.
     Complete { id: u64, path: PathBuf, line: u32, column: u32, trigger: CompletionTrigger },
@@ -83,6 +86,9 @@ pub enum FromHost {
     /// The targets of go-to request `id`, from every provider that answered, in the protocol's
     /// (UTF-16) columns. A request with no provider or no target still answers, with no links.
     Locations { id: u64, nav: Nav, links: Vec<LocationLink> },
+    /// The hovers of request `id`, from every provider that answered, with their ranges in `char`s
+    /// (ADR-0109). A position with no hover still answers, with none.
+    Hovers { id: u64, hovers: Vec<Hover> },
     /// The providers' completion lists for request `id`, one per provider that answered. Ranges
     /// are in `char`s (converted here, where the document's text is); the lists stay cached in the
     /// host until released (ADR-0082).
@@ -184,6 +190,7 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
     let mut symbols: Option<SymbolJob> = None;
     let mut completion: Option<CompletionJob> = None;
     let mut navigation: Option<NavJob> = None;
+    let mut hovering: Option<HoverJob> = None;
     'main: loop {
         let mut dirty = false;
         loop {
@@ -203,6 +210,18 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
                         Some(job) => Some(job),
                         None => {
                             let _ = out.unbounded_send(FromHost::Locations { id, nav, links: Vec::new() });
+                            None
+                        }
+                    };
+                }
+                Ok(ToHost::Hover { id, path, line, column }) => {
+                    if let Some(mut old) = hovering.take() {
+                        host.cancel_query(&mut old.query);
+                    }
+                    hovering = match start_hover(&mut host, id, path.clone(), line, column) {
+                        Some(job) => Some(job),
+                        None => {
+                            let _ = out.unbounded_send(FromHost::Hovers { id, hovers: Vec::new() });
                             None
                         }
                     };
@@ -232,6 +251,12 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
         {
             let job = navigation.take().expect("the job is in flight");
             finish_navigate(&mut host, job, &out);
+        }
+        if let Some(job) = hovering.as_mut()
+            && host.poll_query(&mut job.query)
+        {
+            let job = hovering.take().expect("the job is in flight");
+            finish_hover(&mut host, job, &out);
         }
         if let Some(job) = completion.as_mut()
             && let Some(q) = job.query.as_mut()
@@ -324,6 +349,50 @@ fn finish_navigate(host: &mut ExtensionHost, mut job: NavJob, out: &UnboundedSen
     }
     let links = provided.results.into_iter().flat_map(|(_, links)| links).collect();
     let _ = out.unbounded_send(FromHost::Locations { id: job.id, nav: job.nav, links });
+}
+
+/// A hover request on its way (ADR-0109): the providers' answers, polled from the loop.
+struct HoverJob {
+    id: u64,
+    /// The document's text when the request came in: the ranges are converted with it.
+    text: String,
+    query: Query<Hover>,
+}
+
+/// Asks the providers for the hovers at a 1-based position (`column` in `char`s). `None` when the
+/// document is not open in the host or no call could start.
+fn start_hover(host: &mut ExtensionHost, id: u64, path: PathBuf, line: u32, column: u32) -> Option<HoverJob> {
+    let text = host.main_thread.documents.open.get(&resource_key(&path))?.text.clone();
+    let utf16 = char_to_utf16_column(line_text(&text, line), column);
+    let convert = Box::new(|v: &Value| Hover::from_json(v));
+    let query = host.begin_provide(Kind::Hover, &path, "$provideHover", &[Position::new(line, utf16).to_json()], convert).ok()?;
+    Some(HoverJob { id, text, query })
+}
+
+/// Sends the hovers of the providers that answered, their ranges in `char`s, and reports the ones
+/// that failed.
+fn finish_hover(host: &mut ExtensionHost, mut job: HoverJob, out: &UnboundedSender<FromHost>) {
+    let provided = job.query.take();
+    for (handle, message) in &provided.errors {
+        let name = host.main_thread.language_features.registration(*handle).and_then(|r| r.meta_str("displayName").map(String::from));
+        let _ = out.unbounded_send(FromHost::Problem(format!("hover ({}): {message}", name.unwrap_or_default())));
+    }
+    let hovers = provided
+        .results
+        .into_iter()
+        .map(|(_, mut h)| {
+            h.range = h.range.map(|r| chars_range(&job.text, r));
+            h
+        })
+        .collect();
+    let _ = out.unbounded_send(FromHost::Hovers { id: job.id, hovers });
+}
+
+/// A protocol range (UTF-16 columns) with its columns in `char`s, using the document's text.
+fn chars_range(text: &str, r: vsr_exthost::language_features::dto::Range) -> vsr_exthost::language_features::dto::Range {
+    use vsr_suggest::adapter::utf16_to_char_column;
+    let col = |line: u32, c: u32| utf16_to_char_column(line_text(text, line), c);
+    vsr_exthost::language_features::dto::Range::new(r.start_line, col(r.start_line, r.start_column), r.end_line, col(r.end_line, r.end_column))
 }
 
 /// A completion request on its way (ADR-0082). The providers are asked group by group (upstream's
@@ -484,7 +553,7 @@ fn handle(host: &mut ExtensionHost, index: &EventIndex, fired: &mut HashSet<Stri
             }
             problem(&id, host.execute_contributed_command(&id, args, CALL).map(|_| ()));
         }
-        ToHost::Symbols { .. } | ToHost::Navigate { .. } | ToHost::Complete { .. } | ToHost::Shutdown => {}
+        ToHost::Symbols { .. } | ToHost::Navigate { .. } | ToHost::Hover { .. } | ToHost::Complete { .. } | ToHost::Shutdown => {}
     }
 }
 

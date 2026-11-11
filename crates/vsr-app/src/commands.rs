@@ -341,6 +341,12 @@ fn editor_command(cmd: Command) -> (&'static str, &'static str, bool) {
         BlockComment => ("editor.action.blockComment", "Toggle Block Comment", true),
         TriggerSuggest => ("editor.action.triggerSuggest", "Trigger Suggest", true),
         HideSuggest => ("hideSuggestWidget", "Close Suggest Widget", false),
+        SuggestNext => ("selectNextSuggestion", "Select the Next Suggestion", false),
+        SuggestPrevious => ("selectPrevSuggestion", "Select the Previous Suggestion", false),
+        SuggestNextPage => ("selectNextPageSuggestion", "Select the Next Page Suggestion", false),
+        SuggestPreviousPage => ("selectPrevPageSuggestion", "Select the Previous Page Suggestion", false),
+        AcceptSuggest => ("acceptSelectedSuggestion", "Accept Selected Suggestion", false),
+        AcceptSuggestOnEnter => ("acceptSelectedSuggestionOnEnter", "Accept Selected Suggestion on Enter", false),
     }
 }
 

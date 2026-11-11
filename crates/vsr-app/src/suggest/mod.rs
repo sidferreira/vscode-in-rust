@@ -13,8 +13,11 @@
 //! word-based suggestions as upstream does: the word-based provider has the lowest score, so it is
 //! asked only when no other provider offered anything, and never for a trigger character.
 
+mod accept;
+pub mod settings;
 #[cfg(test)]
 mod e2e_tests;
+pub mod widget;
 
 use std::path::{Path, PathBuf};
 
@@ -68,6 +71,18 @@ pub struct SuggestState {
     timer: Option<Task<()>>,
     /// The list has something to show (the widget shows it, ADR-0084).
     pub visible: bool,
+    /// The `editor.suggest*` settings, read every frame (ADR-0095).
+    pub settings: settings::SuggestSettings,
+    /// The focused row and the top of the list (ADR-0084).
+    pub list: vsr_suggest::list::ListView,
+    /// The lists the host still caches for the session, `(provider handle, cache id)`.
+    held: Vec<(u32, u64)>,
+    /// Items the host resolved, by `(list cache id, index)`; cleared with the session.
+    resolved: std::collections::HashMap<(u64, u64), Box<vsr_exthost::language_features::dto::CompletionItem>>,
+    /// The resolve request on its way: its id and the item it is for.
+    resolving: Option<(u64, (u64, u64))>,
+    /// Every request and resolve id come from here.
+    next_resolve: u64,
     /// Answers given in-process when no host runs (tests only).
     #[cfg(test)]
     pub fake: Option<FakeSource>,
@@ -92,6 +107,18 @@ impl SuggestState {
         true
     }
 
+    /// The lists the host still caches for the session (tests).
+    #[cfg(test)]
+    pub fn held_lists(&self) -> Vec<(u32, u64)> {
+        self.held.clone()
+    }
+
+    /// A completion item was resolved by the host (tests).
+    #[cfg(test)]
+    pub fn has_resolved(&self) -> bool {
+        !self.resolved.is_empty()
+    }
+
     /// The id of the request whose answer is wanted, `None` once it came (tests).
     #[cfg(test)]
     pub fn pending_id(&self) -> Option<u64> {
@@ -104,6 +131,11 @@ impl SuggestState {
         self.request_line = None;
         self.last = None;
     }
+}
+
+/// The `(provider handle, list cache id)` of the lists in `results`.
+pub(crate) fn cache_ids(results: &[(u32, CompletionList)]) -> Vec<(u32, u64)> {
+    results.iter().filter_map(|(h, l)| l.cache_id.map(|c| (*h, c))).collect()
 }
 
 /// Where the cursor is in the active editor.
@@ -223,6 +255,9 @@ impl Workbench {
 
     fn suggest_dismissed(&mut self, cx: &mut Context<Self>) {
         self.suggest.timer = None;
+        self.suggest_release_held();
+        self.suggest.resolved.clear();
+        self.suggest.resolving = None;
         self.suggest.forget_request();
         if std::mem::take(&mut self.suggest.visible) {
             cx.notify();
@@ -231,6 +266,11 @@ impl Workbench {
 
     /// Called every frame: a session belongs to one document, and to the editor surface.
     pub(crate) fn suggest_sync(&mut self, cx: &mut Context<Self>) {
+        let read = settings::SuggestSettings::from_configuration(crate::config::AppConfig::get(cx).configuration());
+        if read != self.suggest.settings {
+            self.suggest.session.config = read.config;
+            self.suggest.settings = read;
+        }
         if self.suggest.session.state() != State::Idle || self.suggest.timer.is_some() {
             let here = self.suggest_cursor().map(|c| c.path);
             if here != self.suggest.path {
@@ -238,6 +278,7 @@ impl Workbench {
             }
         }
         self.editor_view.suggest_visible = self.suggest.visible;
+        self.editor_view.suggest_widget = self.suggest_widget_data().map(std::rc::Rc::new);
     }
 
     /// What happened in the editor (upstream's cursor and content listeners of `SuggestModel`).
@@ -335,8 +376,12 @@ impl Workbench {
             Reaction::Nothing => {}
             Reaction::Cancelled => self.suggest_dismissed(cx),
             Reaction::Retrigger(options) => self.suggest_trigger(options, cx),
-            Reaction::Suggest { .. } => {
+            Reaction::Suggest { frozen } => {
                 self.suggest.visible = true;
+                if !frozen {
+                    self.suggest_refocus();
+                }
+                self.suggest_focus_changed();
                 cx.notify();
             }
         }
@@ -392,9 +437,13 @@ impl Workbench {
         };
         let mut items: Vec<SuggestItem> = Vec::new();
         let mut answered: Vec<u32> = Vec::new();
+        let mut answered_lists: Vec<(u32, u64)> = Vec::new();
         for (handle, mut list) in answer.results {
             list_to_utf16(&mut list, &text);
             answered.push(handle);
+            if let Some(cache) = list.cache_id {
+                answered_lists.push((handle, cache));
+            }
             let incomplete = list.is_incomplete;
             items.extend(
                 list.items
@@ -402,6 +451,9 @@ impl Workbench {
                     .map(|item| from_dto(item, position, handle, incomplete)),
             );
         }
+        self.suggest_hold(&answered_lists, &answered);
+        let allowed = self.suggest.settings.clone();
+        items.retain(|i| allowed.shows(i.completion.kind));
         let word_based = self.suggest.session.config.word_based;
         if items.is_empty()
             && !matches!(options.kind, TriggerKind::Character(_))
@@ -409,6 +461,7 @@ impl Workbench {
         {
             answered.push(WORD_PROVIDER);
             items = self.suggest_word_items(&now, word_based);
+            items.retain(|i| allowed.shows(i.completion.kind));
         }
         let reaction = self.suggest.session.receive(items, &answered, &now.ctx());
         self.suggest_react(reaction, cx);
@@ -436,7 +489,7 @@ impl Workbench {
     }
 
     /// Ctrl+Space and Escape.
-    pub(crate) fn suggest_command(&mut self, cmd: crate::keymap::Command, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn suggest_command(&mut self, cmd: crate::keymap::Command, window: &mut gpui_kit::Window, cx: &mut Context<Self>) -> bool {
         use crate::keymap::Command;
         match cmd {
             Command::TriggerSuggest => {
@@ -449,6 +502,12 @@ impl Workbench {
                 self.suggest_cancel(cx);
                 true
             }
+            Command::SuggestNext
+            | Command::SuggestPrevious
+            | Command::SuggestNextPage
+            | Command::SuggestPreviousPage
+            | Command::AcceptSuggest
+            | Command::AcceptSuggestOnEnter => self.suggest_widget_command(cmd, window, cx),
             _ => false,
         }
     }

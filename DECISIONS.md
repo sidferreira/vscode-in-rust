@@ -2653,6 +2653,76 @@ characters and the words. `vsr-app` `suggest::e2e_tests`: typing asks after the 
 new request, leaving the word, Enter / select all / Escape, a late answer, Ctrl+Space, a trigger character,
 the space (#17400) and the word-based list from two documents.
 
+## ADR-0084 — The suggest list: focus and keys, accept as one undo step, snippets expanded, lazy resolve, caches released (2026-11-10)
+
+Step 3 of the suggest work (ADR-0080..0083 gave the model and the trigger).
+
+- **UI-free** (`vsr-suggest`): `list::ListView` (focus and top row; Down/Up wrap as upstream `focusNext(1, true)`;
+  Page Down goes to the last visible row, then a page further; 12 rows), `list::initial_focus` (`Memory.select`:
+  the first preselected item among those with the best score), `accept::plan` (the replaced range relative
+  to the cursor now: `overwriteBefore`/`overwriteAfter` as `getOverwriteInfo`; `InsertMode` insert/replace;
+  multi-line text indented to the cursor line unless `KeepWhitespace`; additional edits), `snippet::expand`
+  (grammar of `snippetParser.ts`: tab stops, placeholders, nesting, choices -> first option, variables,
+  escapes, mirrors repeat the placeholder text; transforms dropped) and `item::kind::icon` (codicon of each
+  completion kind, checked against `languages.ts` and `codiconsLibrary.ts`).
+- **Editor** (`vsr-editor::completion_ops`): `Editor::apply_completion` applies the completion and the
+  additional edits through `replace_ranges` (one undo step) and leaves the snippet's selection, which redo restores.
+- **Workbench**: keys are bound under `Editor && suggestWidgetVisible` (Up, Down, Page Up, Page Down, Enter, Tab,
+  Escape), so with no list they are the editor's. Enter and Tab accept (`acceptSelectedSuggestion`), and are not
+  seen as typing. A click on a row accepts. The widget (`suggest/widget.rs`) draws at the word being completed,
+  below the caret line or above it when there is no room: kind icon, label with matched characters
+  highlighted, label detail and description dimmed, the focused row's `detail` (resolved). It uses the colours
+  `editorSuggestWidget.*` default to (editor widget, quick input list focus, list highlight).
+- **Resolve**: focusing an item sends `ToHost::ResolveCompletion` (the worker waits at most 2 s on the host);
+  the answer is cached by the list cache id and used by accept (additional edits, detail).
+- **Release (closes ADR-0082's gap)**: the lists of an answer are held until the session ends, the item is
+  accepted, or a newer answer from the same provider replaces them (lists of providers that stayed silent are
+  kept: their items are reused by the retrigger). An answer dropped by `deliver` is released at once.
+  `ToHost::ReleaseCompletions` carries `(handle, cache id)`.
+- **Differences, on purpose.** No snippet session: after accepting there is no Tab to the next tab stop, the
+  first tab stop (placeholder selected) or `$0` takes the caret. Accept uses the resolved item only if it
+  already came back (upstream awaits it). Additional edits on lines other than the cursor line keep `char`
+  columns (the worker only gives the request line's text). No documentation panel, status bar or details
+  expansion; no `editorSuggestWidget.*` colour keys; commit characters, suggest memory and the settings are
+  step 4.
+
+**Tests.** `vsr-suggest`: 12 unit tests (list, accept, snippet mirrors). `vsr-editor` `completion_ops`: 4.
+`vsr-app` `suggest::e2e_tests`: 6 new (keys and context key, Enter as one undo step, Tab with typing on
+before accepting, snippet, release, rows with icon and matches).
+
+## ADR-0095 — Suggest settings: 38 `editor.*` keys read every frame by the workbench (2026-11-10)
+
+`suggest/settings.rs` reads `SuggestSettings` from the configuration in `suggest_sync` (every frame; applied
+when it differs). Wired: `editor.quickSuggestions` (boolean, string or object per token kind),
+`quickSuggestionsDelay`, `suggestOnTriggerCharacters`, `wordBasedSuggestions` (the legacy boolean `false` is `off`),
+`acceptSuggestionOnEnter` (`on`, `smart`: only when accepting changes the text, `off`: Enter is a line
+break, the list closes), `snippetSuggestions` (`top`, `bottom`, `inline`, `none` hides them),
+`suggest.insertMode`, `suggest.filterGraceful`, `suggest.showIcons`, `suggest.showInlineDetails` (the resolved
+detail of the focused row) and the 28 `suggest.show<Kind>` keys (a hidden kind is dropped from every
+provider's items and from the word-based ones; `showWords` is the text kind).
+
+Enter and Tab are two commands (`AcceptSuggestOnEnter`, `AcceptSuggest`); one the list does not take runs as
+the plain key (Enter, Tab).
+
+**Not wired yet** (step 4 remainder): `tabCompletion`, `suggestSelection` and `suggest.selectionMode` (need
+suggest memory), `acceptSuggestionOnCommitCharacter` (needs commit-character handling before the character
+is typed), `suggest.preview`, `showStatusBar`, `snippetsPreventQuickSuggestions`, `localityBonus`,
+`matchOnWordStartOnly`, `filteredTypes`, `showDeprecated`, `shareSuggestSelections`, `maxVisibleSuggestions`,
+`suggest.insertMode` toggling with Ctrl+Enter, and the real-host E2E. Tests: `suggest::e2e_tests` has one
+headless test per behaviour (quick suggestions and delay, trigger characters, word modes, Enter modes, snippet
+placement, insert mode, graceful filter, all kind filters, icons and inline details) and `settings.rs` three
+parse tests.
+
+## ADR-0096 — Real-host E2E for the suggest list (2026-11-10)
+
+`extensions::e2e::the_suggest_list_works_against_the_real_host` (runs with `RSCODE_CODE_OSS`, skips without):
+the `lang-features-fixture` extension (its selector patched to `plaintext`) answers Ctrl+Space; the list holds
+the host's list (cache id) while it shows, the focused item is resolved by the host, Enter inserts the snippet
+`alpha(${1:a}, ${2:b})` with the first placeholder selected as one undo step, the list is released, and Cmd+Z
+returns to the typed text. This exercises `ToHost::Complete`, `ResolveCompletion` and `ReleaseCompletions`
+end to end. Not covered against the host: that the host's cache is really empty after the release (the
+fixture exposes no probe).
+
 ## ADR-0085 — The outline model: symbols grouped by provider, ids, markers, sort and kind filter (2026-11-10)
 
 `vsr-exthost::language_features::outline` (UI-free; next to the `DocumentSymbol` DTO it consumes, as

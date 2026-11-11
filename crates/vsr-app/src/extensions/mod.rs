@@ -241,11 +241,17 @@ impl Workbench {
             }
             FromHost::Save(keys) => self.ext_save(&keys, cx),
             FromHost::Completions { id, path, line, column, results } => {
-                if self.suggest.deliver(crate::suggest::Answer { id, path, line, column, results }) {
+                let answer = crate::suggest::Answer { id, path, line, column, results };
+                // An answer nobody wants any more still holds its lists in the host (ADR-0084).
+                let unwanted = crate::suggest::cache_ids(&answer.results);
+                if self.suggest.deliver(answer) {
                     self.suggest_on_answer(cx);
                     cx.notify();
+                } else {
+                    self.suggest_release(unwanted);
                 }
             }
+            FromHost::CompletionResolved { id, item } => self.suggest_on_resolved(id, *item, cx),
             FromHost::Symbols { path, version, groups } => {
                 if self.outline.deliver(&path, version, groups) {
                     cx.notify();

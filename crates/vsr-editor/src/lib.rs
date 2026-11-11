@@ -10,6 +10,7 @@
 
 mod brackets;
 pub mod comments;
+mod completion_ops;
 mod cursor_columns;
 mod edit_ops;
 mod editor;

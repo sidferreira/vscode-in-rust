@@ -16,7 +16,45 @@ pub mod kind {
     pub const OPERATOR: u32 = 11;
     pub const KEYWORD: u32 = 17;
     pub const TEXT: u32 = 18;
-    pub const SNIPPET: u32 = 27;
+    pub const TOOL: u32 = 27;
+    /// The highest value (upstream uses it for compare).
+    pub const SNIPPET: u32 = 28;
+
+    /// The codicon of a kind (upstream `CompletionItemKinds.toIcon`): its name and code point. An
+    /// unknown kind is a property.
+    pub fn icon(kind: u32) -> (&'static str, char) {
+        match kind {
+            0 => ("symbol-method", '\u{ea8c}'),
+            1 => ("symbol-function", '\u{ea8c}'),
+            2 => ("symbol-constructor", '\u{ea8c}'),
+            3 => ("symbol-field", '\u{eb5f}'),
+            4 => ("symbol-variable", '\u{ea88}'),
+            5 => ("symbol-class", '\u{eb5b}'),
+            6 => ("symbol-struct", '\u{ea91}'),
+            7 => ("symbol-interface", '\u{eb61}'),
+            8 => ("symbol-module", '\u{ea8b}'),
+            10 => ("symbol-event", '\u{ea86}'),
+            11 => ("symbol-operator", '\u{eb64}'),
+            12 => ("symbol-unit", '\u{ea96}'),
+            13 => ("symbol-value", '\u{ea95}'),
+            14 => ("symbol-constant", '\u{eb5d}'),
+            15 => ("symbol-enum", '\u{ea95}'),
+            16 => ("symbol-enum-member", '\u{eb5e}'),
+            17 => ("symbol-keyword", '\u{eb62}'),
+            18 => ("symbol-text", '\u{ea93}'),
+            19 => ("symbol-color", '\u{eb5c}'),
+            20 => ("symbol-file", '\u{eb60}'),
+            21 => ("symbol-reference", '\u{ea94}'),
+            22 => ("symbol-customcolor", '\u{eb5c}'),
+            23 => ("symbol-folder", '\u{ea83}'),
+            24 => ("symbol-type-parameter", '\u{ea92}'),
+            25 => ("account", '\u{eb99}'),
+            26 => ("issues", '\u{eb0c}'),
+            27 => ("tools", '\u{eb6d}'),
+            28 => ("symbol-snippet", '\u{eb66}'),
+            _ => ("symbol-property", '\u{eb65}'),
+        }
+    }
 }
 
 /// A 1-based line and column (upstream `IPosition`).

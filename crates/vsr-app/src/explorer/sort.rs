@@ -7,14 +7,28 @@
 //! upstream: src/vs/workbench/contrib/files/browser/views/explorerViewer.ts @ 50e1350fc78d (compareFileExtensions, compareFileNames, reverse)
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 
 use crate::explorer::settings::{Lexicographic, SortOrder};
 use crate::model::DirEntry;
 
 /// Sort `entries` in place for `order`, with the lexicographic options and `reverse` (upstream
-/// swaps the two entries before comparing, so folders move too).
-pub fn sort_entries(entries: &mut [DirEntry], order: SortOrder, lex: Lexicographic, reverse: bool) {
-    entries.sort_by(|a, b| if reverse { compare(b, a, order, lex) } else { compare(a, b, order, lex) });
+/// swaps the two entries before comparing, so folders move too). `nest_parents` are the names of the
+/// files that have nested files (ADR-0052); only `foldersNestsFiles` reads them.
+pub fn sort_entries(
+    entries: &mut [DirEntry],
+    order: SortOrder,
+    lex: Lexicographic,
+    reverse: bool,
+    nest_parents: &HashSet<String>,
+) {
+    entries.sort_by(|a, b| {
+        if reverse {
+            compare(b, a, order, lex, nest_parents)
+        } else {
+            compare(a, b, order, lex, nest_parents)
+        }
+    });
 }
 
 /// Names under `explorer.sortOrderLexicographicOptions`. `Default` is case-insensitive. `Upper` and
@@ -60,9 +74,14 @@ fn extension(name: &str) -> &str {
     }
 }
 
-fn compare(a: &DirEntry, b: &DirEntry, order: SortOrder, lex: Lexicographic) -> Ordering {
+fn compare(a: &DirEntry, b: &DirEntry, order: SortOrder, lex: Lexicographic, nest_parents: &HashSet<String>) -> Ordering {
     let folders_first = || b.is_dir.cmp(&a.is_dir);
     match order {
+        // Folders, then the files that have nests (with their nested files, which follow them in the
+        // tree), then the other files; names within each group (upstream `foldersNestsFiles`).
+        SortOrder::FoldersNestsFiles => folders_first()
+            .then_with(|| nest_parents.contains(&b.name).cmp(&nest_parents.contains(&a.name)))
+            .then_with(|| by_name(a, b, lex)),
         SortOrder::Default => folders_first().then_with(|| by_name(a, b, lex)),
         SortOrder::Mixed => by_name(a, b, lex),
         SortOrder::FilesFirst => a.is_dir.cmp(&b.is_dir).then_with(|| by_name(a, b, lex)),
@@ -93,7 +112,7 @@ mod tests {
     }
 
     fn names_with(mut v: Vec<DirEntry>, order: SortOrder, lex: Lexicographic, reverse: bool) -> Vec<String> {
-        sort_entries(&mut v, order, lex, reverse);
+        sort_entries(&mut v, order, lex, reverse, &HashSet::new());
         v.into_iter().map(|e| e.name).collect()
     }
 
@@ -140,6 +159,15 @@ mod tests {
             names_with(sample(), SortOrder::Modified, Lexicographic::Default, true),
             ["b.rs", "file2.txt", "file10.txt", "zeta", "Alpha"]
         );
+    }
+
+    #[test]
+    fn folders_nests_files_puts_files_with_nests_after_the_folders() {
+        let nests: HashSet<String> = ["b.rs".to_string()].into_iter().collect();
+        let mut v = vec![e("a.txt", false, 0), e("b.rs", false, 0), e("zeta", true, 0), e("c.md", false, 0)];
+        sort_entries(&mut v, SortOrder::FoldersNestsFiles, Lexicographic::Default, false, &nests);
+        let names: Vec<String> = v.into_iter().map(|e| e.name).collect();
+        assert_eq!(names, ["zeta", "b.rs", "a.txt", "c.md"]);
     }
 
     #[test]

@@ -464,6 +464,31 @@ fn file_nesting_shows_nests_under_their_parent_live(cx: &mut TestAppContext) {
     assert_eq!(row_names(&wb, cx), ["src", "a.js", "a.ts", "package-lock.json", "package.json"], "turning nesting off lists every file");
 }
 
+/// Headless: `foldersNestsFiles` (ADR-0052, #25). The files with nests come after the folders, each
+/// followed by its nests, and the nests stay with their parent when the order is reversed (upstream
+/// swaps the two items before comparing, so the whole order reverses, nests included).
+#[gpui::test]
+fn file_nesting_nests_stay_with_their_parent_in_the_sort(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("file-nesting-sort");
+    for name in ["a.txt", "b.ts", "b.js", "package.json", "package-lock.json"] {
+        fs::write(ws.path().join(name), "").unwrap();
+    }
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    set(cx, "explorer.fileNesting.enabled", json!(true));
+    set(cx, "explorer.sortOrder", json!("foldersNestsFiles"));
+    assert_eq!(
+        row_names(&wb, cx),
+        ["src", "b.ts", "b.js", "package.json", "package-lock.json", "a.txt"],
+        "folders, then the parents with their nests, then the other files"
+    );
+    set(cx, "explorer.sortOrderReverse", json!(true));
+    assert_eq!(
+        row_names(&wb, cx),
+        ["a.txt", "package.json", "package-lock.json", "b.ts", "b.js", "src"],
+        "reversed, each nest still follows its parent"
+    );
+}
+
 /// Headless: `explorer.fileNesting.patterns` (ADR-0052). A custom parent and child pattern nest, and
 /// the default patterns are replaced.
 #[gpui::test]

@@ -4,10 +4,12 @@
 //! upstream: src/vs/workbench/contrib/search/browser/searchView.ts @ 50e1350fc78d
 //! upstream: src/vs/base/common/strings.ts @ 50e1350fc78d
 //!
-//! Results are shown as a flat list of files (upstream `search.defaultViewMode` is `list`), each
-//! with its matches below it. Every match range is its own row, like upstream's `Match`.
+//! Results are shown as a flat list of files (`search.defaultViewMode: list`) or as a tree of
+//! folders (`tree`, [`Results::tree_layout`]), each file with its matches below it. Every match
+//! range is its own row, like upstream's `Match`.
 
 use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -62,6 +64,8 @@ pub struct FileResult {
 /// A visible row of the results list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Row {
+    /// Tree mode only: an index into [`TreeLayout::folders`].
+    Folder(usize),
     File(usize),
     Match(usize, usize),
 }
@@ -71,6 +75,64 @@ pub struct Results {
     pub files: Vec<FileResult>,
     /// `search.sortOrder`: the order of `files`.
     pub sort: ResultSortOrder,
+    /// Tree mode: the folders that are folded, by path relative to the search root (not by
+    /// index: files stream in and the list is re-sorted).
+    pub collapsed_dirs: BTreeSet<String>,
+}
+
+/// A folder row of the tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FolderRow {
+    /// Path relative to the search root, `/` separated (of the last folder when compressed).
+    pub path: String,
+    /// What the row shows: `a/b/c` when a chain of folders with a single folder inside is
+    /// compressed into one row (upstream's compressible tree).
+    pub label: String,
+    pub depth: usize,
+    pub expanded: bool,
+    /// Every file under the folder (indices into `Results::files`), for the count, Replace All
+    /// and Dismiss.
+    pub files: Vec<usize>,
+    /// Number of matches in those files.
+    pub matches: usize,
+}
+
+/// The rows of the tree view and what the renderer needs to indent them.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct TreeLayout {
+    pub rows: Vec<Row>,
+    pub folders: Vec<FolderRow>,
+    /// The depth of each file that has a row (matches are one deeper).
+    pub file_depth: HashMap<usize, usize>,
+}
+
+/// A folder under construction: its sub-folders in the order the sorted files first reach them,
+/// then its own files.
+#[derive(Default)]
+struct DirNode {
+    name: String,
+    dirs: Vec<DirNode>,
+    files: Vec<usize>,
+}
+
+impl DirNode {
+    fn child(&mut self, name: &str) -> &mut DirNode {
+        let at = match self.dirs.iter().position(|d| d.name == name) {
+            Some(at) => at,
+            None => {
+                self.dirs.push(DirNode { name: name.to_string(), ..DirNode::default() });
+                self.dirs.len() - 1
+            }
+        };
+        &mut self.dirs[at]
+    }
+
+    fn all_files(&self, out: &mut Vec<usize>) {
+        for d in &self.dirs {
+            d.all_files(out);
+        }
+        out.extend(&self.files);
+    }
 }
 
 fn utf16_len(s: &str) -> usize {
@@ -162,6 +224,10 @@ fn rel_dir_and_name(root: &Path, path: &Path) -> (String, String) {
     (dir, name)
 }
 
+fn join(base: &str, name: &str) -> String {
+    if base.is_empty() { name.to_string() } else { format!("{base}/{name}") }
+}
+
 /// The order of two file rows under `search.sortOrder` (upstream `searchSortOrder`). Every order
 /// ends with the folder and name, so equal keys keep a stable, readable order.
 fn compare_files(order: ResultSortOrder, a: &FileResult, b: &FileResult) -> Ordering {
@@ -237,10 +303,92 @@ impl Results {
         for f in &mut self.files {
             f.expanded = expanded;
         }
+        self.collapsed_dirs.clear();
+        if !expanded {
+            for f in &self.files {
+                let mut path = String::new();
+                for part in f.dir.split('/').filter(|p| !p.is_empty()) {
+                    if !path.is_empty() {
+                        path.push('/');
+                    }
+                    path.push_str(part);
+                    self.collapsed_dirs.insert(path.clone());
+                }
+            }
+        }
+    }
+
+    /// The rows of the tree view: folders (a chain of folders that hold nothing but one folder is
+    /// one compressed row) before the files of the same folder, each in the order the sorted
+    /// files reach them, with everything under a folded folder left out.
+    pub fn tree_layout(&self) -> TreeLayout {
+        let mut root = DirNode::default();
+        for (i, f) in self.files.iter().enumerate() {
+            let mut node = &mut root;
+            for part in f.dir.split('/').filter(|p| !p.is_empty()) {
+                node = node.child(part);
+            }
+            node.files.push(i);
+        }
+        let mut layout = TreeLayout::default();
+        self.emit_dir(&root, "", 0, &mut layout);
+        layout
+    }
+
+    fn emit_dir(&self, node: &DirNode, path: &str, depth: usize, out: &mut TreeLayout) {
+        for d in &node.dirs {
+            // Compress `a` -> `b` -> `c` while a folder holds only one folder.
+            let (mut label, mut full, mut cur) = (d.name.clone(), join(path, &d.name), d);
+            while cur.files.is_empty() && cur.dirs.len() == 1 {
+                cur = &cur.dirs[0];
+                label = format!("{label}/{}", cur.name);
+                full = join(&full, &cur.name);
+            }
+            let mut files = Vec::new();
+            cur.all_files(&mut files);
+            files.sort_unstable();
+            let matches = files.iter().map(|&i| self.files[i].matches.len()).sum();
+            let expanded = !self.collapsed_dirs.contains(&full);
+            out.folders.push(FolderRow { path: full.clone(), label, depth, expanded, files, matches });
+            out.rows.push(Row::Folder(out.folders.len() - 1));
+            if expanded {
+                self.emit_dir(cur, &full, depth + 1, out);
+            }
+        }
+        for &i in &node.files {
+            out.rows.push(Row::File(i));
+            out.file_depth.insert(i, depth);
+            if self.files[i].expanded {
+                out.rows.extend((0..self.files[i].matches.len()).map(|j| Row::Match(i, j)));
+            }
+        }
+    }
+
+    /// Fold or unfold a folder of the tree.
+    pub fn toggle_dir(&mut self, path: &str) {
+        if !self.collapsed_dirs.remove(path) {
+            self.collapsed_dirs.insert(path.to_string());
+        }
+    }
+
+    /// Dismiss several files (indices as in `files`).
+    pub fn remove_files(&mut self, indices: &[usize]) {
+        let mut sorted = indices.to_vec();
+        sorted.sort_unstable_by(|a, b| b.cmp(a));
+        sorted.dedup();
+        for i in sorted {
+            self.remove_file(i);
+        }
     }
 
     pub fn any_expanded(&self) -> bool {
         self.files.iter().any(|f| f.expanded)
+    }
+
+    /// Tree mode: something is unfolded (a shown folder, or a file when everything is in the root).
+    pub fn any_expanded_tree(&self) -> bool {
+        let layout = self.tree_layout();
+        if layout.folders.is_empty() { self.any_expanded() } else { layout.folders.iter().any(|f| f.expanded) }
     }
 
     /// Dismiss a file (and all of its matches) from the results.
@@ -425,6 +573,65 @@ mod tests {
 
         ed.set_cursor(Position::new(2, 2), true); // spans two lines
         assert_eq!(seed_text(&ed, &on_focus), None, "a multi-line selection is not a seed");
+    }
+
+    fn tree_results() -> Results {
+        let root = Path::new("/w");
+        let mut r = Results::default();
+        for rel in ["a/b/x.rs", "a/b/y.rs", "a/c/d/e.rs", "root.rs", "z/q.rs", "a/f.rs"] {
+            r.add_file(root, &fm(root, rel, "hit", &[(0, 3)]), true);
+        }
+        r
+    }
+
+    fn row_labels(r: &Results) -> Vec<String> {
+        let l = r.tree_layout();
+        l.rows
+            .iter()
+            .map(|row| match *row {
+                Row::Folder(i) => format!("{}{}/", "  ".repeat(l.folders[i].depth), l.folders[i].label),
+                Row::File(i) => format!("{}{}", "  ".repeat(l.file_depth[&i]), r.files[i].name),
+                Row::Match(i, _) => format!("{}  .", "  ".repeat(l.file_depth[&i])),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tree_groups_files_under_compressed_folders_folders_first() {
+        let r = tree_results();
+        assert_eq!(
+            row_labels(&r),
+            [
+                "a/", "  b/", "    x.rs", "      .", "    y.rs", "      .", "  c/d/", "    e.rs", "      .", "  f.rs", "    .",
+                "z/", "  q.rs", "    .", "root.rs", "  ."
+            ]
+        );
+        let l = r.tree_layout();
+        assert_eq!(l.folders[0].matches, 4, "a/ holds x, y, e and f, one match each");
+    }
+
+    #[test]
+    fn folded_folders_hide_their_rows_and_collapse_all_folds_every_folder() {
+        let mut r = tree_results();
+        r.toggle_dir("a/b");
+        assert!(row_labels(&r).contains(&"  b/".to_string()));
+        assert!(!row_labels(&r).iter().any(|l| l.trim() == "x.rs"));
+        r.toggle_dir("a/b");
+        assert!(r.any_expanded_tree());
+        r.set_all_expanded(false);
+        assert_eq!(row_labels(&r), ["a/", "z/", "root.rs"]);
+        assert!(!r.any_expanded_tree());
+        r.set_all_expanded(true);
+        assert_eq!(row_labels(&r).len(), 16);
+    }
+
+    #[test]
+    fn dismissing_several_files_removes_them_all() {
+        let mut r = tree_results();
+        let folder = r.tree_layout().folders[0].files.clone();
+        assert_eq!(folder.len(), 4);
+        r.remove_files(&folder);
+        assert_eq!(r.file_count(), 2);
     }
 
     #[test]

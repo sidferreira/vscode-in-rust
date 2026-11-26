@@ -219,12 +219,20 @@ fn clearing_the_query_clears_results(cx: &mut TestAppContext) {
 /// Like `start`, but with a temp settings.json (never the user's) installed as the configuration,
 /// and `docs/c.md` holding the word the tests search for.
 fn start_configured<'a>(cx: &'a mut TestAppContext, name: &str) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
+    start_with_settings(cx, name, "{}")
+}
+
+fn start_with_settings<'a>(
+    cx: &'a mut TestAppContext,
+    name: &str,
+    initial: &str,
+) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
     let dir = workspace(name);
     fs::write(dir.join("docs/c.md"), "alpha in docs\n").unwrap();
     let settings_dir = std::env::temp_dir().join(format!("rscode-e2e-search-settings-{name}-{}", std::process::id()));
     fs::create_dir_all(&settings_dir).unwrap();
     let settings = settings_dir.join("settings.json");
-    fs::write(&settings, "{}").unwrap();
+    fs::write(&settings, initial).unwrap();
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::icons::install(cx);
@@ -522,4 +530,73 @@ fn alt_cmd_c_toggles_match_case_only_with_the_search_view_focused(cx: &mut TestA
     cx.run_until_parked();
     settle(cx);
     assert_eq!(summary(&v, cx).as_deref(), Some("4 results in 2 files"), "Match Case is still off");
+}
+
+// ---- tree layout (ADR-0147) --------------------------------------------------------------------
+
+/// The text of the rows: `dir/` for folders, the name for files, `.` for matches.
+fn row_texts(v: &Entity<SearchView>, cx: &mut VisualTestContext) -> Vec<String> {
+    v.read_with(cx, |v, _| {
+        v.rows
+            .iter()
+            .map(|r| match *r {
+                Row::Folder(i) => format!("{}/", v.tree.folders[i].label),
+                Row::File(i) => v.results.files[i].name.clone(),
+                Row::Match(..) => ".".to_string(),
+            })
+            .collect()
+    })
+}
+
+#[gpui_kit::test]
+fn view_as_tree_groups_files_under_folders_and_folders_fold(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start(cx, "tree");
+    cx.simulate_keystrokes("cmd-shift-f");
+    let v = view(&wb, cx);
+    cx.simulate_input("alpha");
+    settle(cx);
+    assert!(!v.read_with(cx, |v, _| v.is_tree_view()), "list is the default");
+    assert_eq!(row_texts(&v, cx), ["a.txt", ".", ".", "b.rs", ".", "."]);
+
+    cx.update(|_, app| v.update(app, |v, cx| v.set_tree_view(true, cx)));
+    assert_eq!(row_texts(&v, cx), ["src/", "b.rs", ".", ".", "a.txt", ".", "."], "folders before the files of a folder");
+    cx.update(|_, app| v.update(app, |v, cx| v.activate(Row::Folder(0), cx)));
+    assert_eq!(row_texts(&v, cx), ["src/", "a.txt", ".", "."], "a folded folder hides its rows");
+    cx.update(|_, app| v.update(app, |v, cx| v.toggle_collapse_all(cx)));
+    assert_eq!(row_texts(&v, cx).len(), 7, "no folder is unfolded: Expand All");
+    cx.update(|_, app| v.update(app, |v, cx| v.toggle_collapse_all(cx)));
+    assert_eq!(row_texts(&v, cx), ["src/", "a.txt"], "a folder is unfolded: Collapse All folds every folder and file");
+
+    cx.update(|_, app| v.update(app, |v, cx| v.set_tree_view(false, cx)));
+    assert_eq!(row_texts(&v, cx), ["a.txt", "b.rs"], "back to the list, its files still folded by Collapse All");
+}
+
+#[gpui_kit::test]
+fn dismissing_a_folder_removes_its_files(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start(cx, "treedismiss");
+    cx.simulate_keystrokes("cmd-shift-f");
+    let v = view(&wb, cx);
+    cx.simulate_input("alpha");
+    settle(cx);
+    cx.update(|_, app| v.update(app, |v, cx| v.set_tree_view(true, cx)));
+    cx.update(|_, app| v.update(app, |v, cx| v.dismiss(Row::Folder(0), cx)));
+    assert_eq!(files(&v, cx), [("a.txt".into(), 2)]);
+    assert_eq!(row_texts(&v, cx), ["a.txt", ".", "."]);
+}
+
+#[gpui_kit::test]
+fn default_view_mode_setting_picks_the_first_layout(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start_with_settings(cx, "treedefault", r#"{ "search.defaultViewMode": "tree" }"#);
+    cx.simulate_keystrokes("cmd-shift-f");
+    cx.run_until_parked();
+    let v = view(&wb, cx);
+    assert!(v.read_with(cx, |v, _| v.is_tree_view()));
+    cx.simulate_input("alpha");
+    settle(cx);
+    assert_eq!(row_texts(&v, cx), ["docs/", "c.md", ".", "src/", "b.rs", ".", ".", "a.txt", ".", "."]);
+    // Like upstream the setting is read when the view is created; the toggle is the user's choice.
+    cx.update(|_, app| v.update(app, |v, cx| v.set_tree_view(false, cx)));
+    set_setting(cx, "search.defaultViewMode", json!("tree"));
+    settle(cx);
+    assert!(!v.read_with(cx, |v, _| v.is_tree_view()));
 }

@@ -120,6 +120,8 @@ pub struct SearchState {
     pub use_regex: bool,
     pub use_excludes: bool,
     pub details_open: bool,
+    /// "View as Tree" was chosen (`None`: follow `search.defaultViewMode`).
+    pub tree_layout: Option<bool>,
 }
 
 impl Default for SearchState {
@@ -133,6 +135,7 @@ impl Default for SearchState {
             use_regex: false,
             use_excludes: true,
             details_open: false,
+            tree_layout: None,
         }
     }
 }

@@ -21,8 +21,11 @@
 //! applies it (open editors through `vsr-editor`, other files on disk, `search/replace.rs`) and
 //! calls back `replace_finished`.
 //!
-//! Not implemented: the search editor ("Open in editor"), tree layout, open-editors /
-//! changed-files scopes, notebook and AI search.
+//! Tree layout (ADR-0147): "View as Tree" / "View as List" in the title bar, `search.defaultViewMode`
+//! for the first layout; folders are rows (compressed when they hold one folder), fold on click.
+//!
+//! Not implemented: the search editor ("Open in editor"), open-editors / changed-files scopes,
+//! notebook and AI search.
 
 #[path = "search/model.rs"]
 pub mod model;
@@ -45,7 +48,8 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use vsr_find::SearchReplacePattern;
 use vsr_search::{
-    CollapseResults, FileMatch, SearchComplete, SearchOptions, SearchSettings, TextSearchQuery, search, split_pattern_input,
+    CollapseResults, FileMatch, SearchComplete, SearchOptions, SearchSettings, TextSearchQuery, ViewMode, search,
+    split_pattern_input,
 };
 
 use crate::config::AppConfig;
@@ -54,7 +58,7 @@ use crate::icons;
 use crate::theme::Theme;
 use crate::ui::to_gpui;
 use model::{
-    LIMIT_HIT_MESSAGE, Results, Row, after_replace_all_message, no_results_message, replace_all_confirmation_message,
+    LIMIT_HIT_MESSAGE, Results, Row, TreeLayout, after_replace_all_message, no_results_message, replace_all_confirmation_message,
     result_count_message,
 };
 use replace::{FileOutcome, FileRanges, ReplaceRequest};
@@ -76,6 +80,8 @@ actions!(
 /// Key context of the view; its bindings only apply while focus is inside it.
 const KEY_CONTEXT: &str = "SearchView";
 const ROW_HEIGHT: f32 = 22.0;
+/// Indent per level of the tree view.
+const TREE_INDENT: f32 = 8.0;
 /// How often streamed results are handed to the UI while a search runs.
 const FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -175,6 +181,10 @@ pub struct SearchView {
     /// "Replaced N occurrences ..." (shown instead of the result count until the next search).
     after_replace: Option<String>,
     results: Results,
+    /// "View as Tree" (upstream `isTreeLayoutViewVisible`).
+    tree_view: bool,
+    /// The folders and file depths of the rows while `tree_view` is on.
+    tree: TreeLayout,
     rows: Vec<Row>,
     scroll: UniformListScrollHandle,
     status: Status,
@@ -212,6 +222,7 @@ impl SearchView {
         }));
         subs.push(cx.observe_global::<AppConfig>(|this, cx| this.on_config_changed(cx)));
         let sort_order = settings.sort_order;
+        let default_tree = settings.default_view_mode == ViewMode::Tree;
         Self {
             theme: crate::theme_service::ThemeService::theme(cx),
             root,
@@ -234,6 +245,8 @@ impl SearchView {
             pending: None,
             after_replace: None,
             results: Results { sort: sort_order, ..Results::default() },
+            tree_view: default_tree,
+            tree: TreeLayout::default(),
             rows: Vec::new(),
             scroll: UniformListScrollHandle::new(),
             status: Status::Idle,
@@ -284,6 +297,7 @@ impl SearchView {
             use_regex: self.use_regex,
             use_excludes: self.use_excludes,
             details_open: self.details_open,
+            tree_layout: Some(self.tree_view),
         }
     }
 
@@ -294,6 +308,10 @@ impl SearchView {
         self.use_regex = state.use_regex;
         self.use_excludes = state.use_excludes;
         self.details_open = state.details_open;
+        if let Some(tree) = state.tree_layout {
+            self.tree_view = tree;
+            self.rebuild_rows();
+        }
         for (input, text) in [(&self.include, &state.include), (&self.exclude, &state.exclude), (&self.query, &state.query)] {
             if !text.is_empty() {
                 input.update(cx, |s, cx| s.set_value(text, window, cx));
@@ -382,7 +400,13 @@ impl SearchView {
     }
 
     fn rebuild_rows(&mut self) {
-        self.rows = self.results.rows();
+        if self.tree_view {
+            self.tree = self.results.tree_layout();
+            self.rows = self.tree.rows.clone();
+        } else {
+            self.tree = TreeLayout::default();
+            self.rows = self.results.rows();
+        }
         if self.selected.is_some_and(|s| !self.rows.contains(&s)) {
             self.selected = None;
         }
@@ -540,9 +564,28 @@ impl SearchView {
         cx.notify();
     }
 
+    /// "View as Tree" / "View as List" (`setTreeView`).
+    pub fn set_tree_view(&mut self, tree: bool, cx: &mut Context<Self>) {
+        if self.tree_view == tree {
+            return;
+        }
+        self.tree_view = tree;
+        self.selected = None;
+        self.rebuild_rows();
+        cx.notify();
+    }
+
+    pub fn is_tree_view(&self) -> bool {
+        self.tree_view
+    }
+
+    fn any_expanded(&self) -> bool {
+        if self.tree_view { self.results.any_expanded_tree() } else { self.results.any_expanded() }
+    }
+
     /// "Collapse All" / "Expand All".
     pub fn toggle_collapse_all(&mut self, cx: &mut Context<Self>) {
-        let expand = !self.results.any_expanded();
+        let expand = !self.any_expanded();
         self.results.set_all_expanded(expand);
         self.rebuild_rows();
         cx.notify();
@@ -559,6 +602,12 @@ impl SearchView {
     pub fn activate(&mut self, row: Row, cx: &mut Context<Self>) {
         self.selected = Some(row);
         match row {
+            Row::Folder(i) => {
+                if let Some(path) = self.tree.folders.get(i).map(|f| f.path.clone()) {
+                    self.results.toggle_dir(&path);
+                }
+                self.rebuild_rows();
+            }
             Row::File(i) => {
                 if let Some(f) = self.results.files.get_mut(i) {
                     f.expanded = !f.expanded;
@@ -648,6 +697,11 @@ impl SearchView {
             return;
         }
         match row {
+            Row::Folder(i) => {
+                if let Some(files) = self.tree.folders.get(i).map(|f| f.files.clone()) {
+                    self.request_replace(&files, Pending::File, cx);
+                }
+            }
             Row::File(i) => {
                 self.request_replace(&[i], Pending::File, cx);
             }
@@ -731,6 +785,11 @@ impl SearchView {
 
     fn dismiss(&mut self, row: Row, cx: &mut Context<Self>) {
         match row {
+            Row::Folder(i) => {
+                if let Some(files) = self.tree.folders.get(i).map(|f| f.files.clone()) {
+                    self.results.remove_files(&files);
+                }
+            }
             Row::File(i) => self.results.remove_file(i),
             Row::Match(i, j) => self.results.remove_match(i, j),
         }
@@ -821,7 +880,7 @@ impl SearchView {
         let t = &self.theme;
         let searching = self.status == Status::Searching;
         let has_results = self.results.file_count() > 0;
-        let any_expanded = self.results.any_expanded();
+        let any_expanded = self.any_expanded();
         div()
             .flex_none()
             .h(px(35.))
@@ -850,6 +909,20 @@ impl SearchView {
                     .child(self.icon_button("search-clear", icons::CLEAR_ALL, "Clear Search Results", cx, |this, w, cx| {
                         this.clear_results(w, cx)
                     }))
+                    .child(
+                        // Upstream's icons: "View as Tree" shows the flat list glyph and "View as List" the tree one.
+                        self.icon_button(
+                            if self.tree_view { "search-view-list" } else { "search-view-tree" },
+                            if self.tree_view { icons::LIST_TREE } else { icons::LIST_FLAT },
+                            if self.tree_view { "View as List" } else { "View as Tree" },
+                            cx,
+                            |this, _, cx| {
+                                let tree = !this.tree_view;
+                                this.set_tree_view(tree, cx)
+                            },
+                        )
+                        .when(!has_results, |d| d.opacity(0.4)),
+                    )
                     .child(
                         self.icon_button(
                             "search-collapse",
@@ -1166,12 +1239,45 @@ impl SearchView {
                 )
         };
         let replace_active = self.replace_active();
+        let badge = |n: usize| {
+            div()
+                .flex_none()
+                .ml(px(6.))
+                .mr(px(4.))
+                .min_w(px(18.))
+                .h(px(18.))
+                .px(px(6.))
+                .rounded(px(11.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(11.))
+                .bg(to_gpui(t.badge_bg))
+                .text_color(to_gpui(t.badge_fg))
+                .child(n.to_string())
+        };
         match row {
+            Row::Folder(i) => {
+                let f = &self.tree.folders[i];
+                let gid = format!("sr-folder-{ix}");
+                base(("sr-folder", ix))
+                    .pl(px(8. + f.depth as f32 * TREE_INDENT))
+                    .child(glyph(if f.expanded { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }))
+                    .child(glyph(icons::FOLDER).mr(px(4.)))
+                    .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(f.label.clone()))
+                    .child(badge(f.matches))
+                    .when(replace_active, |d| {
+                        d.child(action("replace", icons::REPLACE, gid.clone(), "Replace All", cx))
+                    })
+                    .child(action("dismiss", icons::CLOSE, gid, "Dismiss", cx))
+                    .into_any_element()
+            }
             Row::File(i) => {
                 let f = &self.results.files[i];
                 let gid = format!("sr-file-{ix}");
+                let depth = self.tree.file_depth.get(&i).copied().unwrap_or(0);
                 base(("sr-file", ix))
-                    .pl(px(8.))
+                    .pl(px(8. + depth as f32 * TREE_INDENT))
                     .child(glyph(if f.expanded { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }))
                     .child(glyph(icons::FILE).mr(px(4.)))
                     .child(div().flex_none().whitespace_nowrap().child(f.name.clone()))
@@ -1184,25 +1290,9 @@ impl SearchView {
                             .whitespace_nowrap()
                             .text_size(px(12.))
                             .opacity(0.7)
-                            .child(f.dir.clone()),
+                            .child(if self.tree_view { String::new() } else { f.dir.clone() }),
                     )
-                    .child(
-                        div()
-                            .flex_none()
-                            .ml(px(6.))
-                            .mr(px(4.))
-                            .min_w(px(18.))
-                            .h(px(18.))
-                            .px(px(6.))
-                            .rounded(px(11.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(px(11.))
-                            .bg(to_gpui(t.badge_bg))
-                            .text_color(to_gpui(t.badge_fg))
-                            .child(f.matches.len().to_string()),
-                    )
+                    .child(badge(f.matches.len()))
                     .when(replace_active, |d| {
                         d.child(action("replace", icons::REPLACE, gid.clone(), "Replace All", cx))
                     })
@@ -1214,8 +1304,9 @@ impl SearchView {
                 let p = m.parts();
                 let replacement = self.replacement_for(m, cx);
                 let gid = format!("sr-match-{ix}");
+                let depth = self.tree.file_depth.get(&i).copied().unwrap_or(0);
                 base(("sr-match", ix))
-                    .pl(px(32.))
+                    .pl(px(32. + depth as f32 * TREE_INDENT))
                     .when(self.settings.show_line_numbers, |d| {
                         d.child(
                             div()

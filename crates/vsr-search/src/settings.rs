@@ -44,6 +44,8 @@ pub struct SearchSettings {
     pub seed_on_focus: bool,
     /// `search.seedWithNearestWord`: with no selection, the query takes the word at the caret.
     pub seed_with_nearest_word: bool,
+    /// `search.defaultViewMode`: the layout a Search view starts with.
+    pub default_view_mode: ViewMode,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -62,6 +64,16 @@ pub enum ResultSortOrder {
     CountAscending,
 }
 
+
+/// `search.defaultViewMode`: how the results are listed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ViewMode {
+    /// Every file in one list, with its folder after the name.
+    #[default]
+    List,
+    /// Files grouped under their folders.
+    Tree,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CollapseResults {
@@ -100,6 +112,7 @@ impl Default for SearchSettings {
             sort_order: ResultSortOrder::Default,
             seed_on_focus: false,
             seed_with_nearest_word: false,
+            default_view_mode: ViewMode::List,
         }
     }
 }
@@ -143,6 +156,7 @@ mod tests {
         assert!(!s.exclude_globs(true).contains(&"**/node_modules".to_string()));
         assert_eq!((s.threads, s.sort_order), (0, ResultSortOrder::Default));
         assert!(!s.seed_on_focus && !s.seed_with_nearest_word);
+        assert_eq!(s.default_view_mode, ViewMode::List);
     }
 
     #[test]

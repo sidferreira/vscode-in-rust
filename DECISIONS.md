@@ -3689,6 +3689,45 @@ and the E2E `whole_word_follows_editor_word_separators` (`editor_view/find_e2e.r
 look-around and back-references in regular expressions (Rust `regex`; ADR-0023), the widget's resize sash and the
 options-only widget when closed.
 
+## ADR-0147 — Search view: View as Tree / View as List and `search.defaultViewMode` (2026-11-26)
+
+**Context.** Gap review of the Search view against `searchView.ts`, `searchActionsTopBar.ts` and
+`searchResultsView.ts`. Already there (ADR-0023, 0029, 0044): include / exclude globs (with "use exclude settings
+and ignore files"), Replace in files with confirmation, per-file and per-match replace, collapse / expand all,
+search on type with its debounce, smart case, follow symlinks, ignore files, `maxResults` ("results in N files"),
+sort order, line numbers, seeding, opening a match in the editor. Missing: the tree layout (`search.defaultViewMode`
+was blocked on it), the search editor and "Open in editor" (`search.mode`, `search.searchEditor.*`), Replace Preview
+(`search.useReplacePreview`: needs a diff editor), search in open editors / changed files, context lines (only in the
+search editor: `search.searchEditor.defaultNumberOfContextLines`), `search.actionsPosition: auto` (responsive rows),
+`search.decorations.*` (SCM and problems services), `search.quickAccess.preserveInput` / `includeSymbols`.
+
+**Decisions.**
+- **Tree rows are pure model** (`search/model.rs`): `Results::tree_layout()` builds `TreeLayout { rows, folders,
+  file_depth }` from the sorted files. `Row::Folder(i)` indexes `folders`. A folder that holds only one folder and
+  no file is compressed with it into one row labelled `a/b/c` (upstream's `WorkbenchCompressibleAsyncDataTree`).
+  Folders come before the files of the same folder, in the order the sorted files reach them (so
+  `search.sortOrder` still decides the order); upstream's default comparer sorts the folder matches by path.
+- **Folding is keyed by the folder's relative path** (`Results::collapsed_dirs`), not by index, because files
+  stream in and the list re-sorts while a search runs. Collapse All / Expand All fold or unfold every folder (and
+  file), and in tree mode "is anything expanded" looks at the shown folders.
+- **Folder rows** show the folder icon, the label, the match count badge and the hover actions Replace All and
+  Dismiss (over every file under the folder, as `FolderMatchRenderer`). Files in the tree drop the folder text
+  that the list shows after the name; rows indent by 8 px per level.
+- **Toggle.** A title bar button, `View as Tree` / `View as List`, with upstream's icons (the action that is shown
+  while in list mode has `searchShowAsList`, `list-flat`; the one shown in tree mode has `list-tree`): codepoints
+  `0xEB84` and `0xEB86`. Disabled look (opacity 0.4) without results, as the precondition `HasSearchResults`.
+- **`search.defaultViewMode`** is read when the view is created, restored view state wins (`viewletState.view?.treeLayout
+  ?? default`), as upstream does (`searchView.ts:342`). The layout is saved in the session state (`SearchState::tree_layout`,
+  `Option<bool>`, serde default `None`). A later change of the setting does not flip an open view.
+- No new crate. No change to `main.rs`.
+
+**Tests.** `search/model.rs`: `tree_groups_files_under_compressed_folders_folders_first`,
+`folded_folders_hide_their_rows_and_collapse_all_folds_every_folder`, `dismissing_several_files_removes_them_all`.
+`search/e2e_tests.rs`: `view_as_tree_groups_files_under_folders_and_folders_fold`,
+`dismissing_a_folder_removes_its_files`, `default_view_mode_setting_picks_the_first_layout`.
+`config/settings.rs`: `default_view_mode_is_read`. Upstream has no unit test for the layout (`searchResult.test.ts`
+tests the model tree, which we do not mirror), so nothing is ported.
+
 ## ADR-0155 — Code lens: the provider query, the debounce and resolve (step 1 of ADR-0108); layout, click and fonts not done (2026-11-26)
 
 Step 3 of the navigation providers (ADR-0108 plan). This records what is in: the model and the worker query,

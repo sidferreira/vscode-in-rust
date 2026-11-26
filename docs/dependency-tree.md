@@ -20,16 +20,16 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 
 | source | count | attributed to a node |
 |---|---|---|
-| settings: wired | 330 | n/a (done) |
-| settings: blocked | 333 | 333 of 333 (by reason) |
+| settings: wired | 332 | n/a (done) |
+| settings: blocked | 332 | 332 of 332 (by reason) |
 | settings: exthost | 421 | 421 of 421 (by built-in extension) |
-| settings: todo | 420 | 252 of 420 matched by a node's todo_globs |
+| settings: todo | 419 | 252 of 419 matched by a node's todo_globs |
 | settings: n/a | 558 | not dependency-blocked (policy: product, Windows, deprecated) |
 | smoke scenarios: ready | 73 | not blocked |
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 112 | every ADR cited by a node exists (latest ADR-0163) |
+| ADR headings in DECISIONS.md | 115 | every ADR cited by a node exists (latest ADR-0163) |
 | upstream/ports.toml entries | 59 | not nodes (file ports, not features): partial 56, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.
@@ -163,7 +163,7 @@ flowchart LR
   n_file_dialogs["File dialogs (open folder, save as) (todo)"]:::todo
   n_modal_dialogs["Modal confirm dialogs (todo)"]:::todo
   n_search_editor["Search editor (results in an editor tab) (todo)"]:::todo
-  n_search_tree_view["Search tree view and action bar placement (todo)"]:::todo
+  n_search_action_bar_placement["Search action bar placement (todo)"]:::todo
   n_quick_search_picker["Quick Search picker (results in Quick Access) (todo)"]:::todo
   n_macos_pasteboards["macOS find pasteboard and rich clipboard (HTML flavour) (todo)"]:::todo
   n_replace_preview["Replace preview (todo)"]:::todo
@@ -443,8 +443,8 @@ Top 12 of 87 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 | sash-grippers | Sash grippers (the drawn handle on a sash) | done | feature | S (guess) | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | scroll-capture | Scroll capture on the editor surface (wheel zoom, sensitivity, middle click) | todo | feature | S (guess) | - | 5 (+0) | 5 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | scrollbar-content-height | Horizontal scrollbar height in the editor's scroll height | done | feature | S (guess) | editor-scrollbar | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| search-action-bar-placement | Search action bar placement | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | search-editor | Search editor (results in an editor tab) | todo | feature | L (guess) | untitled-editors | 6 (+0) | 6 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| search-tree-view | Search tree view and action bar placement | todo | feature | M (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | search-view | Search view and find in files (ADR-0023, ADR-0029) | done | feature | - | - | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | secondary-sidebar | Secondary side bar | todo | feature | M (guess) | - | 0 (+3) | 0 (+3) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | semantic-highlighting | Semantic highlighting (semantic token providers) | todo | feature | M (guess) | lang-providers-main, syntax-highlighting | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -491,7 +491,7 @@ Top 12 of 87 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 - Orphan nodes (not done, no edges, nothing attributed): none.
 - Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, builtin-lsp-css-html-json, child-process-main, code-folding, editor-find-widget, editor-tabs, github-prs, outline-view, overview-ruler-glyph-margin, sash-grippers, scrollbar-content-height, settings-editor.
 - Blocked settings with no node: 0. Exthost settings with no node: 0. Blocked smoke rows that name a feature with no node: 0.
-- Todo settings matched by no node's `todo_globs`: 168. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
+- Todo settings matched by no node's `todo_globs`: 167. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
 - DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is "needs sash grippers (the drawn handle in the middle of a sash)" has a second `comment` and `match` pair after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show settings (29) therefore land on the sash reason. They need document symbols. The graph maps that reason to `document-symbols` with a note.
 - Known gap in `scripts/progress-report`: it reads only the first status table of each scenario file. `search.md` has a second table (rows 8-11), so its scenario total is 170, not 174.
 

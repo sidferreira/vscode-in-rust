@@ -151,3 +151,26 @@ fn tab_focus_mode_keeps_the_tab_out_of_the_text(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(text(cx), before, "with tabFocusMode the editor does not take the tab");
 }
+
+// Upstream source: src/vs/editor/contrib/toggleTabFocusMode/browser/toggleTabFocusMode.ts (Ctrl+Shift+M on macOS)
+#[gpui::test]
+fn ctrl_shift_m_toggles_tab_focus_mode_and_a_settings_change_keeps_it(cx: &mut TestAppContext) {
+    let (wb, cx) = workbench(cx, "tabtoggle", "{}", "x\n");
+    cx.run_until_parked();
+    let text = |cx: &mut VisualTestContext| wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().buffer().value());
+    cx.simulate_keystrokes("ctrl-shift-m");
+    cx.run_until_parked();
+    let before = text(cx);
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+    assert_eq!(text(cx), before, "toggled on: Tab moves focus and does not type a tab");
+    set(cx, "editor.fontSize", json!(15));
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+    assert_eq!(text(cx), before, "an unrelated setting change does not undo the toggle");
+    cx.simulate_keystrokes("ctrl-shift-m");
+    cx.run_until_parked();
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+    assert_ne!(text(cx), before, "toggled back off: Tab types a tab again");
+}

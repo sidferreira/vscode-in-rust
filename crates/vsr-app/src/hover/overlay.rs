@@ -2,25 +2,26 @@
 //!
 //! Upstream source: src/vs/editor/contrib/hover/browser/contentHoverWidget.ts
 
-use gpui_kit::{AnyElement, Context, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled, div, px};
+use gpui_kit::{AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, StatefulInteractiveElement, Styled, div, px};
 
 use super::HoverState;
 use crate::editor_view::EditorHost;
 use crate::ui::to_gpui;
 use crate::theme::Theme;
 
-/// The widget over the editor, or `None` when nothing is shown. Its pointer events keep it open
-/// (`editor.hover.sticky`).
-pub fn overlay<T: EditorHost>(state: &HoverState, line_height: f32, theme: &Theme, cx: &mut Context<T>) -> Option<AnyElement> {
+/// The widget over the editor, or `None` when nothing is shown. `word` is the word's box
+/// `(x, top, bottom)` in the editor surface, where the widget is anchored. Its pointer events keep
+/// it open (`editor.hover.sticky`); a mouse down on it does not reach the editor (no dismissal).
+pub fn overlay<T: EditorHost>(state: &HoverState, word: (f32, f32, f32), line_height: f32, theme: &Theme, cx: &mut Context<T>) -> Option<AnyElement> {
     let sh = state.shown.as_ref()?;
     let lh = line_height;
-    let (x, y) = sh.at;
-    let top = if sh.above { (y - lh * sh.lines.len() as f32).max(0.0) } else { y + lh };
+    let (x, top) = super::origin(word, sh.above, sh.lines.len(), lh);
     let mut body = div()
         .id("hover-widget")
         .absolute()
-        .left(px(x.max(0.0)))
+        .left(px(x))
         .top(px(top))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .max_w(px(480.0))
         .px_2()
         .py_1()

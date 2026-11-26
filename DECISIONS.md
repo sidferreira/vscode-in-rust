@@ -3188,16 +3188,23 @@ additive messages in the extension host worker, the same job shape as Navigate.
   `Configuration`, and a `TestAppContext` test (`hover/e2e_tests.rs`) drives the workbench with an injected
   clock. The timing and sticky behaviour also have unit tests on the state machine.
 - **Not done (gaps).**
-  - The widget is anchored at the pointer, not at the word's box, and is not corrected for scroll after the
-    answer arrives.
+  - Closed (wip/hover-fixes): the widget is anchored at the hovered word's start, computed at each paint
+    (`hover_word_box`), so a scroll moves it with the text. Tests: `hover/e2e_tests.rs`.
   - Markdown is plain text: no code blocks, links, theme icons or verbosity controls.
-  - `editor.hover.showLongLineWarning` is not wired.
+  - Closed (wip/hover-fixes): `editor.hover.showLongLineWarning` is wired. A line of at least
+    `editor.maxTokenizationLineLength` UTF-16 units shows the tokenization warning even without provider
+    hovers, as upstream's `computeSync` does. Gaps: the "Don't Show Again" link is plain text, and
+    `editor.stopRenderingLineAfter` (upstream's "Rendering paused" warning) is not wired, so that warning
+    is never shown.
   - The E2E tests (`hover/e2e_tests.rs`) answer in process through `HoverState::fake`; the worker's
     `ToHost::Hover` job is not exercised by any test (the Navigate job has none either).
-  - The widget does not avoid the suggest widget; the two may overlap.
-  - Dismissal: upstream hides the content hover on mouse down, on a key press and on scroll. Here it hides
-    only when the pointer leaves the word (or the widget, when sticky), and `hover_pointer` keeps arming
-    while a drag selects text.
+  - Closed (wip/hover-fixes), simply: the hover is not drawn while the suggest list is open
+    (`hover_drawn`), so the two never overlap. Upstream places them side by side instead, so the hover is
+    hidden rather than moved.
+  - Closed (wip/hover-fixes): dismissal on a mouse down, a key press (bound keys and typed text), a wheel
+    scroll and a paint at a changed scroll offset (`HoverState::dismiss`, `scrolled_to`). A dismissal
+    also forgets the request in flight, so a late answer is dropped. While a button is held, the pointer
+    does not arm a hover. Gap: a scrollbar drag is caught only by the offset check at the next paint.
   - Code lens and inlay hints (ADR-0108 steps 3 and 4) are not started, so `navigation-providers` stays `todo`
     in `docs/dependencies.toml`.
 

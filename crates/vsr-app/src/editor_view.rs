@@ -43,7 +43,7 @@ use std::time::{Duration, Instant};
 use gpui_kit::{
     AnyElement, App, Bounds, ClipboardItem, Context, Entity, FocusHandle, InputHandler,
     IntoElement, KeyBinding, KeyContext, ListHorizontalSizingBehavior, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, ScrollStrategy,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, ScrollEvent, ScrollStrategy,
     SharedString, Styled, Task, TextRun, UTF16Selection, UniformListScrollHandle, Window, canvas,
     div, font, point, px, uniform_list,
 };
@@ -142,8 +142,8 @@ pub struct EditorView {
     /// Per-document (editor version, index of widest line), for horizontal scrolling.
     widest: HashMap<PathBuf, (u64, usize)>,
     /// List viewport in window coordinates, recorded at paint (for mouse hit-testing).
-    bounds: Rc<Cell<Bounds<Pixels>>>,
-    gutter: f32,
+    pub(crate) bounds: Rc<Cell<Bounds<Pixels>>>,
+    pub(crate) gutter: f32,
     /// Instant of the last caret movement/edit: the caret is solid, then blinks.
     activity: Option<Instant>,
     blink_task: Option<Task<()>>,
@@ -168,6 +168,9 @@ pub struct EditorView {
     brackets: decorations::BracketCache,
     /// Alt+Z (`editor.action.toggleWordWrap`): per-document override of `editor.wordWrap`.
     wrap_override: HashMap<PathBuf, bool>,
+    /// Ctrl+Shift+M (`editor.action.toggleTabFocusMode`): the runtime tab focus mode once toggled.
+    /// It is independent of `editor.tabFocusMode`, as upstream's `TabFocus` is of its settings.
+    tab_focus: Option<bool>,
     /// View state of tabs closed in this run, for reopening them (`workbench.editor.restoreViewState`).
     closed_views: HashMap<PathBuf, crate::session::state::ViewState>,
     /// The editor whose save was refused because its file changed on disk; the workbench shows
@@ -278,8 +281,13 @@ impl EditorView {
     /// Where the suggest list goes: `(x, top of the caret line, bottom of it)` within the editor surface,
     /// for `column` (1-based UTF-16) on the caret line.
     pub(crate) fn text_anchor(&self, e: &OpenEditor, column: usize) -> (f32, f32, f32) {
+        self.anchor_at(e, e.editor.selection().active.line, column)
+    }
+
+    /// The box `(x, top, bottom)` of the character at `line`, `column` (1-based UTF-16) in the editor
+    /// surface, at the current scroll.
+    pub(crate) fn anchor_at(&self, e: &OpenEditor, line: usize, column: usize) -> (f32, f32, f32) {
         let buf = e.buffer();
-        let line = e.editor.selection().active.line;
         let tab = e.editor.options().tab_size;
         let pos = Position::new(line, column.max(1));
         let (row, text, col) = match e.editor.view_lines() {
@@ -296,6 +304,30 @@ impl EditorView {
         let x = self.gutter + (visual_column(&text, tab, col) - 1) as f32 * self.char_width() + ox;
         let top = row as f32 * self.cfg.line_height + oy;
         (x, top, top + self.cfg.line_height)
+    }
+
+    /// The hover the editor draws now: none while the suggest list is open, which it would cover.
+    pub(crate) fn hover_drawn(&self) -> Option<&crate::hover::Shown> {
+        if self.suggest_visible { None } else { self.hover.shown.as_ref() }
+    }
+
+    /// The word box `(x, top, bottom)` the hover widget is anchored at, for the shown hover on `e`: the
+    /// start of the hovered word (upstream anchors to the word's range, not the pointer). A hover on
+    /// another document keeps the pointer position.
+    pub(crate) fn hover_word_box(&self, e: &OpenEditor, sh: &crate::hover::Shown) -> (f32, f32, f32) {
+        if sh.point.path != e.path {
+            return (sh.at.0, sh.at.1, sh.at.1 + self.cfg.line_height);
+        }
+        let line = sh.point.line as usize;
+        // The range is in chars, the editor's columns are UTF-16 units: convert the start.
+        let column = match sh.range {
+            Some(r) => {
+                let text = e.buffer().line_content(line);
+                1 + text.chars().take(r.start_column.saturating_sub(1) as usize).map(char::len_utf16).sum::<usize>()
+            }
+            None => sh.point.column as usize,
+        };
+        self.anchor_at(e, line, column)
     }
 
     /// The text of `e` changed outside the key commands (accepting a completion): the caret shows and the
@@ -319,6 +351,11 @@ impl EditorView {
         }
         let width = f32::from(self.bounds.get().size.width);
         (width > 0.0).then(|| wrap::viewport_columns(width - gutter, self.char_width()))
+    }
+
+    /// Tab moves focus: the toggle's state once Ctrl+Shift+M was pressed, else `editor.tabFocusMode`.
+    pub(crate) fn tab_focus_mode(&self) -> bool {
+        self.tab_focus.unwrap_or(self.cfg.tab_focus_mode)
     }
 
     fn rows_per_page(&self) -> usize {
@@ -388,7 +425,20 @@ impl EditorView {
         let pinned = sticky_scroll::lines(editor, &scroll, &cfg);
         let (_, scroll_x) = sticky_scroll::viewport_top(&scroll, cfg.line_height);
         let sticky = sticky_scroll::overlay(pinned, &cfg, &theme, gutter, scroll_x, fold_paint, cx);
-        let hover = crate::hover::overlay(&self.hover, cfg.line_height, &theme, cx);
+        // A scroll since the last paint dismisses the hover (upstream); while the suggest list is
+        // open the hover is not drawn over it.
+        let scroll_top = {
+            let o = scroll.0.borrow().base_handle.offset();
+            (f32::from(o.x), f32::from(o.y))
+        };
+        self.hover.scrolled_to(scroll_top);
+        let hover = match self.hover_drawn() {
+            Some(sh) => {
+                let word = self.hover_word_box(editor, sh);
+                crate::hover::overlay(&self.hover, word, cfg.line_height, &theme, cx)
+            }
+            None => None,
+        };
         let id: SharedString = editor.path.display().to_string().into();
         let list_focus = focus.clone();
         // `editor.scrollBeyondLastLine`: empty rows after the last line (the page is measured at paint).
@@ -523,6 +573,10 @@ impl EditorView {
             .on_mouse_move(cx.listener(|this: &mut T, ev: &MouseMoveEvent, window, cx| {
                 mouse_move(this, ev, window, cx)
             }))
+            // A wheel scroll dismisses the hover (upstream); the paint also checks the offset.
+            .on_scroll(cx.listener(|this: &mut T, _: &ScrollEvent, _, _| {
+                this.editor_host().1.hover.dismiss();
+            }))
             .on_hover(cx.listener(|this: &mut T, hovered: &bool, _, cx| {
                 let view = this.editor_host().1;
                 if !*hovered && view.fold_hover {
@@ -572,6 +626,8 @@ impl EditorView {
 // ---- commands ------------------------------------------------------------------------------
 
 fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, cx: &mut Context<T>) {
+    // A key press dismisses the hover (upstream), whatever the key does.
+    this.editor_host().1.hover.dismiss();
     if this.editor_command(cmd, window, cx) {
         return;
     }
@@ -592,9 +648,15 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
         }
         return;
     }
+    if matches!(cmd, Command::ToggleTabFocusMode) {
+        let view = this.editor_host().1;
+        view.tab_focus = Some(!view.tab_focus_mode());
+        cx.notify();
+        return;
+    }
     // `editor.tabFocusMode`: Tab moves focus instead of inserting a tab. rscode has no focus tab
     // stops outside the editor yet, so the focus stays where it is; the tab is not typed.
-    if matches!(cmd, Command::Tab) && this.editor_host().1.cfg.tab_focus_mode {
+    if matches!(cmd, Command::Tab) && this.editor_host().1.tab_focus_mode() {
         window.focus_next(cx);
         return;
     }
@@ -682,6 +744,7 @@ fn command_event<T: EditorHost>(this: &mut T, cmd: Command) -> Option<EditorEven
         | Command::Save
         | Command::CloseTab
         | Command::ToggleWordWrap
+        | Command::ToggleTabFocusMode
         | Command::Fold(_)
         | Command::TriggerSuggest
         | Command::HideSuggest
@@ -774,6 +837,7 @@ fn hit_test(view: &EditorView, e: &OpenEditor, p: Point<Pixels>, window: &Window
 
 fn mouse_down<T: EditorHost>(this: &mut T, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<T>) {
     let (editors, view) = this.editor_host();
+    view.hover.dismiss();
     let Some(e) = editors.active.and_then(|i| editors.open.get_mut(i)) else { return };
     if let Some(f) = &view.focus {
         f.focus(window, cx);
@@ -869,6 +933,11 @@ fn mouse_move<T: EditorHost>(this: &mut T, ev: &MouseMoveEvent, window: &mut Win
 /// The pointer moved over the text: the word under it starts its hover delay (ADR-0109). A timer
 /// wakes the editor when the delay ends, so the request goes out without another mouse move.
 fn hover_pointer<T: EditorHost>(editors: &Editors, view: &mut EditorView, ev: &MouseMoveEvent, window: &Window, cx: &mut Context<T>) {
+    // A drag selects text: no hover while a button is held (upstream hides it on a mouse down).
+    if ev.pressed_button.is_some() {
+        view.hover.dismiss();
+        return;
+    }
     let settings = crate::hover::settings(cx);
     let point = editors.active.and_then(|i| editors.open.get(i)).filter(|e| e.path.is_absolute() && !e.is_untitled()).map(|e| {
         let (pos, _) = hit_test(view, e, ev.position, window);
@@ -919,6 +988,8 @@ impl<T: EditorHost> EditorInput<T> {
         cx: &mut App,
     ) {
         let event = self.with(cx, |e, view| {
+            // Typing is a key press: the hover is dismissed (upstream).
+            view.hover.dismiss();
             if e.is_read_only() {
                 return None;
             }

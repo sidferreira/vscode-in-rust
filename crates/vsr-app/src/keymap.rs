@@ -48,6 +48,9 @@ pub enum Command {
     CloseTab,
     /// Alt+Z: wrap long lines at the viewport, or stop wrapping (`editor.action.toggleWordWrap`).
     ToggleWordWrap,
+    /// Ctrl+Shift+M on macOS (`editor.action.toggleTabFocusMode`): Tab moves focus instead of
+    /// inserting a tab, until toggled back (upstream `TabFocus`, a runtime flag over the setting).
+    ToggleTabFocusMode,
     /// The folding commands (`editor.fold`, `editor.foldAll`, ...; ADR-0042).
     Fold(FoldAction),
     /// Cmd+/ (`editor.action.commentLine`), Cmd+K Cmd+C (`addCommentLine`) and Cmd+K Cmd+U
@@ -121,6 +124,7 @@ pub const BINDINGS: &[(&str, Command)] = &[
     ("cmd-s", Save),
     ("cmd-w", CloseTab),
     ("alt-z", ToggleWordWrap),
+    ("ctrl-shift-m", ToggleTabFocusMode),
     // Comments (comment.ts): macOS keys.
     ("cmd-/", LineComment(CommentType::Toggle)),
     ("cmd-k cmd-c", LineComment(CommentType::ForceAdd)),
@@ -208,7 +212,7 @@ pub fn apply(editor: &mut Editor, cmd: Command, page: usize) -> bool {
         Fold(action) => {
             editor.fold_action(action);
         }
-        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest | SuggestNext | SuggestPrevious | SuggestNextPage | SuggestPreviousPage | AcceptSuggest | AcceptSuggestOnEnter | Navigate(_) => {
+        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | ToggleTabFocusMode | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest | SuggestNext | SuggestPrevious | SuggestNextPage | SuggestPreviousPage | AcceptSuggest | AcceptSuggestOnEnter | Navigate(_) => {
             return false;
         }
     }
@@ -239,6 +243,7 @@ mod tests {
         assert_eq!(resolve("cmd-s"), Some(Save));
         assert_eq!(resolve("cmd-w"), Some(CloseTab));
         assert_eq!(resolve("alt-z"), Some(ToggleWordWrap));
+        assert_eq!(resolve("ctrl-shift-m"), Some(ToggleTabFocusMode));
         assert_eq!(resolve("ctrl-q"), None);
     }
 

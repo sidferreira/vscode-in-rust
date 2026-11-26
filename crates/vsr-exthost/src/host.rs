@@ -194,6 +194,7 @@ impl ExtensionHost {
             n += 1;
             match ev {
                 Event::Request(call, responder) => {
+                    self.open_on_demand(&call);
                     responder.reply(self.main_thread.handle(&call));
                 }
                 Event::Closed => self.closed = true,
@@ -203,6 +204,52 @@ impl ExtensionHost {
         }
         self.flush_file_events();
         n
+    }
+
+    /// `MainThreadDocuments.$tryOpenDocument` for a file that is not open yet
+    /// (`workspace.openTextDocument(uri)`, which the HTML client uses to read `html.customData`
+    /// files): read it from disk, make it a document and tell the host before the reply goes out
+    /// (ADR-0103). The delta and the reply travel on one connection, in that order.
+    fn open_on_demand(&mut self, call: &vsr_rpc::rpc::Call) {
+        if call.rpc_id != vsr_rpc::proxy_ids::main::MAIN_THREAD_DOCUMENTS
+            || call.method != "$tryOpenDocument"
+        {
+            return;
+        }
+        let Some(Arg::Json(uri)) = call.args.first() else {
+            return;
+        };
+        if self
+            .main_thread
+            .documents
+            .open
+            .contains_key(&crate::diagnostics::uri_key(uri))
+        {
+            return;
+        }
+        let Ok(path) = crate::file_system::file_path(uri) else {
+            return;
+        };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let language = match path.extension().and_then(|e| e.to_str()) {
+            Some("json") => "json",
+            Some("css") => "css",
+            Some("scss") => "scss",
+            Some("less") => "less",
+            Some("html" | "htm") => "html",
+            Some("md") => "markdown",
+            _ => "plaintext",
+        };
+        let delta = self.main_thread.documents.add_document(&path, &text, language);
+        if let Some(session) = self.session.as_ref() {
+            let _ = session.request(
+                ext_host::EXT_HOST_DOCUMENTS_AND_EDITORS,
+                "$acceptDocumentsAndEditorsDelta",
+                &[Arg::Json(delta)],
+            );
+        }
     }
 
     /// `ExtHostFileSystemEventService.$onFileEvent`: the changes the watchers were promised, sent

@@ -3149,6 +3149,53 @@ Decision:
 - No new crates: the LSP client is the extension's own Node `vscode-languageclient`, so there was
   nothing to hand-roll or fetch.
 
+## ADR-0103 — CSS, SCSS, LESS and HTML language features end to end; the `json.*`, `css.*`, `scss.*`, `less.*` and `html.*` settings (2026-11-26)
+
+Context: issue #2, and the settings follow-up to ADR-0102. The built-in `css-language-features`
+and `html-language-features` run in the real host the same way the JSON one does: the extension is
+Node, its server is a child process, diagnostics are pulled for documents that have an editor.
+
+Decision and findings:
+
+- `tests/css_html_real_host.rs` (24 tests) and `tests/json_real_host.rs` (7) run the real
+  extensions. Activation, markers for a syntax error (`a { color red }`: "semi-colon expected",
+  severity 8) and completion (CSS property names, HTML tag names) pass for css, scss, less, html.
+  HTML reports CSS errors inside `<style>`; it has no syntax diagnostics of its own.
+- The HTML server asks the client for the `css` configuration section (embedded styles). With only
+  the HTML extension loaded its answer was `null` and the server failed ("Cannot read properties of
+  null"), so HTML tests load both extensions, as VS Code has. Not a host bug.
+- Real gap fixed: `workspace.openTextDocument(uri)` for a file that is not open. The HTML client
+  reads `html.customData` files that way. `ExtensionHost::pump` now answers
+  `MainThreadDocuments.$tryOpenDocument` for an unopened file by reading it from disk, adding the
+  document and sending `$acceptDocumentsAndEditorsDelta` before the reply (same connection, so in
+  order). Language id by extension (json, css, scss, less, html, md, else plaintext).
+- The shared `codeoss-exthost` build had only json. Build css and html with
+  `scripts/build-codeoss-exthost --language-features json,css,html <new folder>`; the css and html
+  tests skip, saying why, when the build lacks them.
+
+Settings with a test (all read by the extension through the host's configuration; statuses stay
+`exthost`, which is what this port means by "works through the extension host"):
+
+- json: `validate.enable`, `schemas`, `format.enable`, `format.keepLines`.
+- css: `validate`, `lint.emptyRules` (default warning, `error`, `ignore`), `completion.completePropertyWithSemicolon`,
+  `format.enable`, `format.braceStyle`, `hover.documentation`, `customData`.
+- scss and less: `validate` (on and off), `format.enable`, and `scss.lint` independent of `css.lint`.
+- html: `suggest.html5`, `completion.attributeDefaultValue`, `validate.styles`, `format.enable`, `customData`.
+- The JSON client registers a range formatting provider only; the tests use the range query.
+
+Reclassified `blocked` (upstream/settings.toml, each with its reason): `json.trace.server`,
+`css.trace.server`, `html.trace.server` (need the Output panel, `MainThreadOutputService`);
+`html.autoClosingTags`, `html.autoCreateQuotes` (need `$tryInsertSnippet`).
+
+Still `exthost` without a dedicated test: the other `css/scss/less.lint.*`, `*.hover.references`,
+`*.completion.triggerPropertyValueCompletion`, `*.format.*` apart from the ones above,
+`html.format.*`, `html.validate.scripts`, `html.suggest.hideEndTagSuggestions`,
+`json.maxItemsComputed`, `json.schemaDownload.*` (needs network or a local HTTP server),
+`json.colorDecorators.enable` (deprecated, n/a). They go through the same configuration path as the
+tested ones. `lsp-client` was already done (ADR-0102); `builtin-lsp-css-html-json` is done.
+
+No new crates.
+
 ## ADR-0108 — Go to Definition, Declaration, Type Definition and Implementation (2026-11-10)
 
 `vsr-app::navigation` (the app side) and two additive messages in the extension host worker, following

@@ -987,3 +987,15 @@ reason = "needs binary, custom and large-file editors"
 comment = "imageCarousel.* and mediaPreview.* configure the image and media previews, which are custom editors for binary files."
 source = ["core"]
 match = ["imageCarousel*", "mediaPreview*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the Output panel (MainThreadOutputService)"
+comment = "json.trace.server, css.trace.server and html.trace.server write the server's protocol trace to the language client's output channel (ADR-0101, ADR-0103); the channel service is not implemented, so nothing is shown."
+match = ["json.trace.server", "css.trace.server", "html.trace.server"]
+
+[[rule]]
+status = "blocked"
+reason = "needs snippet insertion in the editor (MainThreadTextEditors.$tryInsertSnippet)"
+comment = "html.autoClosingTags and html.autoCreateQuotes: the HTML client asks the server for the text to insert (html/autoInsert) and applies it with TextEditor.insertSnippet, which the main thread does not handle yet (ADR-0103)."
+match = ["html.autoClosingTags", "html.autoCreateQuotes"]

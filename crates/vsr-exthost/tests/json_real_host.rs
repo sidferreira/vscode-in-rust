@@ -153,3 +153,83 @@ fn json_validate_enable_false_silences_the_markers() {
     let key = format!("file://{}", file.display());
     assert!(host.main_thread.diagnostics.markers_for(&key).is_empty());
 }
+
+#[test]
+fn json_schemas_setting_associates_a_schema_with_matching_files() {
+    let Some((mut host, ws)) = boot_with(
+        "json-schemas-setting",
+        json!({ "json": { "schemas": [{
+            "fileMatch": ["*.conf.json"],
+            "schema": { "type": "object", "properties": { "mode": { "enum": ["fast", "slow"] } } }
+        }] } }),
+    ) else {
+        return;
+    };
+    let file = ws.join("a.conf.json");
+    open(&mut host, &file, "{ \"mode\": \"\" }\n");
+    let col = "{ \"mode\": \"".len() as u32 + 1;
+    let deadline = std::time::Instant::now() + T;
+    loop {
+        let got = host
+            .provide_completion_items(&file, Position::new(1, col), CompletionTrigger::Invoke, T)
+            .unwrap();
+        let labels: Vec<String> = got
+            .results
+            .iter()
+            .flat_map(|(_, l)| l.items.iter().map(|i| i.label.clone()))
+            .collect();
+        if labels.iter().any(|l| l.contains("fast")) && labels.iter().any(|l| l.contains("slow")) {
+            return;
+        }
+        assert!(std::time::Instant::now() < deadline, "{labels:?}");
+        host.pump(std::time::Duration::from_millis(200));
+    }
+}
+
+/// The text of the range formatting edits (the JSON client registers a range provider only), polled for `secs` when none are expected.
+fn format_json(settings: serde_json::Value, expect: bool) -> Option<Vec<String>> {
+    use vsr_exthost::language_features::dto::{FormattingOptions, Range};
+    let (mut host, ws) = boot_with("json-format", settings)?;
+    let file = ws.join("a.json");
+    open(&mut host, &file, "{\"a\":1,\"b\":[1,2]}\n");
+    let deadline = std::time::Instant::now()
+        + if expect { T } else { std::time::Duration::from_secs(4) };
+    loop {
+        let got = host
+            .provide_range_formatting_edits(
+                &file,
+                Range { start_line: 1, start_column: 1, end_line: 2, end_column: 1 },
+                &FormattingOptions {
+                    tab_size: 2,
+                    insert_spaces: true,
+                },
+                T,
+            )
+            .unwrap();
+        let texts: Vec<String> = got.flatten().into_iter().map(|e| e.text).collect();
+        if !texts.is_empty() || std::time::Instant::now() >= deadline {
+            return Some(texts);
+        }
+        host.pump(std::time::Duration::from_millis(200));
+    }
+}
+
+#[test]
+fn json_format_enable_false_registers_no_formatter() {
+    let Some(on) = format_json(json!({}), true) else {
+        return;
+    };
+    assert!(!on.is_empty(), "formatter on by default");
+    let off = format_json(json!({ "json": { "format": { "enable": false } } }), false).unwrap();
+    assert!(off.is_empty(), "{off:?}");
+}
+
+#[test]
+fn json_format_keep_lines_keeps_a_single_line_document_on_one_line() {
+    let Some(default) = format_json(json!({}), true) else {
+        return;
+    };
+    let keep = format_json(json!({ "json": { "format": { "keepLines": true } } }), true).unwrap();
+    assert!(default.join("").contains('\n'), "{default:?}");
+    assert!(!keep.join("").contains('\n'), "{keep:?}");
+}

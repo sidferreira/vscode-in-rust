@@ -9,12 +9,14 @@ use std::sync::Mutex;
 use crate::runner::{GhRunner, Output, SpawnError, Tool};
 
 type Reply = Result<Output, SpawnError>;
+/// Tool, argument prefix, arguments that must also be present, the answer.
+type Rule = (Tool, Vec<String>, Vec<String>, Reply);
 
 /// Answers calls whose arguments start with a registered prefix (the first match wins, later
 /// registrations first so a test can override a default). An unmatched call fails the test.
 #[derive(Default)]
 pub struct FakeRunner {
-    replies: Mutex<Vec<(Tool, Vec<String>, Reply)>>,
+    replies: Mutex<Vec<Rule>>,
     calls: Mutex<Vec<(Tool, Vec<String>)>>,
 }
 
@@ -25,7 +27,18 @@ impl FakeRunner {
 
     /// `tool args...` answers `reply`.
     pub fn on(self, tool: Tool, prefix: &[&str], reply: Reply) -> Self {
-        self.replies.lock().unwrap().push((tool, prefix.iter().map(|s| s.to_string()).collect(), reply));
+        self.replies.lock().unwrap().push((tool, prefix.iter().map(|s| s.to_string()).collect(), Vec::new(), reply));
+        self
+    }
+
+    /// Like [`FakeRunner::gh`], for calls that also contain every one of `contains` among their arguments.
+    pub fn gh_with(self, prefix: &[&str], contains: &[&str], stdout: &str) -> Self {
+        self.replies.lock().unwrap().push((
+            Tool::Gh,
+            prefix.iter().map(|s| s.to_string()).collect(),
+            contains.iter().map(|s| s.to_string()).collect(),
+            Ok(Output::ok(stdout)),
+        ));
         self
     }
 
@@ -65,8 +78,8 @@ impl GhRunner for FakeRunner {
     fn run(&self, tool: Tool, args: &[String], _cwd: &Path) -> Reply {
         self.calls.lock().unwrap().push((tool, args.to_vec()));
         let replies = self.replies.lock().unwrap();
-        for (t, prefix, reply) in replies.iter().rev() {
-            if *t == tool && args.starts_with(prefix) {
+        for (t, prefix, contains, reply) in replies.iter().rev() {
+            if *t == tool && args.starts_with(prefix) && contains.iter().all(|c| args.contains(c)) {
                 return reply.clone();
             }
         }

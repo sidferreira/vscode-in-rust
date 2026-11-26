@@ -3730,3 +3730,63 @@ listener falling back (connect error). The gpui wiring is covered by an E2E that
 listener thread calls.
 
 Not in this ADR: the `--reuse-window` / `-r` flag, folders in a request, and the Windows named pipe.
+
+## ADR-0113 — Pull requests on top of the `gh` CLI: the `vsr-github` crate (2026-11-26)
+
+Context: GitHub issue #40. The GitHub Pull Requests extension (`ext-pr-github`) is XXL and needs webviews, tree views and
+the authentication API; none exist yet. rscode wants pull requests now: list them, read one, check one out, create one.
+The `gh` CLI already does the authentication, the host selection and the API calls, and the user has it installed.
+
+Decision (`crates/vsr-github`, no gpui; the UI is ADR-0114):
+- **Own crate, process boundary.** Everything about `gh` (and the few `git` calls creating a pull request needs) lives in
+  `vsr-github`: locating the binary (`RSCODE_GH`, else `PATH`, else `/opt/homebrew/bin/gh` and `/usr/local/bin/gh`, because a
+  Finder launch has a short `PATH`; an override is taken as is so a wrong one is an error, not a silent fallback), typed
+  serde models of `--json` output, and a `Github` client with `snapshot`, `list_prs(filter)`, `pr_details`, `create_pr`,
+  `checkout`, `open_in_browser`, `branch_info`, `push_upstream`. Calls block; the app runs them on the background executor.
+- **`GhRunner` trait.** One method, `run(tool, args, cwd) -> Result<Output, SpawnError>`, for both `gh` and `git`. The real
+  `SystemRunner` spawns with `GH_PROMPT_DISABLED`, `GH_PAGER=cat`, `NO_COLOR` and `GIT_TERMINAL_PROMPT=0` so nothing waits on
+  a prompt nobody can answer. `fake::FakeRunner` (public, so the app's tests use it too) answers by argument prefix and
+  records every call.
+- **Errors in the terms the UI shows.** `GhError` is `GhMissing`, `NotSignedIn`, `NotGitHubRepo`, `Failed { command, code,
+  message }`, `Parse`, `Io`. A failed run is classified from gh's stderr; "not a git repository" and "none of the git remotes"
+  win over the `gh auth login` hint those messages also carry.
+- **Models tolerate change.** Unknown fields are ignored and optional ones default, so a newer gh does not break the parse.
+  Check runs and status contexts share one `Check` type with an `outcome()`.
+- **Crates.** No new crate: `serde` and `serde_json` are already in the workspace and lockfile (serde 1.0.229). No async
+  runtime and no `thiserror`: the error type is small enough to write by hand.
+- **Not used:** the GitHub REST/GraphQL API directly (would need token handling that `gh` already does), and `octocrab`
+  (a large dependency for six calls).
+
+Tests: unit tests with the fake runner and canned JSON in the shape of real gh output for every call and error path;
+`tests/spawn.rs` runs a fake `gh` shell script found on a `PATH` of its own (in a fresh temp folder) to prove spawning,
+the working directory and that a multi-line body arrives as one argument. The real `gh` is never started by a test.
+
+## ADR-0114 — The Pull Requests view, the PR tab and the `GitHub:` commands (2026-11-26)
+
+Context: ADR-0113 is the `gh` layer. This is what the user sees.
+
+Decision (`crates/vsr-app/src/github/`: `mod.rs` state and actions, `view.rs` drawing, `create.rs` the Quick Pick flows,
+`e2e_tests.rs`):
+- **View.** A "Pull Requests" activity-bar item (codicon `git-pull-request`) with a side-bar view of three sections: Open,
+  Created by me, Review requested, each with a count. A refresh button reloads them. Nothing is loaded (and `gh` is not
+  started) until the view is first shown. A failed load shows the reason instead of the sections: "Install GitHub CLI",
+  "Run `gh auth login`", or "This folder is not a GitHub repository", each with one line of what to do.
+- **PR tab.** Clicking a row opens one read-only detail tab (opening another pull request replaces it; the tab is not
+  restored on the next run, like the Welcome page): title and number, state and draft flag, author, `base <- head`, the body
+  as plain text (no Markdown rendering yet), a checks summary with each check, the files changed with their counts, and
+  Checkout and Open on GitHub buttons. It is a chrome tab like Settings and Welcome, so it sits beside the text editors, not in
+  `Editors`; the places that make another tab active also clear its flag.
+- **Commands** (Command Palette, category `GitHub`): Create Pull Request, Checkout Pull Request (a Quick Pick of the open
+  ones), Refresh Pull Requests; plus View: Show Pull Requests. They are gpui actions like every other command.
+- **Create flow.** Quick Pick steps over the existing picker (text steps show the typed text as their one row): when the
+  branch has no upstream, first "push it to origin?" with the two choices; only a Yes runs `git push -u origin HEAD`, an
+  Escape or No pushes nothing and creates nothing. Then the title (prefilled with the last commit subject), the body, the base
+  (prefilled with the repository's default branch) and draft yes/no, then `gh pr create`. A failed push stops the flow with the
+  error shown in the view.
+- **Threads.** Every `gh`/`git` call runs on the background executor; the answer comes back through `update`. A refresh
+  carries a generation so a slow answer does not overwrite a newer one.
+- **Tests.** `TestAppContext` with an injected `FakeRunner` (`Workbench.github.set_runner`): sections, empty, the three error
+  states, opening the tab, the buttons, the checkout command, the whole create flow, and that no push happens without a Yes.
+
+Left: Markdown for the body, reviews and comments in the tab, file diffs, a status-bar entry for the current branch's pull
+request, several PR tabs, and a periodic refresh.

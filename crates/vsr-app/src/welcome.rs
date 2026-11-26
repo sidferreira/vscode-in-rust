@@ -60,6 +60,7 @@ impl Workbench {
         self.welcome_open = true;
         self.welcome_active = true;
         self.settings_active = false;
+        self.github.pr_active = false;
         cx.notify();
     }
 
@@ -148,6 +149,7 @@ impl Workbench {
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| {
                         this.welcome_active = true;
+                        this.github.pr_active = false;
                         this.settings_active = false;
                         cx.notify();
                     }),

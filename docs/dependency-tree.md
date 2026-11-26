@@ -29,7 +29,7 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 107 | every ADR cited by a node exists (latest ADR-0160) |
+| ADR headings in DECISIONS.md | 109 | every ADR cited by a node exists (latest ADR-0160) |
 | upstream/ports.toml entries | 59 | not nodes (file ports, not features): partial 56, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.
@@ -46,6 +46,7 @@ flowchart LR
   classDef external fill:#f8d7da,stroke:#b71c1c,color:#4a0f12
   n_ext_host_p0["Extension host P0: Node handshake (ADR-0060, ADR-0061) (done)"]:::done
   n_config_service["Configuration service and live reload (ADR-0022) (done)"]:::done
+  n_github_prs["Native pull requests on the gh CLI (ADR-0113, ADR-0114) (done)"]:::done
   n_command_registry["Command registry and Command Palette (ADR-0030) (done)"]:::done
   n_quick_open["Quick Open on a reusable quick pick (ADR-0028) (done)"]:::done
   n_search_view["Search view and find in files (ADR-0023, ADR-0029) (done)"]:::done
@@ -392,6 +393,7 @@ Top 12 of 85 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 | folding-providers | Folding range providers (ext host and LSP import ranges) | todo | feature | S (guess) | lang-providers-main, lsp-client | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | formatting-providers | Formatting providers (format on save, paste, type; default formatter) | todo | feature | S (guess) | lang-providers-main | 8 (+0) | 8 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | git-scm | Git and SCM (built-in vscode.git, Source Control view) | todo (deferred) | feature | XL (guess) | ext-host-p1 | 103 (+31) | 103 (+31) | 0 (+0) | 2 | 2 (+0) | 0 (+2) |
+| github-prs | Native pull requests on the gh CLI (ADR-0113, ADR-0114) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | glyph-margin | Glyph margin (breakpoints and lightbulb lane) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | gpui-text-rendering | gpui text system gaps (letter spacing, font variation axes, smoothing) | todo | feature | M (guess) | - | 5 (+0) | 5 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | hot-exit-undo | Undo history saved with the hot exit backup | todo | feature | S (guess) | session-restore | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -482,7 +484,7 @@ Top 12 of 85 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 
 - Cycles in the needs graph: none.
 - Orphan nodes (not done, no edges, nothing attributed): none.
-- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, builtin-lsp-css-html-json, child-process-main, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, scrollbar-content-height, settings-editor.
+- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, builtin-lsp-css-html-json, child-process-main, code-folding, editor-find-widget, editor-tabs, github-prs, outline-view, overview-ruler-glyph-margin, sash-grippers, scrollbar-content-height, settings-editor.
 - Blocked settings with no node: 0. Exthost settings with no node: 0. Blocked smoke rows that name a feature with no node: 0.
 - Todo settings matched by no node's `todo_globs`: 176. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
 - DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is "needs sash grippers (the drawn handle in the middle of a sash)" has a second `comment` and `match` pair after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show settings (29) therefore land on the sash reason. They need document symbols. The graph maps that reason to `document-symbols` with a note.

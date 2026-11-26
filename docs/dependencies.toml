@@ -54,6 +54,14 @@ effort = "-"
 needs = []
 
 [[node]]
+id = "github-prs"
+title = "Native pull requests on the gh CLI (ADR-0113, ADR-0114)"
+status = "done"
+effort = "-"
+needs = []
+note = "Interim, rscode-native: vsr-github (gh runner, models) and a Pull Requests view, PR tab and GitHub: commands. Left: Markdown body, reviews and comments, diffs. Does not replace ext-pr-github."
+
+[[node]]
 id = "command-registry"
 title = "Command registry and Command Palette (ADR-0030)"
 status = "done"

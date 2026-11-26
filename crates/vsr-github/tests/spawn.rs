@@ -5,7 +5,7 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use vsr_github::{Github, NewPr, PrFilter, SystemRunner, locate_gh_in};
@@ -18,7 +18,7 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 /// A `gh` that logs its arguments (one per line, a marker line between calls) and prints canned JSON.
-fn fake_gh(dir: &PathBuf) -> PathBuf {
+fn fake_gh(dir: &Path) -> PathBuf {
     let script = r#"#!/bin/sh
 log="$(dirname "$0")/args.log"
 { echo "--- cwd=$(pwd)"; for a in "$@"; do printf '%s\n' "$a"; done; } >> "$log"

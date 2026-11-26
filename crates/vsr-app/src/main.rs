@@ -11,6 +11,7 @@ mod breadcrumbs; // the path bar under the tab strip and its dropdown (ADR-0047)
 mod commands; // command registry + Command Palette (ADR-0030)
 mod config;
 mod editor_view;
+mod github; // Pull Requests view, PR tab and GitHub commands on top of gh (ADR-0113)
 mod explorer; // file watcher, explorer file operations (ADR-0039)
 mod extensions; // the extension host in the workbench (ADR-0066)
 mod icons;
@@ -174,6 +175,7 @@ enum ActivityView {
     Search,
     Scm,
     Extensions,
+    PullRequests,
 }
 
 impl EditorHost for Workbench {
@@ -276,6 +278,8 @@ struct Workbench {
     suggest: suggest::SuggestState,
     /// The bottom panel (ADR-0111).
     panel: panel::PanelState,
+    /// Pull Requests: the view, the PR tab and the commands (ADR-0113).
+    github: github::GithubState,
     branch: Option<String>,
     error: Option<String>,
 }
@@ -357,6 +361,7 @@ impl Workbench {
             navigation: navigation::NavState::default(),
             suggest: Default::default(),
             panel: Default::default(),
+            github: Default::default(),
             branch: git_branch(&root),
             error: None,
         };
@@ -538,6 +543,7 @@ impl Workbench {
     fn open_editor(&mut self, path: &Path, options: OpenOptions, new_file: bool) {
         self.settings_active = false;
         self.welcome_active = false;
+        self.github.pr_active = false;
         let was_open = self.editors.index_of(path).is_some();
         let result = if new_file { self.editors.open_new_file(path, options) } else { self.editors.open_with(path, options) };
         if let Err(e) = result {
@@ -607,6 +613,7 @@ impl Workbench {
                 let search = self.ensure_search(window, cx);
                 search.update(cx, |v, cx| v.focus_query(window, cx));
             }
+            ActivityView::PullRequests => self.github_view_shown(cx),
             ActivityView::Scm | ActivityView::Extensions => {}
         }
         cx.notify();
@@ -678,6 +685,7 @@ impl Workbench {
         }
         self.settings_active = true;
         self.welcome_active = false;
+        self.github.pr_active = false;
         if let Some(view) = &self.settings {
             view.update(cx, |v, cx| v.focus_search(window, cx));
         }
@@ -686,7 +694,7 @@ impl Workbench {
 
     /// A text editor is the tab being shown (neither the Settings editor nor the Welcome page).
     fn editor_surface_active(&self) -> bool {
-        !self.settings_active && !self.welcome_active
+        !self.settings_active && !self.welcome_active && !self.github.pr_showing()
     }
 
     fn close_settings(&mut self) {
@@ -756,6 +764,7 @@ impl Workbench {
                     cx.listener(|this, _, _, cx| {
                         this.settings_active = true;
                         this.welcome_active = false;
+                        this.github.pr_active = false;
                         cx.notify();
                     }),
                 )
@@ -1068,6 +1077,7 @@ impl Workbench {
             (ActivityView::Search, icons::SEARCH, "Search (⇧⌘F)"),
             (ActivityView::Scm, icons::SOURCE_CONTROL, "Source Control (⌃⇧G)"),
             (ActivityView::Extensions, icons::EXTENSIONS, "Extensions (⇧⌘X)"),
+            (ActivityView::PullRequests, icons::GIT_PULL_REQUEST, "Pull Requests"),
         ]
         .into_iter()
         .enumerate()
@@ -1134,6 +1144,7 @@ impl Workbench {
             ActivityView::Search => "SEARCH",
             ActivityView::Scm => "SOURCE CONTROL",
             ActivityView::Extensions => "EXTENSIONS",
+            ActivityView::PullRequests => "PULL REQUESTS",
         };
         if let (ActivityView::Search, Some(search)) = (self.view, &self.search) {
             // The Search view draws its own title row (it carries the view actions).
@@ -1156,6 +1167,7 @@ impl Workbench {
                 .child(self.explorer(cx))
                 .child(self.outline_section(cx))
                 .into_any_element(),
+            ActivityView::PullRequests => self.github_side_bar(cx),
             _ => div()
                 .px(px(20.))
                 .text_size(px(12.))
@@ -1215,6 +1227,7 @@ impl Workbench {
                         this.editors.step_active(if dy < 0.0 { 1 } else { -1 });
                         this.settings_active = false;
                         this.welcome_active = false;
+                        this.github.pr_active = false;
                         cx.notify();
                     }
                 }
@@ -1377,6 +1390,7 @@ impl Workbench {
                         this.editors.activate(i);
                         this.settings_active = false;
                         this.welcome_active = false;
+                        this.github.pr_active = false;
                         // A double click pins a preview (upstream: double click keeps the editor).
                         if let Some(path) = this.editors.open.get(i).map(|e| e.path.clone()).filter(|_| ev.click_count >= 2) {
                             this.editors.pin(&path);
@@ -1396,6 +1410,9 @@ impl Workbench {
         if !single || self.settings_active {
             strip = strip.children(self.settings_tab(cx, chrome_actions));
         }
+        if !single || self.github.pr_showing() {
+            strip = strip.children(self.github_pr_tab(cx, chrome_actions));
+        }
         strip
     }
 
@@ -1412,6 +1429,7 @@ impl Workbench {
         let surface = match self.editors.active.and_then(|i| self.editors.open.get(i)) {
             _ if settings_surface.is_some() => settings_surface.unwrap().into_any_element(),
             _ if self.welcome_showing() => self.welcome_surface(cx),
+            _ if self.github.pr_showing() => self.github_pr_surface(cx),
             Some(editor) => self.editor_view.element(editor, &t, &settings, cx).into_any_element(),
             None => div()
                 .size_full()
@@ -1599,6 +1617,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::GoToSymbol, window, cx| this.show_quick_access("@", window, cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .map(|root| Workbench::bind_panel_actions(root, cx))
+            .map(|root| Workbench::bind_github_actions(root, cx))
             .on_action(cx.listener(|this, _: &theme_picker::SelectTheme, window, cx| this.show_theme_picker(window, cx)))
             .on_action(cx.listener(|this, _: &breadcrumbs::BreadcrumbsFocus, window, cx| this.focus_crumbs(false, window, cx)))
             .on_action(cx.listener(|this, _: &breadcrumbs::BreadcrumbsFocusAndSelect, window, cx| this.focus_crumbs(true, window, cx)))

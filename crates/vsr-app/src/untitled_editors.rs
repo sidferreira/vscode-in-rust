@@ -30,6 +30,7 @@ impl Workbench {
         let language = new_language(None, default.as_deref(), active.as_deref());
         self.settings_active = false;
         self.welcome_active = false;
+        self.github.pr_active = false;
         self.editors.open_untitled("", &language, OpenOptions::PINNED);
         cx.notify();
     }
@@ -64,6 +65,7 @@ impl Workbench {
             if let Some(i) = self.editors.index_of(&key) {
                 self.settings_active = false;
                 self.welcome_active = false;
+                self.github.pr_active = false;
                 self.editors.activate(i);
                 self.open_save_as_box(i, window, cx);
                 return;

@@ -938,7 +938,7 @@ fn command_line_files_open_after_session_restore_and_win_the_active_tab(cx: &mut
     let (wb, vcx) = start(cx, &env);
     assert_eq!(active_title(&wb, vcx).as_deref(), Some("b.txt"));
     let files = [env.root.join("c.txt"), env.root.join("a.txt")];
-    let files: Vec<crate::cli::LaunchFile> = files.into_iter().map(|path| crate::cli::LaunchFile { path, new: false }).collect();
+    let files: Vec<crate::cli::LaunchFile> = files.into_iter().map(|path| crate::cli::LaunchFile { path, new: false, position: None }).collect();
     wb.update(vcx, |wb, cx| wb.open_launch_files(&files, cx));
     vcx.run_until_parked();
     assert_eq!(titles(&wb, vcx), ["a.txt", "b.txt", "c.txt"]);
@@ -973,4 +973,23 @@ fn a_command_line_file_that_does_not_exist_opens_empty_and_the_first_save_create
     vcx.run_until_parked();
     assert_eq!(fs::read_to_string(env.root.join("new.txt")).unwrap(), "hello\n");
     assert!(!dirty_of(&wb, vcx, "new.txt"));
+}
+
+/// `rscode -g file:line:column` (ADR-0110): each file opens with the caret at its position; a
+/// position past the end of the file is clamped to its last line.
+#[gpui_kit::test]
+fn goto_puts_the_caret_at_the_line_and_column_and_clamps_past_the_end(cx: &mut TestAppContext) {
+    let env = env("launch-goto", None);
+    let (wb, vcx) = start(cx, &env);
+    let launch = crate::cli::parse(["-g", "b.txt:12:3", "c.txt:99999"], &env.root);
+    wb.update(vcx, |wb, cx| wb.open_launch_files(&launch.files, cx));
+    vcx.run_until_parked();
+    assert_eq!(active_title(&wb, vcx).as_deref(), Some("c.txt"));
+    let (caret_b, caret_c, last_line) = wb.read_with(vcx, |wb, _| {
+        let find = |title: &str| wb.editors.open.iter().find(|e| e.title == title).unwrap();
+        let (b, c) = (find("b.txt"), find("c.txt"));
+        (b.editor.selection().active, c.editor.selection().active, c.buffer().line_count())
+    });
+    assert_eq!(caret_b, Position::new(12, 3));
+    assert_eq!(caret_c, Position::new(last_line, 1), "past the end is the last line");
 }

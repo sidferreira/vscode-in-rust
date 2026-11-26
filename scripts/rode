@@ -7,9 +7,11 @@
 #   rode ~/dev/proj     open a folder
 #   rode src/main.rs    open a file (its folder becomes the workspace)
 #   rode . README.md    open the current folder and a file in it
+#   rode -g src/main.rs:12:3   open a file with the caret at line 12, column 3
 #
 # Options:
 #   -w, --wait      stay attached: logs in this terminal, return when the window closes
+#   -g, --goto      file arguments may end in :line[:column] (like code -g)
 #   -v, --version   print the installed version
 #   -h, --help      print this help
 #   --dry-run       print what would run, start nothing
@@ -42,9 +44,10 @@ paths=()
 for a in "$@"; do
   case "$a" in
     -w|--wait) wait=1 ;;
+    -g|--goto) paths+=("$a") ;; # rscode reads the :line[:column] of the file arguments
     --dry-run) dry=1 ;;
     -v|--version) echo "rode $RODE_VERSION"; exit 0 ;;
-    -h|--help) sed -n '2,19p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "rode: unknown option $a (see rode --help)" >&2; exit 2 ;;
     *) paths+=("$a") ;;
   esac

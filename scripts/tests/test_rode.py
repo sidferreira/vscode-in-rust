@@ -54,6 +54,12 @@ class Installed(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout.splitlines()
 
+    def test_goto_is_passed_through_with_its_file_argument(self):
+        out = self.dry("-g", "src/main.rs:12:3")
+        self.assertEqual([l for l in out if l.startswith("arg: ")], ["arg: -g", "arg: src/main.rs:12:3"])
+        self.assertEqual([l for l in self.dry("--goto", "a.txt:4") if l.startswith("arg: ")],
+                         ["arg: --goto", "arg: a.txt:4"])
+
     def test_installs_the_bundle_and_links_rode_into_it(self):
         self.assertTrue(os.path.islink(self.rode))
         self.assertEqual(os.path.realpath(self.rode),

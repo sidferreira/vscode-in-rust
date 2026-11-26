@@ -470,10 +470,24 @@ impl Workbench {
     fn open_launch_files(&mut self, files: &[cli::LaunchFile], cx: &mut Context<Self>) {
         for f in files {
             self.open_editor(&f.path, OpenOptions::PINNED, f.new);
+            if let Some((line, column)) = f.position {
+                self.go_to_launch_position(&f.path, line, column);
+            }
         }
         if !files.is_empty() {
             cx.notify();
         }
+    }
+
+    /// `rscode -g file:line:column` (ADR-0110): the caret at that position, clamped to the text and
+    /// scrolled into view, as `open_at` does for a search result.
+    fn go_to_launch_position(&mut self, path: &Path, line: usize, column: usize) {
+        use vsr_editor::Position;
+        let Some(i) = self.editors.index_of(path) else { return };
+        let e = &mut self.editors.open[i];
+        let position = e.editor.buffer().validate_position(Position::new(line, column));
+        e.editor.set_cursor(position, false);
+        self.editor_view.reveal(&self.editors.open[i]);
     }
 
     /// Open `path` as a pinned editor (the default for opens without a source).

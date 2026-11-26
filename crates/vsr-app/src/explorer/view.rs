@@ -113,7 +113,7 @@ impl Workbench {
     }
 
     /// `explorer.fileNesting`: the nests of the files in `dir` (none while nesting is off).
-    fn file_nests(&self, dir: &Path, entries: &[DirEntry]) -> Nests {
+    pub(crate) fn file_nests(&self, dir: &Path, entries: &[DirEntry]) -> Nests {
         let settings = &self.explorer.settings;
         if !settings.file_nesting {
             return Vec::new();
@@ -223,9 +223,11 @@ impl Workbench {
         let new = ExplorerSettings::from_configuration(configuration);
         self.explorer.reveal_exclude = super::settings::reveal_exclude(configuration);
         let old = self.explorer.settings.clone();
-        let sort_changed = (new.sort_order, new.lexicographic, new.sort_reverse) != (old.sort_order, old.lexicographic, old.sort_reverse);
+        // The folder listings depend on these: the order, and the nests `foldersNestsFiles` sorts by.
+        let relist = (new.sort_order, new.lexicographic, new.sort_reverse, new.file_nesting, &new.file_nesting_patterns)
+            != (old.sort_order, old.lexicographic, old.sort_reverse, old.file_nesting, &old.file_nesting_patterns);
         self.explorer.settings = new;
-        if sort_changed {
+        if relist {
             self.refresh_all(cx);
         }
     }

@@ -16,8 +16,8 @@ pub fn reveal_exclude(c: &Configuration) -> ExcludeMatcher {
     c.get_value("explorer.autoRevealExclude").map(ExcludeMatcher::from_value).unwrap_or_default()
 }
 
-/// `explorer.sortOrder`. `foldersNestsFiles` is `Default` here: nested files need file nesting
-/// (`explorer.fileNesting.enabled`), which rscode does not have, so the two sort the same.
+/// `explorer.sortOrder`. `foldersNestsFiles` puts the files that have nests (ADR-0052, ADR-0141) after the
+/// folders and before the other files; with file nesting off it sorts as `Default`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SortOrder {
     #[default]
@@ -26,6 +26,7 @@ pub enum SortOrder {
     FilesFirst,
     Type,
     Modified,
+    FoldersNestsFiles,
 }
 
 /// `explorer.sortOrderLexicographicOptions`: how names compare (see `sort.rs`).
@@ -169,6 +170,7 @@ impl ExplorerSettings {
             Some("filesFirst") => SortOrder::FilesFirst,
             Some("type") => SortOrder::Type,
             Some("modified") => SortOrder::Modified,
+            Some("foldersNestsFiles") => SortOrder::FoldersNestsFiles,
             Some(_) | None => SortOrder::Default,
         };
         let lexicographic = match c.get_str("explorer.sortOrderLexicographicOptions") {
@@ -229,6 +231,20 @@ mod tests {
         assert_eq!((s.copy_path_separator, s.copy_relative_path_separator), (PathSeparator::Backslash, PathSeparator::Slash));
         let bad = ExplorerSettings::from_configuration(&config(r#"{ "explorer.copyPathSeparator": ":" }"#));
         assert_eq!(bad.copy_path_separator, PathSeparator::Auto);
+    }
+
+    #[test]
+    fn file_nesting_patterns_keep_the_declaration_order() {
+        // The user's keys keep their declaration order, not the sorted key order. The user's object is
+        // merged over the defaults (as VS Code merges object settings): the default keys come first and
+        // the new keys follow in the order the user wrote them.
+        let s = ExplorerSettings::from_configuration(&config(
+            r#"{ "explorer.fileNesting.patterns": { "*.zz": "${capture}.js", "*.aa": "${capture}.js.map", "*.md": "${capture}.html" } }"#,
+        ));
+        let parents: Vec<&str> = s.file_nesting_patterns.iter().map(|(p, _)| p.as_str()).collect();
+        let defaults = ["*.ts", "*.js", "*.jsx", "*.tsx", "tsconfig.json", "package.json"];
+        assert_eq!(parents[..defaults.len()], defaults[..], "the defaults come first");
+        assert_eq!(parents[defaults.len()..], ["*.zz", "*.aa", "*.md"]);
     }
 
     #[test]

@@ -407,7 +407,17 @@ impl Workbench {
             explorer::gitignore::retain_visible(&mut entries, &self.root, dir);
         }
         let s = &self.explorer.settings;
-        explorer::sort::sort_entries(&mut entries, s.sort_order, s.lexicographic, s.sort_reverse);
+        // Only `foldersNestsFiles` sorts by nests; the others need no nest pass.
+        let nest_parents: std::collections::HashSet<String> = if s.sort_order == explorer::settings::SortOrder::FoldersNestsFiles {
+            self.file_nests(dir, &entries)
+                .into_iter()
+                .filter(|(_, children)| !children.is_empty())
+                .map(|(name, _)| name)
+                .collect()
+        } else {
+            Default::default()
+        };
+        explorer::sort::sort_entries(&mut entries, s.sort_order, s.lexicographic, s.sort_reverse, &nest_parents);
         entries
     }
 
@@ -542,6 +552,25 @@ impl Workbench {
         .detach();
         self.search = Some(view.clone());
         view
+    }
+
+    /// Moves the keyboard focus into `view`: the Explorer tree, or the Search query (upstream
+    /// `ViewContainerActivityAction.run` opens the composite with focus). Scm and Extensions are
+    /// placeholders with nothing to focus. The tree's handle is set before the tree is painted; gpui
+    /// keeps the focus once the tree renders it.
+    fn focus_activity_view(&mut self, view: ActivityView, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.sidebar_visible || self.view != view {
+            return;
+        }
+        match view {
+            ActivityView::Explorer => self.explorer.focus.focus(window, cx),
+            ActivityView::Search => {
+                let search = self.ensure_search(window, cx);
+                search.update(cx, |v, cx| v.focus_query(window, cx));
+            }
+            ActivityView::Scm | ActivityView::Extensions => {}
+        }
+        cx.notify();
     }
 
     /// Shift+Cmd+F: show the Search view and focus its query box.
@@ -992,10 +1021,12 @@ impl Workbench {
                 move |this, _, window, cx| {
                     let click_focus = this.layout(cx).activity_bar_click_focus;
                     // Clicking the active view toggles the side bar, like VS Code (`toggle`); with
-                    // `focus` the view stays shown.
+                    // `focus` the view stays shown and takes the keyboard focus.
                     if this.sidebar_visible && this.view == view {
                         if !click_focus {
                             this.sidebar_visible = false;
+                        } else {
+                            this.focus_activity_view(view, window, cx);
                         }
                     } else {
                         this.view = view;
@@ -1003,6 +1034,7 @@ impl Workbench {
                         if view == ActivityView::Search {
                             this.ensure_search(window, cx);
                         }
+                        this.focus_activity_view(view, window, cx);
                     }
                     cx.notify();
                 },

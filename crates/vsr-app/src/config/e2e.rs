@@ -179,6 +179,37 @@ fn activity_bar_icon_click_focus_keeps_the_side_bar_open(cx: &mut TestAppContext
     assert!(cx.debug_bounds("side-bar").is_some(), "focus keeps the shown view open");
 }
 
+/// Headless: `workbench.activityBar.iconClickBehavior: focus` moves the keyboard focus into the view
+/// the icon shows (ADR-0050, follow-up closed by ADR-0140). The Explorer tree takes the focus when its
+/// icon is clicked, both when the side bar is already shown and when the click shows it again.
+#[gpui_kit::test]
+fn activity_bar_icon_click_moves_focus_into_the_explorer(cx: &mut TestAppContext) {
+    // Upstream source: paneCompositeBar.ts `ViewContainerActivityAction.run` (`openPaneComposite(id, focus)`).
+    let (wb, cx, _f) = workbench(cx, "activity-focus", None, &[("a.txt", "x")]);
+    cx.run_until_parked();
+    let explorer_focused = |cx: &mut VisualTestContext| cx.update(|window, app| wb.read(app).explorer.focus.is_focused(window));
+    assert!(!explorer_focused(cx), "the tree has no focus at start");
+
+    set(cx, "workbench.activityBar.iconClickBehavior", json!("focus"));
+    let icon = bounds(cx, "activity:0").center();
+    cx.simulate_click(icon, Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("side-bar").is_some(), "the side bar stays open");
+    assert!(explorer_focused(cx), "focus: the click moves the focus into the Explorer");
+
+    // a hidden side bar, shown again by the same icon click: focus follows once it is painted
+    set(cx, "workbench.activityBar.iconClickBehavior", json!("toggle"));
+    let icon = bounds(cx, "activity:0").center();
+    cx.simulate_click(icon, Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("side-bar").is_none(), "toggle hides the side bar");
+    assert!(!explorer_focused(cx));
+    let icon = bounds(cx, "activity:0").center();
+    cx.simulate_click(icon, Default::default());
+    cx.run_until_parked();
+    assert!(explorer_focused(cx), "the click that shows the Explorer focuses it");
+}
+
 // ---- (b) status bar visibility --------------------------------------------------------------
 
 #[gpui_kit::test]

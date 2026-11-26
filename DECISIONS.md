@@ -1670,8 +1670,8 @@ already. Upstream 1.147 defines the compact layout in `ActivitybarPart` (default
   its items take the compact sizes (`metrics::ACTIVITY_BAR_COMPACT_*`); the layout's width and the sash
   drag (`activity_bar_width`) use the same width.
 - `workbench.activityBar.iconClickBehavior: focus` keeps the side bar open when the shown view's icon is clicked.
-  rscode does not move keyboard focus into the view on that click yet (upstream focuses the view); it is a
-  follow-up with the focus handles of the side bar views.
+  Clicking an icon also moves the keyboard focus into its view (ADR-0140); upstream does the same in both
+  click behaviours.
 - `workbench.activityBar.autoHide` is `blocked`: it hides a horizontal bar when one view container is
   shown, and rscode always has four.
 - The activity icons carry a debug selector `activity:<n>` (headless tests click them).
@@ -1711,15 +1711,15 @@ under a parent (`a.ts` > `a.js`, `package.json` > `package-lock.json`). The matc
 - `explorer.fileNesting.patterns` is read as an object (parent → comma-separated children). Empty parents
   or children are dropped, as upstream does. The default rules are `nesting::default_rules()`, the upstream
   defaults; `ExplorerSettings::default()` and the configuration agree (a test proves it). The object is
-  read in key order of serde_json, which is sorted; nests are the same, but a child matched by two
-  parents may be listed under either one.
+  read in declaration order (ADR-0141; before ADR-0141 it was sorted key order).
 - The tree (`explorer/view.rs`): nested files are not listed in their folder. They follow their parent row,
   one level deeper. A parent with nests shows a chevron; a click on it toggles the nests and does not open
   the file. `expand` is the initial state; `ExplorerState::nests_toggled` holds the parents toggled away
   from it. The nests come from the folder's file names, per listing, on every paint (cheap for the
   patterns we have).
-- Not ported: upstream's tree model (`nestedParent`, `nestedChildren`) and nested files sorting with the
-  parent. Keyboard navigation uses the flat rows, so arrows move through nests in display order.
+- Not ported: upstream's tree model (`nestedParent`, `nestedChildren`). Keyboard navigation uses the flat rows, so arrows move through nests in display order.
+- Follow-up closed by ADR-0141: `explorer.sortOrder: foldersNestsFiles` sorts by nests, and the patterns keep
+  their declaration order.
 
 ## ADR-0053 — Editor scrollbar settings: blocked until rscode draws an editor scrollbar (2026-11-10)
 
@@ -3230,3 +3230,57 @@ command in PATH" works:
 Not done: a second `rode` starts a second process and window instead of handing the paths to the running
 instance (upstream's single-instance IPC), and there is no `-n`/`-r`/`-g file:line:col`/`--diff`. A missing
 file is not created as a new file the way `code new.txt` does.
+
+## ADR-0140 — Activity bar icon click focuses the view (2026-11-26)
+
+**Context.** ADR-0050 left `workbench.activityBar.iconClickBehavior: focus` without keyboard focus: the click
+showed the view, the focus stayed where it was (issue #26). Upstream `ViewContainerActivityAction.run`
+(`paneCompositeBar.ts`) opens the composite with `focus` set, so a click on an icon focuses the view in both
+click behaviours. The `focus` mode keeps the shown view open when its icon is clicked again; `toggle` hides it.
+
+**Decision.**
+
+- `Workbench::focus_activity_view` moves the focus into the view the icon shows: the Explorer tree
+  (`explorer.focus`) or the Search query (`focus_query`, the same focus as Shift+Cmd+F without the seed).
+  Scm and Extensions are placeholders with nothing to focus.
+- Every click that shows a view focuses it, in both click behaviours; the `focus` mode also focuses the
+  shown view when its icon is clicked again.
+- The focus is set in the click handler. gpui's `on_next_frame` callbacks run from the platform frame loop,
+  which the headless test harness does not drive, so a callback would never run in tests. `Window::focus`
+  only records the handle id, and the tree paints the same handle after the click.
+
+**Tests.** `config/e2e.rs`: `activity_bar_icon_click_moves_focus_into_the_explorer` (headless `TestAppContext`):
+the focus click on the shown Explorer, and the click that shows a hidden side bar again. The existing
+`activity_bar_icon_click_focus_keeps_the_side_bar_open` covers the hide and keep behaviour.
+
+## ADR-0141 — File nesting: `foldersNestsFiles`, nests with their parent, and the patterns' declaration order (2026-11-26)
+
+**Context.** Issue #25 (ADR-0052 follow-ups). Three things were wrong: `explorer.sortOrder: foldersNestsFiles`
+sorted as `default` (ADR-0041 said nests did not exist yet); nested files were not sorted with their parent;
+and `explorer.fileNesting.patterns` was read in sorted key order, because `serde_json` stored objects in a
+`BTreeMap`. Upstream: `explorerViewer.ts` (`Sorter.compare`, the `foldersNestsFiles` branch uses
+`statA.hasNests`) and `explorerModel.ts` (`fetchChildren` nests the files, `fileNester` reads
+`Object.entries` in declaration order).
+
+**Decision.**
+
+- `SortOrder::FoldersNestsFiles`: folders first, then the files that have nests, then the other files,
+  names within each group. `list()` asks the nests of the folder only for this order. `reverse` reverses the
+  whole order, nests included, as upstream swaps the two items before comparing.
+- Nested files follow their parent in the tree and are listed in the order of the sorted folder listing; a
+  test (`file_nesting_nests_stay_with_their_parent_in_the_sort`) pins that for both directions.
+- Changing `explorer.fileNesting.enabled` or `patterns` re-lists the folders (the listing depends on them
+  for `foldersNestsFiles`).
+- Declaration order: `vsr-settings` enables `serde_json`'s `preserve_order` feature, so a settings object
+  keeps the order the user wrote it in. The user's object is merged over the defaults (as VS Code merges
+  object settings), so the default keys come first and the user's new keys follow in order. The test
+  `file_nesting_patterns_keep_the_declaration_order` pins it. The order only matters when two parents claim
+  the same child; the trie lists that child under each claiming parent, so declaration order decides which
+  appears first.
+- Dependencies: no new crate. The change is the `preserve_order` feature of `serde_json` 1.0.154 (already
+  in the lock; it pulls in `indexmap`, which the lock already has).
+
+**Tests.** `explorer/sort.rs` (`folders_nests_files_puts_files_with_nests_after_the_folders`),
+`explorer/e2e_tree.rs` (`file_nesting_nests_stay_with_their_parent_in_the_sort`),
+`explorer/settings.rs` (`file_nesting_patterns_keep_the_declaration_order`). The 26 trie tests are already
+ported (`upstream/ports.toml`, `explorer-file-nesting`).

@@ -268,3 +268,108 @@ fn the_cursor_is_drawn_at_the_shells_cursor_cell(cx: &mut TestAppContext) {
     assert!((f32::from(cursor.origin.x - grid.origin.x) - 3. * cw).abs() < 0.6);
     assert!((f32::from(cursor.size.height) - lh).abs() < 0.6);
 }
+
+fn active_view(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> Entity<crate::terminal_view::TerminalView> {
+    wb.read_with(cx, |w, _| w.panel.terminals[w.panel.active_terminal].view.clone())
+}
+
+fn three_terminals(wb: &Entity<Workbench>, cx: &mut VisualTestContext) {
+    shell(cx, "cat");
+    cx.simulate_keystrokes("ctrl-`");
+    cx.simulate_keystrokes("ctrl-shift-`");
+    cx.simulate_keystrokes("ctrl-shift-`");
+    cx.run_until_parked();
+    assert_eq!(terminal_count(wb, cx), 3);
+}
+
+#[gpui_kit::test]
+fn removing_a_terminal_before_the_active_one_keeps_the_active_one(cx: &mut TestAppContext) {
+    let (wb, cx) = workbench(cx, "term-remove-below", None);
+    three_terminals(&wb, cx);
+    let third = active_view(&wb, cx);
+    assert_eq!(wb.read_with(cx, |w, _| w.panel.active_terminal), 2);
+    wb.update(cx, |w, cx| w.remove_terminal(0, cx));
+    assert_eq!(wb.read_with(cx, |w, _| w.panel.active_terminal), 1);
+    assert_eq!(active_view(&wb, cx), third, "the same terminal stays active");
+    // Removing the active last one selects the new last one; removing a later one changes nothing.
+    wb.update(cx, |w, _| w.panel.active_terminal = 0);
+    let first = active_view(&wb, cx);
+    wb.update(cx, |w, cx| w.remove_terminal(1, cx));
+    assert_eq!(active_view(&wb, cx), first);
+}
+
+#[gpui_kit::test]
+fn a_drag_below_the_grid_selects_within_it(cx: &mut TestAppContext) {
+    let (wb, cx) = workbench(cx, "term-drag-below", None);
+    shell(cx, "printf 'one\\r\\ntwo'; cat");
+    cx.simulate_keystrokes("ctrl-`");
+    wait_for_text(&wb, cx, "two");
+    let grid = bounds(cx, "terminal-grid");
+    let (cw, lh) = wb.read_with(cx, |w, cx| w.panel.terminals[0].view.read(cx).cell_size());
+    let start = point(grid.origin.x + px(cw / 2.), grid.origin.y + px(lh / 2.));
+    let outside = point(grid.origin.x + grid.size.width + px(500.), grid.origin.y + grid.size.height + px(500.));
+    cx.simulate_mouse_move(start, None, Default::default());
+    cx.simulate_mouse_down(start, gpui::MouseButton::Left, Default::default());
+    cx.simulate_mouse_move(outside, Some(gpui::MouseButton::Left), Default::default());
+    cx.simulate_mouse_up(outside, gpui::MouseButton::Left, Default::default());
+    cx.run_until_parked();
+    let s = snapshot(&wb, cx).unwrap();
+    let ((r0, c0), (r1, c1), _) = s.selection.expect("a selection");
+    assert!(r0.max(r1) < s.rows && c0.max(c1) < s.cols, "{:?}", s.selection);
+    cx.simulate_keystrokes("cmd-c");
+    let copied = cx.read_from_clipboard().and_then(|c| c.text()).unwrap_or_default();
+    assert!(copied.starts_with("one") && copied.contains("two") && copied.len() < 4000, "{copied:?}");
+}
+
+#[gpui_kit::test]
+fn focus_moves_on_when_the_focused_terminal_is_removed(cx: &mut TestAppContext) {
+    let (wb, cx) = workbench(cx, "term-focus-removed", None);
+    shell(cx, "cat");
+    cx.simulate_keystrokes("ctrl-`");
+    cx.simulate_keystrokes("ctrl-shift-`");
+    cx.run_until_parked();
+    let (first, second) = wb.read_with(cx, |w, _| (w.panel.terminals[0].view.clone(), w.panel.terminals[1].view.clone()));
+    assert!(cx.update(|window, cx| second.read(cx).is_focused(window)));
+    wb.update(cx, |w, cx| w.kill_terminal(cx));
+    cx.run_until_parked();
+    assert!(cx.update(|window, cx| first.read(cx).is_focused(window)), "the focus moved to the remaining terminal");
+    // The last one: the focus goes back to the workbench.
+    wb.update(cx, |w, cx| w.kill_terminal(cx));
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |w, _| w.panel.terminals.is_empty()));
+    let root = wb.read_with(cx, |w, _| w.focus.clone().expect("workbench focus"));
+    assert!(cx.update(|window, cx| root.contains_focused(window, cx) || root.is_focused(window)), "the workbench has the focus");
+}
+
+#[gpui_kit::test]
+fn a_release_outside_the_grid_ends_the_selection(cx: &mut TestAppContext) {
+    let (wb, cx) = workbench(cx, "term-release-outside", None);
+    shell(cx, "printf 'abc'; cat");
+    cx.simulate_keystrokes("ctrl-`");
+    wait_for_text(&wb, cx, "abc");
+    let grid = bounds(cx, "terminal-grid");
+    let start = point(grid.origin.x + px(3.), grid.origin.y + px(3.));
+    cx.simulate_mouse_move(start, None, Default::default());
+    cx.simulate_mouse_down(start, gpui::MouseButton::Left, Default::default());
+    assert!(active_view(&wb, cx).read_with(cx, |v, _| v.is_selecting()));
+    let outside = point(px(2.), px(2.));
+    cx.simulate_mouse_up(outside, gpui::MouseButton::Left, Default::default());
+    cx.run_until_parked();
+    assert!(!active_view(&wb, cx).read_with(cx, |v, _| v.is_selecting()));
+}
+
+#[gpui_kit::test]
+fn a_terminal_that_failed_to_start_stops_polling_when_closed(cx: &mut TestAppContext) {
+    let (wb, cx) = workbench(cx, "term-poll-stop", None);
+    set(cx, "terminal.integrated.profiles.osx", json!({ "t": { "path": "/nonexistent/shell" } }));
+    set(cx, "terminal.integrated.defaultProfile.osx", json!("t"));
+    cx.simulate_keystrokes("ctrl-`");
+    cx.run_until_parked();
+    let probe = active_view(&wb, cx).read_with(cx, |v, _| v.inbox_probe.clone());
+    wb.update(cx, |w, cx| w.kill_terminal(cx));
+    for _ in 0..5 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+    }
+    assert!(probe.upgrade().is_none(), "the poll task ended");
+}

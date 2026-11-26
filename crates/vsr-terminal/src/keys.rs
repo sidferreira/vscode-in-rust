@@ -102,7 +102,7 @@ fn encode_char(c: char, mods: Modifiers) -> Option<Vec<u8>> {
             '\\' | '4' => 0x1c,
             ']' | '5' => 0x1d,
             '^' | '6' => 0x1e,
-            '_' | '7' | '-' => 0x1f,
+            '_' | '7' | '-' | '/' => 0x1f,
             '8' | '?' => 0x7f,
             _ => return None,
         };
@@ -132,6 +132,7 @@ mod tests {
         assert_eq!(enc(Key::Char('c'), CTRL, false), "\x03");
         assert_eq!(enc(Key::Char('d'), CTRL, false), "\x04");
         assert_eq!(enc(Key::Char('['), CTRL, false), "\x1b");
+        assert_eq!(enc(Key::Char('/'), CTRL, false), "\x1f");
         assert_eq!(enc(Key::Char('f'), ALT, false), "\x1bf");
         assert_eq!(encode_key(&Key::Char('1'), CTRL, false), None);
         assert_eq!(enc(Key::Enter, NONE, false), "\r");

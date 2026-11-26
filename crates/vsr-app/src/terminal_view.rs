@@ -114,9 +114,9 @@ fn font_weight(c: &Configuration, key: &str, default: f32) -> f32 {
         Some(serde_json::Value::String(s)) => match s.as_str() {
             "normal" => 400.0,
             "bold" => 700.0,
-            n => n.parse::<f32>().map_or(default, |w| w.clamp(1.0, 1000.0)),
+            n => n.parse::<f32>().ok().filter(|w| w.is_finite()).map_or(default, |w| w.clamp(1.0, 1000.0)),
         },
-        Some(serde_json::Value::Number(n)) => n.as_f64().map_or(default, |w| (w as f32).clamp(1.0, 1000.0)),
+        Some(serde_json::Value::Number(n)) => n.as_f64().map(|w| w as f32).filter(|w| w.is_finite()).map_or(default, |w| w.clamp(1.0, 1000.0)),
         _ => default,
     }
 }
@@ -312,6 +312,9 @@ pub struct TerminalView {
     /// The font family the last frame used (tests).
     #[cfg(test)]
     pub used_family: std::cell::RefCell<String>,
+    /// The poll task's inbox: gone once the task ended (tests).
+    #[cfg(test)]
+    pub inbox_probe: std::sync::Weak<Mutex<Vec<TerminalEvent>>>,
 }
 
 impl TerminalView {
@@ -322,6 +325,8 @@ impl TerminalView {
         let shell = vsr_terminal::default_shell(launch.shell.as_ref());
         let shell_name = shell.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let inbox: Arc<Mutex<Vec<TerminalEvent>>> = Arc::default();
+        #[cfg(test)]
+        let inbox_probe = Arc::downgrade(&inbox);
         let outbox = inbox.clone();
         let mut view = Self {
             terminal: None,
@@ -335,6 +340,8 @@ impl TerminalView {
             selecting: false,
             #[cfg(test)]
             used_family: Default::default(),
+            #[cfg(test)]
+            inbox_probe,
         };
         match Terminal::spawn(&launch, move |e| {
             if let Ok(mut q) = outbox.lock() {
@@ -346,29 +353,32 @@ impl TerminalView {
         }
         // The shell's threads cannot wake a gpui task (the test scheduler refuses it), so the view polls
         // the inbox on a short timer: 16 ms, a frame.
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor().timer(POLL).await;
-                let events = std::mem::take(&mut *inbox.lock().unwrap());
-                if events.is_empty() {
-                    continue;
+        // No shell, no events: nothing to poll for.
+        if view.terminal.is_some() {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(POLL).await;
+                    let events = std::mem::take(&mut *inbox.lock().unwrap_or_else(|e| e.into_inner()));
+                    let exited = events.iter().any(|e| matches!(e, TerminalEvent::Exit(_)));
+                    // Every tick checks that the view is still alive, so the timer stops with it.
+                    let alive = this
+                        .update(cx, |this, cx| {
+                            if events.is_empty() {
+                                return;
+                            }
+                            for e in events {
+                                this.on_event(e, cx);
+                            }
+                            cx.notify();
+                        })
+                        .is_ok();
+                    if !alive || exited {
+                        break;
+                    }
                 }
-                let exited = events.iter().any(|e| matches!(e, TerminalEvent::Exit(_)));
-                if this
-                    .update(cx, |this, cx| {
-                        for e in events {
-                            this.on_event(e, cx);
-                        }
-                        cx.notify();
-                    })
-                    .is_err()
-                    || exited
-                {
-                    break;
-                }
-            }
-        })
-        .detach();
+            })
+            .detach();
+        }
         view
     }
 
@@ -388,6 +398,15 @@ impl TerminalView {
 
     pub fn title(&self) -> String {
         self.title.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| self.shell_name.clone())
+    }
+
+    pub fn focus_handle(&self) -> FocusHandle {
+        self.focus.clone()
+    }
+
+    #[cfg(test)]
+    pub fn is_selecting(&self) -> bool {
+        self.selecting
     }
 
     pub fn is_focused(&self, window: &Window) -> bool {
@@ -437,7 +456,37 @@ impl TerminalView {
         let (cw, lh) = self.cell.get();
         let col = ((f32::from(p.x) - f32::from(b.origin.x)) / cw.max(1.0)).floor().max(0.0) as usize;
         let row = ((f32::from(p.y) - f32::from(b.origin.y)) / lh.max(1.0)).floor().max(0.0) as usize;
-        (row, col)
+        // A drag past the grid selects up to its last cell, never outside it.
+        let (cols, rows) = self.terminal.as_ref().map_or((1, 1), |t| {
+            let s = t.size();
+            (s.0.max(1), s.1.max(1))
+        });
+        (row.min(rows - 1), col.min(cols - 1))
+    }
+
+    /// The pointer moved: extends the selection while the left button is held, and notices a release it
+    /// did not see.
+    fn drag_selection(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if ev.pressed_button != Some(MouseButton::Left) {
+            self.selecting = false;
+        } else if self.selecting {
+            let (row, col) = self.cell_at(ev.position);
+            if let Some(t) = &self.terminal {
+                t.update_selection(row, col);
+            }
+            cx.notify();
+        }
+    }
+
+    /// The left button was released (anywhere): ends the drag, and copies on selection when asked.
+    fn finish_selection(&mut self, cx: &mut Context<Self>) {
+        if self.selecting {
+            self.selecting = false;
+            let settings = TerminalSettings::from_configuration(AppConfig::get(cx).configuration());
+            if settings.copy_on_selection {
+                self.copy(cx);
+            }
+        }
     }
 
     fn on_key(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {
@@ -600,7 +649,22 @@ impl Render for TerminalView {
         let tracked = term.clone();
         let canvas_el = canvas(
             move |b, _, _| b,
-            move |b, _, _, cx| {
+            move |b, _, window, cx| {
+                // A release outside the grid must end the selection too.
+                // The drag and its release are tracked at the window, where the pointer may leave the grid.
+                let view = entity.clone();
+                window.on_mouse_event(move |ev: &MouseUpEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture && ev.button == MouseButton::Left {
+                        view.update(cx, |this, cx| this.finish_selection(cx));
+                    }
+                });
+                let view = entity.clone();
+                window.on_mouse_event(move |ev: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture {
+                        let ev = ev.clone();
+                        view.update(cx, |this, cx| this.drag_selection(&ev, cx));
+                    }
+                });
                 bounds.set(b);
                 let cols = (f32::from(b.size.width) / cw).floor().max(2.0) as usize;
                 let rows = (f32::from(b.size.height) / lh).floor().max(1.0) as usize;
@@ -698,27 +762,6 @@ impl Render for TerminalView {
                     cx.notify();
                 }),
             )
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
-                if this.selecting && ev.pressed_button == Some(MouseButton::Left) {
-                    let (row, col) = this.cell_at(ev.position);
-                    if let Some(t) = &this.terminal {
-                        t.update_selection(row, col);
-                    }
-                    cx.notify();
-                }
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, cx| {
-                    if this.selecting {
-                        this.selecting = false;
-                        let settings = TerminalSettings::from_configuration(AppConfig::get(cx).configuration());
-                        if settings.copy_on_selection {
-                            this.copy(cx);
-                        }
-                    }
-                }),
-            )
             .on_scroll(cx.listener(move |this, ev: &ScrollEvent, _, cx| {
                 let settings = TerminalSettings::from_configuration(AppConfig::get(cx).configuration());
                 let (_, lh) = this.cell.get();
@@ -786,7 +829,15 @@ impl Workbench {
         }
         let inst = self.panel.terminals.remove(i);
         inst.view.read(cx).kill();
-        self.panel.active_terminal = self.panel.active_terminal.min(self.panel.terminals.len().saturating_sub(1));
+        // The shown terminal stays the same one unless it is the removed one (then its successor, or the
+        // new last one).
+        let active = &mut self.panel.active_terminal;
+        if i < *active {
+            *active -= 1;
+        }
+        *active = (*active).min(self.panel.terminals.len().saturating_sub(1));
+        // `panel_sync` moves the focus on at the next frame when the removed terminal had it.
+        self.panel.refocus = Some(inst.view.read(cx).focus_handle());
         if self.panel.terminals.is_empty() {
             let settings = TerminalSettings::from_configuration(AppConfig::get(cx).configuration());
             if settings.hide_on_last_closed && self.panel.active == PanelView::Terminal {
@@ -946,5 +997,12 @@ mod tests {
         let c = config(r#"{ "terminal.integrated.fontWeight": "300", "terminal.integrated.fontWeightBold": 900 }"#);
         let s = TerminalSettings::from_configuration(&c);
         assert_eq!((s.font_weight, s.font_weight_bold), (300.0, 900.0));
+    }
+
+    #[test]
+    fn non_finite_font_weights_are_rejected() {
+        let c = config(r#"{ "terminal.integrated.fontWeight": "nan", "terminal.integrated.fontWeightBold": "inf" }"#);
+        let s = TerminalSettings::from_configuration(&c);
+        assert_eq!((s.font_weight, s.font_weight_bold), (400.0, 700.0));
     }
 }

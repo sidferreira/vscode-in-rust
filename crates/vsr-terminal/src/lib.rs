@@ -8,7 +8,10 @@ mod keys;
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
@@ -86,28 +89,79 @@ impl Dimensions for Size {
 
 type Callback = Arc<dyn Fn(TerminalEvent) + Send + Sync>;
 
-/// The emulator's event sink: answers queries the shell makes (cursor position, device attributes) on
-/// the PTY, and forwards what the owner cares about.
+/// Locks, ignoring poisoning: a panic in another thread must not take the UI down with it.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The emulator's event sink. It runs on the reader thread while that thread holds the `term` lock, so it
+/// never writes to the PTY and never calls the owner: replies go to the writer thread, and the events the
+/// owner cares about are queued and delivered by the reader once it released the lock.
 #[derive(Clone)]
 struct Listener {
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    callback: Callback,
+    pty: Sender<Vec<u8>>,
+    events: Sender<TerminalEvent>,
 }
 
 impl EventListener for Listener {
     fn send_event(&self, event: Event) {
         match event {
             Event::PtyWrite(text) => {
-                if let Ok(mut w) = self.writer.lock() {
-                    let _ = w.write_all(text.as_bytes());
-                    let _ = w.flush();
-                }
+                let _ = self.pty.send(text.into_bytes());
             }
-            Event::Title(t) => (self.callback)(TerminalEvent::Title(Some(t))),
-            Event::ResetTitle => (self.callback)(TerminalEvent::Title(None)),
-            Event::Bell => (self.callback)(TerminalEvent::Bell),
+            Event::Title(t) => {
+                let _ = self.events.send(TerminalEvent::Title(Some(t)));
+            }
+            Event::ResetTitle => {
+                let _ = self.events.send(TerminalEvent::Title(None));
+            }
+            Event::Bell => {
+                let _ = self.events.send(TerminalEvent::Bell);
+            }
             _ => {}
         }
+    }
+}
+
+/// The shell's process (group) and what is known about its life, shared with the helper threads.
+struct Proc {
+    pid: Option<u32>,
+    /// The shell was reaped: its pid may be reused from now on.
+    reaped: Mutex<bool>,
+    /// The reader hit EOF: every holder of the slave side is gone.
+    reader_done: AtomicBool,
+}
+
+impl Proc {
+    /// Signals the shell's process group (the shell is its leader: `portable-pty` calls `setsid`), so a
+    /// background job is reached too. Skipped once the reader saw EOF (nobody holds the slave any more, so
+    /// the pid may belong to someone else), and for the leader alone once it was reaped.
+    fn signal_group(&self, sig: i32) {
+        let Some(pid) = self.pid else { return };
+        if self.reader_done.load(Ordering::SeqCst) {
+            return;
+        }
+        let _reaped = lock(&self.reaped);
+        // A process group id cannot be reused while a member lives, so this is safe after the leader was
+        // reaped as long as the slave is still held (the reader has not seen EOF).
+        unsafe {
+            libc::killpg(pid as libc::pid_t, sig);
+        }
+    }
+
+    /// SIGHUP now, SIGKILL after a short grace if the group still holds the terminal.
+    fn terminate(self: &Arc<Self>) {
+        self.signal_group(libc::SIGHUP);
+        let proc = self.clone();
+        let _ = std::thread::Builder::new().name("terminal-reaper".into()).spawn(move || {
+            for _ in 0..25 {
+                if proc.reader_done.load(Ordering::SeqCst) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            proc.signal_group(libc::SIGKILL);
+        });
     }
 }
 
@@ -174,13 +228,23 @@ type Shared = Arc<Mutex<Term<Listener>>>;
 
 pub struct Terminal {
     term: Shared,
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// Bytes for the PTY, written by the writer thread so the caller never blocks on a full input queue.
+    input: Sender<Vec<u8>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
-    killer: Mutex<Box<dyn portable_pty::ChildKiller + Send + Sync>>,
     exit: Arc<Mutex<Option<Option<u32>>>>,
     title: Arc<Mutex<Option<String>>>,
     scrollback: usize,
-    pid: Option<u32>,
+    proc: Arc<Proc>,
+}
+
+/// Delivers what the listener queued, in order, outside the `term` lock.
+fn deliver(events: &Receiver<TerminalEvent>, title: &Mutex<Option<String>>, cb: &Callback) {
+    for e in events.try_iter() {
+        if let TerminalEvent::Title(t) = &e {
+            *lock(title) = t.clone();
+        }
+        cb(e);
+    }
 }
 
 impl Terminal {
@@ -207,22 +271,28 @@ impl Terminal {
         }
         let mut child = pair.slave.spawn_command(cmd).map_err(|e| format!("{}: {e}", shell.display()))?;
         drop(pair.slave);
-        let pid = child.process_id();
-        let killer = child.clone_killer();
-        let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-        let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| e.to_string())?));
+        let proc = Arc::new(Proc { pid: child.process_id(), reaped: Mutex::new(false), reader_done: AtomicBool::new(false) });
+        // From here a failure must not leave the shell running.
+        let fail = |proc: &Arc<Proc>, child: &mut Box<dyn portable_pty::Child + Send + Sync>, e: String| {
+            proc.terminate();
+            let _ = child.kill();
+            let _ = child.wait(); // reap it: no zombie on the error path
+            e
+        };
+        let mut reader = match pair.master.try_clone_reader() {
+            Ok(r) => r,
+            Err(e) => return Err(fail(&proc, &mut child, e.to_string())),
+        };
+        let mut writer = match pair.master.take_writer() {
+            Ok(w) => w,
+            Err(e) => return Err(fail(&proc, &mut child, e.to_string())),
+        };
 
+        let (input, input_rx) = mpsc::channel::<Vec<u8>>();
+        let (events_tx, events_rx) = mpsc::channel::<TerminalEvent>();
         let callback: Callback = Arc::new(on_event);
         let title = Arc::new(Mutex::new(None));
-        let title_cb = title.clone();
-        let user_cb = callback.clone();
-        let tracking: Callback = Arc::new(move |e| {
-            if let TerminalEvent::Title(t) = &e {
-                *title_cb.lock().unwrap() = t.clone();
-            }
-            user_cb(e)
-        });
-        let listener = Listener { writer: writer.clone(), callback: tracking.clone() };
+        let listener = Listener { pty: input.clone(), events: events_tx };
         let size = Size { cols: config.cols as usize, rows: config.rows as usize, history: 0 };
         let mut term_config = TermConfig { scrolling_history: config.scrollback, ..TermConfig::default() };
         if let Some(sep) = &config.word_separators {
@@ -230,11 +300,15 @@ impl Terminal {
         }
         let term: Shared = Arc::new(Mutex::new(Term::new(term_config, &size, listener)));
 
+        let spawn_thread = |name: &str, f: Box<dyn FnOnce() + Send>| std::thread::Builder::new().name(name.into()).spawn(f).map_err(|e| e.to_string());
+
         let reader_term = term.clone();
-        let reader_cb = tracking.clone();
-        std::thread::Builder::new()
-            .name("terminal-reader".into())
-            .spawn(move || {
+        let reader_cb = callback.clone();
+        let reader_title = title.clone();
+        let reader_proc = proc.clone();
+        let started = spawn_thread(
+            "terminal-reader",
+            Box::new(move || {
                 let mut processor: Processor = Processor::new();
                 let mut buf = [0u8; 65536];
                 loop {
@@ -242,71 +316,89 @@ impl Terminal {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
                             {
-                                let mut t = reader_term.lock().unwrap();
+                                let mut t = lock(&reader_term);
                                 processor.advance(&mut *t, &buf[..n]);
                             }
+                            deliver(&events_rx, &reader_title, &reader_cb);
                             reader_cb(TerminalEvent::Output);
                         }
                     }
                 }
-            })
-            .map_err(|e| e.to_string())?;
+                deliver(&events_rx, &reader_title, &reader_cb);
+                reader_proc.reader_done.store(true, Ordering::SeqCst);
+            }),
+        );
+        if let Err(e) = started {
+            return Err(fail(&proc, &mut child, e));
+        }
+
+        // The writer: the only place that blocks on the PTY. It ends when the Terminal (and the listener,
+        // which sits inside `term`) dropped their senders, or when the PTY is gone.
+        let started = spawn_thread(
+            "terminal-writer",
+            Box::new(move || {
+                for bytes in input_rx {
+                    if writer.write_all(&bytes).and_then(|_| writer.flush()).is_err() {
+                        break;
+                    }
+                }
+            }),
+        );
+        if let Err(e) = started {
+            return Err(fail(&proc, &mut child, e));
+        }
 
         let exit = Arc::new(Mutex::new(None));
         let exit_slot = exit.clone();
-        let exit_cb = tracking;
-        std::thread::Builder::new()
-            .name("terminal-wait".into())
-            .spawn(move || {
+        let wait_proc = proc.clone();
+        let started = spawn_thread(
+            "terminal-wait",
+            Box::new(move || {
                 let code = child.wait().ok().map(|s| s.exit_code());
+                *lock(&wait_proc.reaped) = true;
                 // Give the reader a moment to drain what the shell printed before it exited.
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                *exit_slot.lock().unwrap() = Some(code);
-                exit_cb(TerminalEvent::Exit(code));
-            })
-            .map_err(|e| e.to_string())?;
+                std::thread::sleep(Duration::from_millis(50));
+                *lock(&exit_slot) = Some(code);
+                callback(TerminalEvent::Exit(code));
+            }),
+        );
+        if let Err(e) = started {
+            // `child` moved into the closure that never ran; the group signal below stops it.
+            proc.terminate();
+            return Err(e);
+        }
 
-        Ok(Terminal {
-            term,
-            writer,
-            master: Mutex::new(pair.master),
-            killer: Mutex::new(killer),
-            exit,
-            title,
-            scrollback: config.scrollback,
-            pid,
-        })
+        Ok(Terminal { term, input, master: Mutex::new(pair.master), exit, title, scrollback: config.scrollback, proc })
     }
 
     pub fn pid(&self) -> Option<u32> {
-        self.pid
+        self.proc.pid
     }
 
     /// The title the shell set, if any.
     pub fn title(&self) -> Option<String> {
-        self.title.lock().unwrap().clone()
+        lock(&self.title).clone()
     }
 
     /// `Some(code)` once the shell has exited.
     pub fn exit_status(&self) -> Option<Option<u32>> {
-        *self.exit.lock().unwrap()
+        *lock(&self.exit)
     }
 
-    /// Sends bytes to the shell (keyboard input, pasted text).
+    /// Sends bytes to the shell (keyboard input, pasted text). Queued: never blocks on the PTY.
     pub fn write(&self, bytes: &[u8]) {
         if self.exit_status().is_some() {
             return;
         }
-        if let Ok(mut w) = self.writer.lock() {
-            let _ = w.write_all(bytes);
-            let _ = w.flush();
-        }
+        let _ = self.input.send(bytes.to_vec());
     }
 
     /// Pastes text, in bracketed paste mode when the shell asked for it.
     pub fn paste(&self, text: &str, allow_bracketed: bool) {
-        let bracketed = allow_bracketed && self.term.lock().unwrap().mode().contains(TermMode::BRACKETED_PASTE);
+        let bracketed = allow_bracketed && lock(&self.term).mode().contains(TermMode::BRACKETED_PASTE);
         if bracketed {
+            // Like xterm.js: a paste must not be able to end the bracket early.
+            let text = strip_bracket_markers(text);
             self.write(format!("\x1b[200~{text}\x1b[201~").as_bytes());
         } else {
             self.write(text.replace("\r\n", "\r").replace('\n', "\r").as_bytes());
@@ -315,7 +407,7 @@ impl Terminal {
 
     /// Sends a key as the shell expects it; false when the key has no terminal encoding.
     pub fn send_key(&self, key: &Key, mods: Modifiers) -> bool {
-        let app_cursor = self.term.lock().unwrap().mode().contains(TermMode::APP_CURSOR);
+        let app_cursor = lock(&self.term).mode().contains(TermMode::APP_CURSOR);
         match encode_key(key, mods, app_cursor) {
             Some(bytes) => {
                 self.write(&bytes);
@@ -325,34 +417,40 @@ impl Terminal {
         }
     }
 
-    pub fn resize(&self, cols: u16, rows: u16) {
-        let (cols, rows) = (cols.max(2), rows.max(1));
-        let _ = self.master.lock().unwrap().resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
-        let history = self.term.lock().unwrap().grid().history_size();
-        self.term.lock().unwrap().resize(Size { cols: cols as usize, rows: rows as usize, history: history.min(self.scrollback) });
+    /// The grid size as (columns, rows).
+    pub fn size(&self) -> (usize, usize) {
+        let t = lock(&self.term);
+        (t.columns(), t.screen_lines())
     }
 
-    /// Kills the shell.
+    pub fn resize(&self, cols: u16, rows: u16) {
+        let (cols, rows) = (cols.max(2), rows.max(1));
+        let _ = lock(&self.master).resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+        let history = lock(&self.term).grid().history_size();
+        lock(&self.term).resize(Size { cols: cols as usize, rows: rows as usize, history: history.min(self.scrollback) });
+    }
+
+    /// Hangs up the shell's process group (SIGHUP), then kills it if it lingers.
     pub fn kill(&self) {
-        let _ = self.killer.lock().unwrap().kill();
+        self.proc.terminate();
     }
 
     /// Scrolls the view: positive lines go up into the history.
     pub fn scroll(&self, lines: i32) {
-        self.term.lock().unwrap().scroll_display(Scroll::Delta(lines));
+        lock(&self.term).scroll_display(Scroll::Delta(lines));
     }
 
     pub fn scroll_to_bottom(&self) {
-        self.term.lock().unwrap().scroll_display(Scroll::Bottom);
+        lock(&self.term).scroll_display(Scroll::Bottom);
     }
 
     /// Whether the shell uses the alternate screen or asked for mouse reporting.
     pub fn alt_screen(&self) -> bool {
-        self.term.lock().unwrap().mode().contains(TermMode::ALT_SCREEN)
+        lock(&self.term).mode().contains(TermMode::ALT_SCREEN)
     }
 
     pub fn start_selection(&self, row: usize, col: usize, kind: SelectionKind) {
-        let mut t = self.term.lock().unwrap();
+        let mut t = lock(&self.term);
         let point = viewport_point(&t, row, col);
         let ty = match kind {
             SelectionKind::Simple => SelectionType::Simple,
@@ -364,7 +462,7 @@ impl Terminal {
     }
 
     pub fn update_selection(&self, row: usize, col: usize) {
-        let mut t = self.term.lock().unwrap();
+        let mut t = lock(&self.term);
         let point = viewport_point(&t, row, col);
         if let Some(sel) = t.selection.as_mut() {
             sel.update(point, Side::Right);
@@ -372,17 +470,17 @@ impl Terminal {
     }
 
     pub fn clear_selection(&self) {
-        self.term.lock().unwrap().selection = None;
+        lock(&self.term).selection = None;
     }
 
     /// The selected text.
     pub fn selection_text(&self) -> Option<String> {
-        self.term.lock().unwrap().selection_to_string().filter(|s| !s.is_empty())
+        lock(&self.term).selection_to_string().filter(|s| !s.is_empty())
     }
 
     /// Selects the whole buffer (visible grid and scrollback).
     pub fn select_all(&self) {
-        let mut t = self.term.lock().unwrap();
+        let mut t = lock(&self.term);
         let start = Point::new(t.grid().topmost_line(), Column(0));
         let end = Point::new(t.grid().bottommost_line(), t.grid().last_column());
         let mut sel = Selection::new(SelectionType::Simple, start, Side::Left);
@@ -392,7 +490,7 @@ impl Terminal {
 
     /// Copies the visible grid, cursor and mode flags.
     pub fn snapshot(&self) -> Snapshot {
-        let t = self.term.lock().unwrap();
+        let t = lock(&self.term);
         let content = t.renderable_content();
         let (cols, rows) = (t.columns(), t.screen_lines());
         let offset = content.display_offset;
@@ -454,9 +552,21 @@ fn viewport_point<T>(t: &Term<T>, row: usize, col: usize) -> Point {
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        if self.exit_status().is_none() {
-            self.kill();
+        // Also when the shell exited: a background job may still hold the terminal open.
+        self.kill();
+    }
+}
+
+/// Removes the bracketed-paste markers from pasted text, repeating until none is left: removing
+/// one marker can join its neighbours into a new one (`ESC ESC[201~ [201~` becomes `ESC[201~`).
+fn strip_bracket_markers(text: &str) -> String {
+    let mut text = text.to_string();
+    loop {
+        let cleaned = text.replace("\x1b[200~", "").replace("\x1b[201~", "");
+        if cleaned == text {
+            return text;
         }
+        text = cleaned;
     }
 }
 
@@ -618,5 +728,110 @@ mod tests {
     fn the_default_shell_comes_from_the_environment_or_falls_back() {
         assert_eq!(default_shell(Some(&"/bin/bash".into())), PathBuf::from("/bin/bash"));
         assert!(default_shell(None).is_absolute());
+    }
+
+    #[test]
+    fn stripping_markers_repeats_until_no_marker_is_left() {
+        // Removing the inner marker must not leave a new one behind.
+        let nested = "\x1b\x1b[201~[201~rm -rf ~\n";
+        let out = strip_bracket_markers(nested);
+        assert!(!out.contains("\x1b[201~") && !out.contains("\x1b[200~"), "{out:?}");
+        assert_eq!(strip_bracket_markers("\x1b[2\x1b[200~00~x"), "x");
+        assert_eq!(strip_bracket_markers("plain text"), "plain text");
+    }
+
+    #[test]
+    fn paste_cannot_end_the_bracket_early() {
+        // `cat -v` shows the escape bytes; bracketed paste is requested by the shell with ESC[?2004h.
+        let (t, _rx) = sh("printf '\\033[?2004h'; cat -v");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !t.snapshot().bracketed_paste {
+            assert!(Instant::now() < deadline, "bracketed paste never enabled");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        t.paste("a\x1b[201~rm -rf x\x1b[200~b", true);
+        let s = wait_for_text(&t, "b^[[201~");
+        let text = s.text();
+        assert!(text.contains("^[[200~arm -rf xb^[[201~"), "{text:?}");
+    }
+
+    #[test]
+    fn a_large_write_into_a_busy_shell_does_not_block_the_caller() {
+        let (t, _rx) = sh("sleep 30");
+        let start = Instant::now();
+        t.write(&vec![b'x'; 4 * 1024 * 1024]);
+        assert!(start.elapsed() < Duration::from_secs(1), "write blocked for {:?}", start.elapsed());
+        // snapshot() must not block on the full input queue either.
+        let start = Instant::now();
+        let _ = t.snapshot();
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn dropping_hangs_up_background_jobs_and_ends_the_reader() {
+        let (t, rx) = sh("sleep 100 & wait");
+        std::thread::sleep(Duration::from_millis(200));
+        let done = t.proc.clone();
+        assert!(!done.reader_done.load(Ordering::SeqCst));
+        drop(t);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done.reader_done.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "the reader thread did not end");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        drop(rx);
+    }
+
+    #[test]
+    fn a_background_job_holding_the_pty_is_hung_up_after_the_shell_exited() {
+        let (t, rx) = sh("sleep 100 & exit 0");
+        wait_exit(&t, &rx);
+        let done = t.proc.clone();
+        drop(t);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done.reader_done.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "the reader thread did not end");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn events_are_delivered_outside_the_term_lock() {
+        // A callback that takes a snapshot would deadlock if events were delivered under the lock.
+        let (tx, rx) = mpsc::channel();
+        let slot: Arc<Mutex<Option<Arc<Terminal>>>> = Arc::new(Mutex::new(None));
+        let cb_slot = slot.clone();
+        let tx = Mutex::new(tx);
+        let config = TerminalConfig {
+            shell: Some("/bin/sh".into()),
+            args: Some(vec!["-c".into(), "printf '\\033]0;t\\007\\007'; sleep 1".into()]),
+            ..TerminalConfig::default()
+        };
+        let t = Arc::new(
+            Terminal::spawn(&config, move |e| {
+                if matches!(e, TerminalEvent::Title(_) | TerminalEvent::Bell) {
+                    if let Some(t) = lock(&cb_slot).as_ref() {
+                        let _ = t.snapshot();
+                    }
+                    let _ = tx.lock().unwrap().send(e);
+                }
+            })
+            .unwrap(),
+        );
+        *lock(&slot) = Some(t.clone());
+        let mut got = Vec::new();
+        while got.len() < 2 {
+            got.push(rx.recv_timeout(Duration::from_secs(10)).expect("event"));
+        }
+        assert!(got.contains(&TerminalEvent::Bell));
+        *lock(&slot) = None;
+    }
+
+    #[test]
+    fn kill_after_exit_is_harmless() {
+        let (t, rx) = sh("exit 0");
+        wait_exit(&t, &rx);
+        t.kill();
+        t.kill();
     }
 }

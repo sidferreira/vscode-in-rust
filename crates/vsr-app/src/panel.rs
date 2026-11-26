@@ -144,11 +144,13 @@ pub struct PanelState {
     /// The terminals (ADR-0045) and the one shown.
     pub terminals: Vec<crate::terminal_view::TerminalInstance>,
     pub active_terminal: usize,
+    /// The focus handle of a terminal that was just removed: when it had the focus, `panel_sync` moves it on.
+    pub(crate) refocus: Option<FocusHandle>,
 }
 
 impl Default for PanelState {
     fn default() -> Self {
-        Self { visible: false, maximized: false, size: DEFAULT_SIZE, active: PanelView::Problems, drag: None, terminals: Vec::new(), active_terminal: 0 }
+        Self { visible: false, maximized: false, size: DEFAULT_SIZE, active: PanelView::Problems, drag: None, terminals: Vec::new(), active_terminal: 0, refocus: None }
     }
 }
 
@@ -176,6 +178,11 @@ impl PanelState {
     pub fn dragged_size(start_size: f32, start: f32, now: f32, grows_toward_start: bool, available: f32) -> f32 {
         let delta = now - start;
         let size = if grows_toward_start { start_size - delta } else { start_size + delta };
+        Self::clamped_size(size, available)
+    }
+
+    /// `size` within `[MIN_SIZE, available - room]`: a stored size can be too large for a smaller window.
+    pub fn clamped_size(size: f32, available: f32) -> f32 {
         size.clamp(MIN_SIZE, (available - MIN_EDITOR_ROOM).max(MIN_SIZE))
     }
 }
@@ -222,6 +229,17 @@ impl Workbench {
     /// Runs every frame: when the panel was hidden with the keyboard focus inside a terminal, the focus
     /// goes back to the workbench (a hidden view cannot keep it, and the workbench keys need it).
     pub(crate) fn panel_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A removed terminal had the focus: the next terminal takes it, else the workbench.
+        if let Some(removed) = self.panel.refocus.take()
+            && removed.is_focused(window)
+        {
+            let shown = self.panel.visible && self.panel.active == PanelView::Terminal;
+            if let (true, Some(next)) = (shown, self.panel.terminals.get(self.panel.active_terminal)) {
+                next.view.update(cx, |v, cx| v.focus(window, cx));
+            } else if let Some(root) = self.focus.clone() {
+                root.focus(window, cx);
+            }
+        }
         if !self.panel.visible
             && let Some(root) = self.focus.clone()
             && self.panel.terminals.iter().any(|t| t.view.read(cx).is_focused(window))
@@ -301,13 +319,13 @@ impl Workbench {
     }
 
     /// The editor group and, when shown, the panel, in the box between the side bars.
-    pub(crate) fn editor_area(&mut self, cx: &mut Context<Self>, layout: &LayoutSettings) -> impl IntoElement {
+    pub(crate) fn editor_area(&mut self, window: &Window, cx: &mut Context<Self>, layout: &LayoutSettings) -> impl IntoElement {
         let settings = self.panel_settings(cx);
         let visible = self.panel.visible;
         let maximized = visible && self.panel.maximized;
         let location = settings.location;
         let editor = (!maximized).then(|| self.editor_group(cx, layout.show_tabs).into_any_element());
-        let panel = visible.then(|| self.panel_element(settings, layout.sash_size, cx).into_any_element());
+        let panel = visible.then(|| self.panel_element(settings, layout.sash_size, window, cx).into_any_element());
         let area = div().flex_1().min_w_0().h_full().flex().when(location.is_horizontal(), |d| d.flex_col());
         match location {
             PanelLocation::Bottom | PanelLocation::Right => area.children(editor).children(panel),
@@ -315,11 +333,13 @@ impl Workbench {
         }
     }
 
-    fn panel_element(&mut self, settings: PanelSettings, sash_size: f32, cx: &mut Context<Self>) -> impl IntoElement {
+    fn panel_element(&mut self, settings: PanelSettings, sash_size: f32, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme.clone();
         let location = settings.location;
         let maximized = self.panel.maximized;
-        let size = self.panel.size;
+        let viewport = window.viewport_size();
+        let available = if location.is_horizontal() { viewport.height } else { viewport.width };
+        let size = PanelState::clamped_size(self.panel.size, f32::from(available));
         let body = self.panel_body(cx);
         let view_actions = self.panel_view_actions(cx);
         let tabs = PanelView::ALL.iter().map(|view| {
@@ -501,6 +521,13 @@ mod tests {
     #[test]
     fn dragging_a_top_panel_down_makes_it_larger() {
         assert_eq!(PanelState::dragged_size(300., 300., 350., false, 1000.), 350.);
+    }
+
+    #[test]
+    fn a_stored_size_is_clamped_to_a_smaller_window() {
+        assert_eq!(PanelState::clamped_size(600., 500.), 300.);
+        assert_eq!(PanelState::clamped_size(300., 1000.), 300.);
+        assert_eq!(PanelState::clamped_size(300., 100.), MIN_SIZE);
     }
 
     #[test]

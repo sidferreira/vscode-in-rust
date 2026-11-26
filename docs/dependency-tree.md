@@ -21,9 +21,9 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | source | count | attributed to a node |
 |---|---|---|
 | settings: wired | 330 | n/a (done) |
-| settings: blocked | 325 | 325 of 325 (by reason) |
+| settings: blocked | 333 | 333 of 333 (by reason) |
 | settings: exthost | 421 | 421 of 421 (by built-in extension) |
-| settings: todo | 428 | 252 of 428 matched by a node's todo_globs |
+| settings: todo | 420 | 252 of 420 matched by a node's todo_globs |
 | settings: n/a | 558 | not dependency-blocked (policy: product, Windows, deprecated) |
 | smoke scenarios: ready | 73 | not blocked |
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
@@ -71,6 +71,8 @@ flowchart LR
   n_text_decorations["TextEditorDecorationType (after and before text, gutter) (done)"]:::done
   n_diagnostics_model["Diagnostics store (problems reported by language features) (done)"]:::done
   n_ext_output_channels["Output channels (MainThreadOutputService) and the Output panel (todo)"]:::todo
+  n_document_highlight_providers["Document highlight providers (occurrences from language servers) (todo)"]:::todo
+  n_editor_file_drop["Dropping files onto the editor (OS drag and drop into the window) (todo)"]:::todo
   n_ext_insert_snippet["TextEditor.insertSnippet (MainThreadTextEditors.$tryInsertSnippet) (todo)"]:::todo
   n_file_participants["File participants (create, rename, delete hooks from the ext host) (todo)"]:::todo
   n_lang_providers_main["Language provider registry on the main side (LanguageFeatures shapes) (done)"]:::done
@@ -196,6 +198,7 @@ flowchart LR
   n_ext_host_p1 --> n_text_decorations
   n_ext_host_p1 --> n_diagnostics_model
   n_ext_host_p1 --> n_ext_output_channels
+  n_lang_providers_main --> n_document_highlight_providers
   n_ext_host_p1 --> n_ext_insert_snippet
   n_workspace_fs_api --> n_file_participants
   n_ext_host_p1 --> n_lang_providers_main
@@ -315,7 +318,7 @@ flowchart LR
 | 11 | refactor-code-actions | Peek, rename, code actions and linked editing | M (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 12 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
 
-Top 12 of 85 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
+Top 12 of 87 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
 
 ### Waiting on in-progress work
 
@@ -354,12 +357,14 @@ Top 12 of 85 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 | diagnostics-model | Diagnostics store (problems reported by language features) | done | feature | S (guess) | ext-host-p1 | 1 (+0) | 1 (+5) | 0 (+0) | 0 | 3 (+0) | 1 (+0) |
 | diagnostics-view | Problems view (diagnostics list) | todo | feature | M (guess) | diagnostics-model | 0 (+5) | 0 (+5) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | diff-editor | Diff editor (side by side and inline) | todo | feature | XL (guess) | custom-editors | 1 (+22) | 1 (+22) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| document-highlight-providers | Document highlight providers (occurrences from language servers) | todo | feature | S (guess) | lang-providers-main | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | document-symbols | Document symbols: outline model, breadcrumb symbols, Go to Symbol | done | feature | M (guess) | lang-providers-main | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-double-click-block | Double click block selection | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-drag-drop | Text drag and drop in the editor | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| editor-file-drop | Dropping files onto the editor (OS drag and drop into the window) | todo | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-find-widget | Editor Find widget (ADR-0027) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-groups | Editor splits and editor groups | todo | feature | L (guess) | - | 10 (+0) | 10 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| editor-multi-cursor | Multi-cursor editing and column selection | todo | feature | L (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| editor-multi-cursor | Multi-cursor editing and column selection | todo | feature | L (guess) | - | 7 (+0) | 7 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-scrollbar | Editor scrollbar (vertical and horizontal) | done | feature | M (guess) | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-tabs | Editor tabs: preview, MRU, placement, limit (ADR-0033) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-view-zones | Editor view zones and top and bottom padding | todo | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -371,8 +376,8 @@ Top 12 of 85 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 | ext-emmet | Emmet (built-in) | todo | extension | M (guess) | lang-providers-main | 12 (+0) | 12 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-errorlens | ErrorLens | in-progress | extension | M (source) | ext-host-p1, text-decorations, diagnostics-model | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-gitlens | GitLens | todo | extension | XL (source) | ext-host-p1, webview-service, tree-views, integrated-terminal, tasks-runner, git-scm | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 336 (+56) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
-| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 336 (+56) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
+| ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 337 (+56) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
+| ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 337 (+56) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
 | ext-insert-snippet | TextEditor.insertSnippet (MainThreadTextEditors.$tryInsertSnippet) | todo | feature | S (guess) | ext-host-p1 | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-kotlin | Kotlin (LSP, runtime server download, DAP) | todo | extension | L (source) | lsp-client, lang-providers-main, debugger-dap | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-merge-conflict | Merge conflict (CodeLens and decorations, built-in) | todo | extension | S (guess) | lang-providers-main, text-decorations | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -398,7 +403,7 @@ Top 12 of 85 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 | hover-delay | Hover widgets with a configurable delay | todo | feature | S (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | integrated-terminal | Integrated terminal (pty, shell integration, terminal editors) | in-progress | feature | M (guess) | cargo-proxy-token, bottom-panel | 0 (+99) | 13 (+111) | 0 (+0) | 52 | 56 (+0) | 1 (+2) |
 | keyboard-shortcuts-editor | Keyboard Shortcuts editor (default keybindings view) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 316 (+0) | 54 (+0) | 4 | 4 (+0) | 7 (+2) |
+| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 317 (+0) | 54 (+0) | 4 | 4 (+0) | 7 (+2) |
 | language-config | Language configuration: typing rules, comments, indentation (ADR-0046) | done | feature | - | - | 0 (+0) | 7 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | language-detection | Language detection for untitled and unknown files | todo | feature | M (guess) | untitled-editors | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | large-file-mode | Large file mode (features off for very big files) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -484,7 +489,7 @@ Top 12 of 85 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 - Orphan nodes (not done, no edges, nothing attributed): none.
 - Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, builtin-lsp-css-html-json, child-process-main, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, scrollbar-content-height, settings-editor.
 - Blocked settings with no node: 0. Exthost settings with no node: 0. Blocked smoke rows that name a feature with no node: 0.
-- Todo settings matched by no node's `todo_globs`: 176. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
+- Todo settings matched by no node's `todo_globs`: 168. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
 - DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is "needs sash grippers (the drawn handle in the middle of a sash)" has a second `comment` and `match` pair after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show settings (29) therefore land on the sash reason. They need document symbols. The graph maps that reason to `document-symbols` with a note.
 - Known gap in `scripts/progress-report`: it reads only the first status table of each scenario file. `search.md` has a second table (rows 8-11), so its scenario total is 170, not 174.
 

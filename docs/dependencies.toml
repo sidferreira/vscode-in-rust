@@ -274,6 +274,30 @@ reasons = [
 note = "The language clients write their server trace to an output channel (ADR-0103); createOutputChannel is a stub today."
 
 [[node]]
+id = "document-highlight-providers"
+title = "Document highlight providers (occurrences from language servers)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["lang-providers-main"]
+reasons = [
+  "needs document highlight providers (via the extension host)",
+]
+note = "editor.occurrencesHighlightFromAllProviders (settings batch 4, 2026-11-26); today occurrences are word-based only."
+
+[[node]]
+id = "editor-file-drop"
+title = "Dropping files onto the editor (OS drag and drop into the window)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs file drop onto the editor (OS drag and drop of files into the window)",
+]
+note = "editor.dropIntoEditor.* (settings batch 4, 2026-11-26)."
+
+[[node]]
 id = "ext-insert-snippet"
 title = "TextEditor.insertSnippet (MainThreadTextEditors.$tryInsertSnippet)"
 status = "todo"

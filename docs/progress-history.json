@@ -868,5 +868,51 @@
     },
     "rust_tests_passing": 2108,
     "rust_tests_failed": 0
+  },
+  {
+    "date": "2026-11-26",
+    "sha": "54618dd",
+    "settings_wired": 330,
+    "settings_counts": {
+      "wired": 330,
+      "exthost": 421,
+      "blocked": 333,
+      "n/a": 558,
+      "todo": 420
+    },
+    "tests_ported": 685,
+    "tests_total": 58069,
+    "scenarios_ready": 73,
+    "scenarios_total": 198,
+    "ports_by_status": {
+      "planned": 1,
+      "partial": 56,
+      "ported": 2
+    },
+    "rust_tests_passing": 2118,
+    "rust_tests_failed": 0
+  },
+  {
+    "date": "2026-11-26",
+    "sha": "bc80005",
+    "settings_wired": 330,
+    "settings_counts": {
+      "wired": 330,
+      "exthost": 421,
+      "blocked": 333,
+      "n/a": 558,
+      "todo": 420
+    },
+    "tests_ported": 685,
+    "tests_total": 58069,
+    "scenarios_ready": 73,
+    "scenarios_total": 198,
+    "ports_by_status": {
+      "planned": 1,
+      "partial": 56,
+      "ported": 2
+    },
+    "rust_tests_passing": 1927,
+    "rust_tests_failed": 3
   }
 ]

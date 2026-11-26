@@ -230,6 +230,8 @@ impl OpenEditor {
         };
         editor.set_selection(selection);
         self.editor = editor;
+        // The snippet's stop offsets belong to the text that was replaced: its session ends here.
+        self.snippet = None;
         self.disk_stamp = disk_stamp(&self.path);
         self.syntax_synced.set(None);
     }
@@ -947,6 +949,21 @@ mod tests {
         fs::write(dir.join("A.md"), "a\r\nb\r\n").unwrap();
         fs::write(dir.join("c.rs"), "fn main() {}\n").unwrap();
         dir
+    }
+
+    #[test]
+    fn reload_from_disk_ends_a_snippet_session() {
+        // Its stop offsets were for the text that is replaced, so no session may survive the reload.
+        let dir = tmp_workspace("snippet-reload");
+        fs::write(dir.join("s.txt"), "fn f() {}").unwrap();
+        let mut ed = Editors::default();
+        ed.open_file(&dir.join("s.txt")).unwrap();
+        let e = &mut ed.open[0];
+        let stops = [vsr_suggest::snippet::Tabstop { index: 1, ranges: vec![(3, 4)], primary: 0 }];
+        e.snippet = vsr_suggest::session::SnippetSession::new(&stops, 0);
+        assert!(e.snippet.is_some());
+        e.reload("fn longer_name() {}", DefaultEol::Lf);
+        assert!(e.snippet.is_none(), "a reload from disk ends the snippet session");
     }
 
     #[test]

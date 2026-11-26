@@ -1079,3 +1079,13 @@ upstream = [
 rust = ["crates/vsr-editor/src/completion_ops.rs", "crates/vsr-editor/tests/completion_ops.rs", "crates/vsr-suggest/src/accept.rs", "crates/vsr-suggest/src/list.rs", "crates/vsr-app/src/suggest/accept.rs", "crates/vsr-app/src/suggest/widget.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
 notes = "Accepting a completion as one undo step (overwrite range relative to the cursor, snippet expanded, additional edits), list focus and paging, resolve and release. No snippet session, documentation panel, status bar, memory or commit characters yet (ADR-0084)."
+
+[[port]]
+id = "snippet-session"
+status = "partial"
+upstream = [
+  "src/vs/editor/contrib/snippet/browser/snippetSession.ts",
+]
+rust = ["crates/vsr-editor/src/snippet_ops.rs", "crates/vsr-editor/tests/snippet_ops.rs"]
+synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
+notes = "The editor side of a snippet session (ADR-0120): the buffer's change log, mirror edits joined to the typed edit's undo step, the completion's insertion start. Own tests, none ported 1:1."

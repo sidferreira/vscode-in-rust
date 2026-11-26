@@ -1,5 +1,7 @@
 //! The editor side of a snippet session (ADR-0120): the change log of the buffer, the mirror edits
 //! joined to the typed edit's undo step, and the completion's insertion start.
+//!
+//! upstream: src/vs/editor/contrib/snippet/browser/snippetSession.ts @ 50e1350fc78d
 
 use vsr_editor::{Editor, EditorOptions, Position, Range, Selection};
 use vsr_text::{DefaultEol, TextBuffer, TextChange};

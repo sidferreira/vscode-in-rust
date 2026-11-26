@@ -2,8 +2,9 @@
 //! a set of edits (the mirrors of a typed placeholder) that undo together with the edit that caused
 //! them.
 //!
-//! upstream: src/vs/editor/contrib/snippet/browser/snippetSession.ts (the mirrors are linked edits of
-//! the same edit operation).
+//! (The mirrors are linked edits of the same edit operation.)
+//!
+//! upstream: src/vs/editor/contrib/snippet/browser/snippetSession.ts @ 50e1350fc78d
 
 use vsr_text::{Range, TextChange};
 

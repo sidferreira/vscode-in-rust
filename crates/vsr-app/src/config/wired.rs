@@ -22,6 +22,10 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "Panel",
+        &["workbench.panel.showLabels", "workbench.panel.defaultLocation", "workbench.panel.opensMaximized"],
+    ),
+    (
         "Window",
         &[
             "window.title",

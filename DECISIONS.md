@@ -3230,3 +3230,25 @@ command in PATH" works:
 Not done: a second `rode` starts a second process and window instead of handing the paths to the running
 instance (upstream's single-instance IPC), and there is no `-n`/`-r`/`-g file:line:col`/`--diff`. A missing
 file is not created as a new file the way `code new.txt` does.
+
+## ADR-0111 — The bottom panel: one container for Problems, Output and the Terminal (2026-11-26)
+
+Context: the integrated terminal (issue #21, ADR-0045) lives in the panel, which did not exist.
+
+Decision (`crates/vsr-app/src/panel.rs`, tests in `panel_e2e.rs`; upstream `parts/panel/panelPart.ts`, `panelActions.ts`):
+- **Layout.** `Workbench::editor_area` puts the editor group and the panel in one box between the side bars: a column
+  for `bottom`/`top`, a row for `left`/`right`. A maximized panel takes the whole box and the editor group is not drawn.
+  The panel has a 35px title bar (uppercase tabs at 11px, `panelTitle.*` colours, `panel.background`/`panel.border`),
+  the maximize and close buttons, and a sash on the edge facing the editor (hit area `workbench.sash.size`).
+- **Sash.** A drag starts at the sash and moves with the mouse (delta based, so it needs no layout lookup); the size is
+  clamped to 77px (upstream's minimum) up to the window minus 200px. The root mouse-move handler calls
+  `panel_drag_move` first; this is the only change to the existing handlers.
+- **Views.** Problems, Output (placeholders for now) and Terminal (step 3), in upstream's order; Debug Console and
+  Ports come with their features. Commands use upstream's ids: `workbench.action.togglePanel` (Cmd+J),
+  `closePanel`, `focusPanel`, `toggleMaximizedPanel`, `nextPanelView`, `previousPanelView`,
+  `workbench.actions.view.problems` (Cmd+Shift+M), `workbench.action.output.toggleOutput` (Cmd+Shift+U).
+- **Settings wired:** `workbench.panel.showLabels` (off: icon-only tabs), `workbench.panel.defaultLocation`
+  (left, bottom, top, right; upstream reads it for a new workspace and then stores the position, rscode has no
+  move-panel commands yet so the setting is read live), `workbench.panel.opensMaximized` (always, never, preserve:
+  applied when a hidden panel is shown). `workbench.panel.output` stays open (needs the Output view).
+- Panel visibility and size are not saved in the session yet.

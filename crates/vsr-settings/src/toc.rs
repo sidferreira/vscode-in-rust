@@ -101,7 +101,12 @@ pub(crate) fn sort_settings(settings: &mut [&SettingSchema]) {
 /// Resolves one layout node against the core settings. Children claim their settings first;
 /// the node then takes what is left that matches its own patterns (upstream `_resolveSettingsTree`).
 /// `claimed` is indexed like `pool`.
-pub(crate) fn resolve_node(node: &LayoutNode, pool: &[&SettingSchema], claimed: &mut [bool]) -> Option<TocNode> {
+pub(crate) fn resolve_node(
+    node: &LayoutNode,
+    pool: &[&SettingSchema],
+    claimed: &mut [bool],
+    include_advanced: bool,
+) -> Option<TocNode> {
     if is_hidden(node.hide_on.as_deref()) {
         return None;
     }
@@ -109,7 +114,7 @@ pub(crate) fn resolve_node(node: &LayoutNode, pool: &[&SettingSchema], claimed: 
         .children
         .iter()
         .flatten()
-        .filter_map(|child| resolve_node(child, pool, claimed))
+        .filter_map(|child| resolve_node(child, pool, claimed, include_advanced))
         .filter(|child| !child.children.is_empty() || !child.settings.is_empty())
         .collect();
 
@@ -117,7 +122,7 @@ pub(crate) fn resolve_node(node: &LayoutNode, pool: &[&SettingSchema], claimed: 
     if let Some(patterns) = &node.settings {
         let mut matched: Vec<usize> = Vec::new();
         for (i, setting) in pool.iter().enumerate() {
-            if claimed[i] || setting.tags.iter().any(|t| t == ADVANCED_TAG) {
+            if claimed[i] || (!include_advanced && setting.tags.iter().any(|t| t == ADVANCED_TAG)) {
                 continue;
             }
             if patterns.iter().any(|p| pattern_matches(p, &setting.key)) {

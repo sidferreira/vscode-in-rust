@@ -31,6 +31,8 @@ pub struct SettingsRegistry {
     index: HashMap<String, usize>,
     commonly_used: Vec<String>,
     toc: Vec<TocNode>,
+    /// The same TOC with advanced settings included (`workbench.settings.alwaysShowAdvancedSettings`).
+    toc_advanced: Vec<TocNode>,
     /// Pre-order position of each key's first appearance in the TOC.
     toc_position: HashMap<String, usize>,
 }
@@ -60,39 +62,17 @@ impl SettingsRegistry {
         }
         let index: HashMap<String, usize> = settings.iter().enumerate().map(|(i, s)| (s.key.clone(), i)).collect();
 
-        // Core settings are placed by the layout; extension settings go under "Extensions".
-        let core: Vec<&SettingSchema> = settings
-            .iter()
-            .zip(&extension)
-            .filter(|(_, info)| info.is_none())
-            .map(|(s, _)| s)
-            .collect();
-        let mut claimed = vec![false; core.len()];
-        let commonly_used: Vec<String> = layout.commonly_used.into_iter().filter(|k| index.contains_key(k)).collect();
-
-        let mut toc = vec![TocNode {
-            id: "commonlyUsed".into(),
-            label: "Commonly Used".into(),
-            children: Vec::new(),
-            settings: commonly_used.clone(),
-        }];
-        toc.extend(
-            layout
-                .toc
-                .iter()
-                .filter_map(|node| resolve_node(node, &core, &mut claimed))
-                .filter(|node| !node.children.is_empty() || !node.settings.is_empty()),
-        );
-        let extensions = extensions_node(&settings, &extension);
-        if !extensions.children.is_empty() {
-            toc.push(extensions);
-        }
+        let commonly_used: Vec<String> = layout.commonly_used.iter().filter(|k| index.contains_key(*k)).cloned().collect();
+        let toc = build_toc(&settings, &extension, &layout, &commonly_used, false);
+        let toc_advanced = build_toc(&settings, &extension, &layout, &commonly_used, true);
 
         let mut toc_position = HashMap::new();
         let mut position = 0;
         record_positions(&toc, &mut position, &mut toc_position);
+        // Advanced settings rank after the default TOC's settings.
+        record_positions(&toc_advanced, &mut position, &mut toc_position);
 
-        Ok(Self { settings, index, commonly_used, toc, toc_position })
+        Ok(Self { settings, index, commonly_used, toc, toc_advanced, toc_position })
     }
 
     /// The number of registered settings (all of them, including hidden and advanced ones).
@@ -117,6 +97,11 @@ impl SettingsRegistry {
     /// left out, and "Commonly Used" comes first, "Extensions" last.
     pub fn toc(&self) -> &[TocNode] {
         &self.toc
+    }
+
+    /// The TOC chosen at view time: with advanced settings (`show_advanced`) or without (`toc()`).
+    pub fn toc_for(&self, show_advanced: bool) -> &[TocNode] {
+        if show_advanced { &self.toc_advanced } else { &self.toc }
     }
 
     pub fn commonly_used(&self) -> Vec<&SettingSchema> {
@@ -171,6 +156,37 @@ impl SettingsRegistry {
     }
 }
 
+/// Places core settings by the layout and extension settings under "Extensions".
+fn build_toc(
+    settings: &[SettingSchema],
+    extension: &[Option<ExtensionInfo>],
+    layout: &LayoutFile,
+    commonly_used: &[String],
+    include_advanced: bool,
+) -> Vec<TocNode> {
+    let core: Vec<&SettingSchema> =
+        settings.iter().zip(extension).filter(|(_, info)| info.is_none()).map(|(s, _)| s).collect();
+    let mut claimed = vec![false; core.len()];
+    let mut toc = vec![TocNode {
+        id: "commonlyUsed".into(),
+        label: "Commonly Used".into(),
+        children: Vec::new(),
+        settings: commonly_used.to_vec(),
+    }];
+    toc.extend(
+        layout
+            .toc
+            .iter()
+            .filter_map(|node| resolve_node(node, &core, &mut claimed, include_advanced))
+            .filter(|node| !node.children.is_empty() || !node.settings.is_empty()),
+    );
+    let extensions = extensions_node(settings, extension, include_advanced);
+    if !extensions.children.is_empty() {
+        toc.push(extensions);
+    }
+    toc
+}
+
 fn record_positions(nodes: &[TocNode], position: &mut usize, out: &mut HashMap<String, usize>) {
     for node in nodes {
         for key in &node.settings {
@@ -183,13 +199,13 @@ fn record_positions(nodes: &[TocNode], position: &mut usize, out: &mut HashMap<S
 
 /// Port of `createTocTreeForExtensionSettings`: one node per extension, flattened when it has one
 /// group, with a group named like the extension used as the ungrouped entry.
-fn extensions_node(settings: &[SettingSchema], extension: &[Option<ExtensionInfo>]) -> TocNode {
+fn extensions_node(settings: &[SettingSchema], extension: &[Option<ExtensionInfo>], include_advanced: bool) -> TocNode {
     // extension id -> (display name, groups in first-seen order: (title, setting indices))
     type Group = (String, Vec<usize>);
     let mut exts: Vec<(String, String, Vec<Group>)> = Vec::new();
     for (i, info) in extension.iter().enumerate() {
         let Some(info) = info else { continue };
-        if settings[i].tags.iter().any(|t| t == ADVANCED_TAG) {
+        if !include_advanced && settings[i].tags.iter().any(|t| t == ADVANCED_TAG) {
             continue;
         }
         let pos = match exts.iter().position(|e| e.0 == info.extension_id) {

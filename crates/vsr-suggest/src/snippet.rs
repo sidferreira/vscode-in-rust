@@ -14,6 +14,18 @@
 pub struct Expanded {
     pub text: String,
     pub selection: (usize, usize),
+    /// The tab stops, by index (1.., then 0 last), each with every place it occurs (UTF-16 offsets
+    /// into `text`, in source order). A snippet without `$0` gets one at its end (upstream
+    /// `createEditsAndSnippetsFromSelections`, `enforceFinalTabstop`).
+    pub stops: Vec<Tabstop>,
+}
+
+/// One tab stop: the placeholder and its mirrors (`$1` written again).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tabstop {
+    pub index: u32,
+    /// `(start, end)` UTF-16 offsets; the first is the placeholder, the rest are mirrors.
+    pub ranges: Vec<(usize, usize)>,
 }
 
 /// A snippet's text with nothing in it that needs expanding (a plain completion): the whole text,
@@ -23,6 +35,7 @@ pub fn plain(text: &str) -> Expanded {
     Expanded {
         text: text.to_string(),
         selection: (end, end),
+        stops: Vec::new(),
     }
 }
 
@@ -78,27 +91,53 @@ struct Parser<'a> {
 /// Expands `snippet`.
 pub fn expand(snippet: &str) -> Expanded {
     let chars: Vec<char> = snippet.chars().collect();
-    let mut p = Parser {
-        src: &chars,
-        i: 0,
-        out: String::new(),
-        units: 0,
-        stops: Vec::new(),
-        texts: std::collections::HashMap::new(),
-    };
-    p.seq(false);
+    // A mirror may come before its placeholder (`$1 ${1:x}`): the first pass learns the defaults,
+    // the second expands the mirrors with them.
+    let first = run(&chars, std::collections::HashMap::new());
+    let mut p = run(&chars, first.texts);
+    // Upstream adds a final tab stop at the end when the snippet has none.
+    if !p.stops.iter().any(|s| s.0 == 0) {
+        let end = p.units;
+        p.stops.push((0, end, end));
+    }
     // The first tab stop by index (not zero), then `$0`, then the end.
-    let first = p
+    let selection_stop = p
         .stops
         .iter()
         .filter(|s| s.0 != 0)
         .min_by_key(|s| s.0)
         .or_else(|| p.stops.iter().find(|s| s.0 == 0));
-    let selection = first.map_or((p.units, p.units), |s| (s.1, s.2));
+    let selection = selection_stop.map_or((p.units, p.units), |s| (s.1, s.2));
+    let mut indices: Vec<u32> = p.stops.iter().map(|s| s.0).collect();
+    indices.sort_unstable();
+    indices.dedup();
+    indices.retain(|i| *i != 0);
+    indices.push(0);
+    let stops = indices
+        .into_iter()
+        .map(|index| Tabstop {
+            index,
+            ranges: p.stops.iter().filter(|s| s.0 == index).map(|s| (s.1, s.2)).collect(),
+        })
+        .collect();
     Expanded {
         text: p.out,
         selection,
+        stops,
     }
+}
+
+fn run(chars: &[char], texts: std::collections::HashMap<u32, String>) -> Parser<'_> {
+    let mut p = Parser {
+        src: chars,
+        i: 0,
+        out: String::new(),
+        units: 0,
+        stops: Vec::new(),
+        texts,
+    };
+    p.seq(false);
+    p
 }
 
 impl Parser<'_> {
@@ -322,5 +361,36 @@ mod tests {
     #[test]
     fn a_stray_dollar_stays() {
         assert_eq!(ex("cost: $ 5"), ("cost: $ 5".into(), (9, 9)));
+    }
+
+    fn stops(s: &str) -> Vec<(u32, Vec<(usize, usize)>)> {
+        expand(s).stops.into_iter().map(|t| (t.index, t.ranges)).collect()
+    }
+
+    #[test]
+    fn stops_group_by_index_with_zero_last_and_keep_mirrors() {
+        // `${1:x} = $2; $1` gives "x = ; x": stop 1 twice (placeholder, then mirror), stop 2, implicit $0 at the end.
+        assert_eq!(
+            stops("${1:x} = $2; $1"),
+            vec![(1, vec![(0, 1), (6, 7)]), (2, vec![(4, 4)]), (0, vec![(7, 7)])]
+        );
+    }
+
+    #[test]
+    fn a_snippet_without_a_final_stop_gets_one_at_its_end() {
+        assert_eq!(expand("a${1:b}c").stops.last().map(|t| t.index), Some(0));
+        assert_eq!(stops("a${1:b}c$0").len(), 2, "an explicit $0 is not doubled");
+    }
+
+    #[test]
+    fn a_mirror_before_its_placeholder_gets_the_default_text() {
+        let e = expand("$1 ${1:x}");
+        assert_eq!(e.text, "x x");
+        assert_eq!(e.stops[0].ranges, vec![(0, 1), (2, 3)], "ranges are in source order: the mirror first");
+    }
+
+    #[test]
+    fn a_plain_text_has_only_the_final_stop_at_its_end() {
+        assert_eq!(expand("hi"), Expanded { text: "hi".into(), selection: (2, 2), stops: vec![Tabstop { index: 0, ranges: vec![(2, 2)] }] });
     }
 }

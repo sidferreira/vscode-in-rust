@@ -41,6 +41,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-m", ShowProblems, None),
         KeyBinding::new("cmd-shift-u", ShowOutput, None),
     ]);
+    crate::terminal_view::bind_keys(cx);
 }
 
 /// A view the panel hosts. The order is the order of the tabs (upstream: Problems, Output, Debug
@@ -140,11 +141,14 @@ pub struct PanelState {
     pub size: f32,
     pub active: PanelView,
     drag: Option<Drag>,
+    /// The terminals (ADR-0045) and the one shown.
+    pub terminals: Vec<crate::terminal_view::TerminalInstance>,
+    pub active_terminal: usize,
 }
 
 impl Default for PanelState {
     fn default() -> Self {
-        Self { visible: false, maximized: false, size: DEFAULT_SIZE, active: PanelView::Problems, drag: None }
+        Self { visible: false, maximized: false, size: DEFAULT_SIZE, active: PanelView::Problems, drag: None, terminals: Vec::new(), active_terminal: 0 }
     }
 }
 
@@ -188,6 +192,7 @@ pub fn register_commands(r: &mut vsr_commands::CommandsRegistry<Handler>) {
     r.register(D::new("workbench.action.previousPanelView", "Previous Panel View").category("View").f1(), wb(Box::new(PreviousPanelView)));
     r.register(D::new("workbench.actions.view.problems", "Focus on Problems View").category("View").f1(), wb(Box::new(ShowProblems)));
     r.register(D::new("workbench.action.output.toggleOutput", "Toggle Output").category("View").f1(), wb(Box::new(ShowOutput)));
+    crate::terminal_view::register_commands(r);
 }
 
 impl Workbench {
@@ -198,19 +203,31 @@ impl Workbench {
                 this.panel.hide();
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &FocusPanel, _, cx| {
+            .on_action(cx.listener(|this, _: &FocusPanel, window, cx| {
                 let view = this.panel.active;
-                this.show_panel_view(view, cx);
+                this.show_panel_view(view, window, cx);
             }))
             .on_action(cx.listener(|this, _: &ToggleMaximizedPanel, _, cx| this.toggle_maximized_panel(cx)))
             .on_action(cx.listener(|this, _: &NextPanelView, _, cx| this.step_panel_view(1, cx)))
             .on_action(cx.listener(|this, _: &PreviousPanelView, _, cx| this.step_panel_view(-1, cx)))
-            .on_action(cx.listener(|this, _: &ShowProblems, _, cx| this.show_panel_view(PanelView::Problems, cx)))
-            .on_action(cx.listener(|this, _: &ShowOutput, _, cx| this.show_panel_view(PanelView::Output, cx)))
+            .on_action(cx.listener(|this, _: &ShowProblems, window, cx| this.show_panel_view(PanelView::Problems, window, cx)))
+            .map(|el| crate::terminal_view::bind_actions(el, cx))
+            .on_action(cx.listener(|this, _: &ShowOutput, window, cx| this.show_panel_view(PanelView::Output, window, cx)))
     }
 
     pub(crate) fn panel_settings(&self, cx: &App) -> PanelSettings {
         PanelSettings::from_configuration(AppConfig::get(cx).configuration())
+    }
+
+    /// Runs every frame: when the panel was hidden with the keyboard focus inside a terminal, the focus
+    /// goes back to the workbench (a hidden view cannot keep it, and the workbench keys need it).
+    pub(crate) fn panel_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.panel.visible
+            && let Some(root) = self.focus.clone()
+            && self.panel.terminals.iter().any(|t| t.view.read(cx).is_focused(window))
+        {
+            root.focus(window, cx);
+        }
     }
 
     /// Cmd+J, `workbench.action.togglePanel`.
@@ -225,10 +242,17 @@ impl Workbench {
     }
 
     /// Shows the panel with `view` active.
-    pub(crate) fn show_panel_view(&mut self, view: PanelView, cx: &mut Context<Self>) {
+    pub(crate) fn show_panel_view(&mut self, view: PanelView, window: &mut Window, cx: &mut Context<Self>) {
         let opens = self.panel_settings(cx).opens_maximized;
         self.panel.show(opens);
         self.panel.active = view;
+        if view == PanelView::Terminal {
+            if self.panel.terminals.is_empty() {
+                self.new_terminal(window, cx);
+            } else if let Some(t) = self.panel.terminals.get(self.panel.active_terminal) {
+                t.view.update(cx, |v, cx| v.focus(window, cx));
+            }
+        }
         cx.notify();
     }
 
@@ -315,7 +339,7 @@ impl Workbench {
                 .text_size(px(11.))
                 .border_b_1()
                 .border_color(if active { to_gpui(t.panel_title_active_border) } else { gpui_kit::transparent_black() })
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show_panel_view(view, cx)));
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.show_panel_view(view, window, cx)));
             if settings.show_labels {
                 tab.child(view.title().to_uppercase())
             } else {
@@ -408,8 +432,39 @@ impl Workbench {
 
     /// Actions the active view adds to the title bar (the terminal's new and kill buttons).
     fn panel_view_actions(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let _ = cx;
-        Vec::new()
+        if self.panel.active != PanelView::Terminal {
+            return Vec::new();
+        }
+        vec![
+            self.panel_button("terminal-new", icons::ADD, cx, |wb, window, cx| wb.new_terminal(window, cx)).into_any_element(),
+            self.panel_button("terminal-kill", icons::TRASH, cx, |wb, _, cx| wb.kill_terminal(cx)).into_any_element(),
+        ]
+    }
+
+    /// An icon button of the panel's title bar.
+    fn panel_button(
+        &self,
+        id: &'static str,
+        glyph: char,
+        cx: &mut Context<Self>,
+        f: fn(&mut Workbench, &mut Window, &mut Context<Workbench>),
+    ) -> Stateful<Div> {
+        let t = &self.theme;
+        div()
+            .id(id)
+            .debug_selector(move || id.to_string())
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(22.))
+            .rounded(px(5.))
+            .cursor_pointer()
+            .hover(|s| s.bg(to_gpui(t.toolbar_hover_bg)))
+            .font_family(icons::FAMILY)
+            .text_size(px(16.))
+            .text_color(to_gpui(t.panel_title_active_fg))
+            .child(icons::glyph(glyph))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))
     }
 
     fn panel_body(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -424,11 +479,10 @@ impl Workbench {
                 .child(text)
                 .into_any_element()
         };
-        let _ = cx;
         match self.panel.active {
             PanelView::Problems => message("No problems have been detected in the workspace."),
             PanelView::Output => message(""),
-            PanelView::Terminal => message("The terminal is not available yet."),
+            PanelView::Terminal => self.terminal_body(cx),
         }
     }
 }

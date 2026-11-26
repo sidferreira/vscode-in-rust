@@ -7446,6 +7446,7 @@ dependencies = [
  "vsr-settings",
  "vsr-suggest",
  "vsr-syntax",
+ "vsr-terminal",
  "vsr-text",
  "vsr-textmate",
  "vsr-theme",

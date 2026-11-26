@@ -15,11 +15,11 @@ use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::{Config as TermConfig, Term, TermMode};
-use alacritty_terminal::vte::ansi::{CursorShape, Processor};
+use alacritty_terminal::vte::ansi::Processor;
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 pub use alacritty_terminal::term::cell::Flags as CellFlags;
-pub use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb};
+pub use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 pub use keys::{Key, Modifiers, encode_key};
 
 /// What a [`Terminal`] reports to its owner, from the reader thread.
@@ -48,11 +48,13 @@ pub struct TerminalConfig {
     pub rows: u16,
     /// `terminal.integrated.scrollback`.
     pub scrollback: usize,
+    /// `terminal.integrated.wordSeparators`: what ends a word in a double click; `None` keeps alacritty's.
+    pub word_separators: Option<String>,
 }
 
 impl Default for TerminalConfig {
     fn default() -> Self {
-        Self { shell: None, args: None, cwd: None, env: Vec::new(), cols: 80, rows: 24, scrollback: 1000 }
+        Self { shell: None, args: None, cwd: None, env: Vec::new(), cols: 80, rows: 24, scrollback: 1000, word_separators: None }
     }
 }
 
@@ -125,6 +127,9 @@ pub struct Cursor {
     pub shape: CursorShape,
 }
 
+/// A selection as (row, col) of its start and end, and whether it is a block.
+pub type SelectionSpan = ((usize, usize), (usize, usize), bool);
+
 /// What the view needs to draw one frame.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -138,7 +143,7 @@ pub struct Snapshot {
     pub display_offset: usize,
     pub history_size: usize,
     /// The selection as (row, col) of its start and end in the visible grid, clipped to it, and whether it is a block.
-    pub selection: Option<((usize, usize), (usize, usize), bool)>,
+    pub selection: Option<SelectionSpan>,
     pub application_cursor: bool,
     pub bracketed_paste: bool,
     pub alt_screen: bool,
@@ -219,7 +224,10 @@ impl Terminal {
         });
         let listener = Listener { writer: writer.clone(), callback: tracking.clone() };
         let size = Size { cols: config.cols as usize, rows: config.rows as usize, history: 0 };
-        let term_config = TermConfig { scrolling_history: config.scrollback, ..TermConfig::default() };
+        let mut term_config = TermConfig { scrolling_history: config.scrollback, ..TermConfig::default() };
+        if let Some(sep) = &config.word_separators {
+            term_config.semantic_escape_chars = sep.clone();
+        }
         let term: Shared = Arc::new(Mutex::new(Term::new(term_config, &size, listener)));
 
         let reader_term = term.clone();
@@ -296,8 +304,8 @@ impl Terminal {
     }
 
     /// Pastes text, in bracketed paste mode when the shell asked for it.
-    pub fn paste(&self, text: &str) {
-        let bracketed = self.term.lock().unwrap().mode().contains(TermMode::BRACKETED_PASTE);
+    pub fn paste(&self, text: &str, allow_bracketed: bool) {
+        let bracketed = allow_bracketed && self.term.lock().unwrap().mode().contains(TermMode::BRACKETED_PASTE);
         if bracketed {
             self.write(format!("\x1b[200~{text}\x1b[201~").as_bytes());
         } else {
@@ -400,7 +408,7 @@ impl Terminal {
         }
         let cursor_row = content.cursor.point.line.0 + offset as i32;
         let cursor = (content.cursor.shape != CursorShape::Hidden && cursor_row >= 0 && (cursor_row as usize) < rows)
-            .then(|| Cursor { row: cursor_row as usize, col: content.cursor.point.column.0, shape: content.cursor.shape });
+            .then_some(Cursor { row: cursor_row as usize, col: content.cursor.point.column.0, shape: content.cursor.shape });
         let selection = content.selection.map(|s| {
             let clip = |p: Point, last: bool| {
                 let row = p.line.0 + offset as i32;

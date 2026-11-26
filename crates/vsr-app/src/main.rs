@@ -21,7 +21,12 @@ mod quick_access; // Command Palette, Go to Line, help on the Quick Pick (ADR-00
 mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
 mod hover; // Hover widget (ADR-0109)
+mod terminal_view; // the terminal view, commands and terminal.integrated.* (ADR-0045)
 mod panel; // the bottom panel: Problems, Output, Terminal (ADR-0111)
+#[cfg(test)]
+mod terminal_settings_e2e; // headless tests of terminal.integrated.* (ADR-0112)
+#[cfg(test)]
+mod terminal_e2e; // headless tests of the terminal (ADR-0045)
 #[cfg(test)]
 mod panel_e2e; // headless tests of the panel (ADR-0111)
 mod navigation; // Go to Definition, Declaration, Type Definition, Implementation (ADR-0108)
@@ -1381,6 +1386,7 @@ impl Render for Workbench {
         self.outline_sync();
         self.hover_sync();
         self.suggest_sync(cx);
+        self.panel_sync(window, cx);
         // The OS window title and the dirty dot (macOS shows it in the close button).
         let title = self.window_title(cx);
         let dirty = self.editors.active_editor().is_some_and(|e| e.is_dirty()) && self.editor_surface_active();

@@ -699,32 +699,30 @@ reasons = [
 [[node]]
 id = "cargo-proxy-token"
 title = "Cargo proxy token in the agent shell"
-status = "blocked-external"
-external = "User action: export CARGO_REGISTRIES_REPOSERVER_TOKEN into the agent's shell, or allow sourcing ~/.local/share/ws-cli/rc/reposerver/env.sh (HANDOFF item 1). Without it no new crate can be fetched."
+status = "done"
 effort = "-"
 needs = []
+note = "The token is in the agent shell. The package proxy quarantines very recent crate versions (HTTP 403): take the previous release; scripts/cargo-firewall-fetch helps."
 
 [[node]]
 id = "bottom-panel"
 title = "Bottom panel (Panel container for Output, Problems, Terminal)"
-status = "todo"
-effort = "L"
-effort_source = "guess"
+status = "done"
+effort = "-"
 needs = []
 todo_globs = ["workbench.panel*"]
-note = "No external blocker. HANDOFF defers the terminal and the bottom panel together."
+note = "Done (ADR-0111): Cmd+J, sash, tabs (Problems, Output, Terminal), showLabels, defaultLocation, opensMaximized. Problems and Output are placeholders until their views exist; workbench.panel.output stays todo."
 
 [[node]]
 id = "integrated-terminal"
 title = "Integrated terminal (pty, shell integration, terminal editors)"
-status = "blocked-external"
-external = "Cargo proxy token (HANDOFF item 1). ADR-0045 reserves alacritty_terminal and portable-pty, both new crates. The user chose to defer the terminal (ROADMAP 2)."
-effort = "L"
+status = "in-progress"
+effort = "M"
 effort_source = "guess"
 needs = ["cargo-proxy-token", "bottom-panel"]
 todo_globs = ["terminal*"]
 scenarios = ["terminal", "terminal sandbox"]
-note = "~48 terminal.integrated.* settings are parked on this (HANDOFF). todo_globs counts all terminal* todo settings."
+note = "Core done (ADR-0045, ADR-0112): login shell on a PTY, alacritty_terminal grid, keyboard, scrollback, selection and copy, new and kill, tabs list, 20 terminal.integrated.* settings. Left: shell integration (OSC 633), links, find, profile picker and splits, terminal editors, persistent sessions, bell, tabs.* settings."
 
 [[node]]
 id = "tasks-runner"

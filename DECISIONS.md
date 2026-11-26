@@ -3264,6 +3264,8 @@ No new crates.
 
 Review amendment (2026-11-26): the cap on documents opened only for an extension (`openTextDocument` of a file not open in an editor) is 256, not 32, so an extension that keeps many such documents is not handed `onDidClose` for one it still uses.
 
+Amendment (2026-11-26, issue #39): the app now loads the built language features of a Code-OSS build. `config_for` takes `<RSCODE_CODE_OSS>/extensions/<name>` as an extension root for each of `json-language-features`, `css-language-features` and `html-language-features` (`BUILTIN_EXTENSIONS`, a const list, so only these three for now) when its `package.json` `main` file exists; `builtin_roots` is the pure selection and has unit tests on temp folders with built, unbuilt, broken and unlisted extensions. These roots come first, before `RSCODE_EXTENSIONS_DIR` and `RSCODE_EXTENSIONS_DEV`, because the later root wins on a duplicate id, so a user copy still overrides them. `scripts/install-rode` looks for the Code-OSS build in `../codeoss-exthost-lsp` before `../codeoss-exthost`, so `rode` gets the build that has the language features.
+
 ## ADR-0108 — Go to Definition, Declaration, Type Definition and Implementation (2026-11-10)
 
 `vsr-app::navigation` (the app side) and two additive messages in the extension host worker, following

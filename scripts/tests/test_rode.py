@@ -8,6 +8,7 @@ so nothing is built and the real ~/Applications, ~/.local/bin and ~/.Trash are n
 """
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -126,6 +127,43 @@ class Installed(unittest.TestCase):
         trashed = os.listdir(os.path.join(self.home, ".Trash"))
         self.assertEqual(len(trashed), 1)
         self.assertTrue(trashed[0].startswith("rscode-") and trashed[0].endswith(".app"))
+
+
+class CodeOssBuild(unittest.TestCase):
+    """install-rode picks the Code-OSS build next to the repo: codeoss-exthost-lsp first, then codeoss-exthost."""
+
+    def install(self, base, app_dir):
+        repo = os.path.join(base, "vscode-rust")
+        scripts = os.path.join(repo, "scripts")
+        os.makedirs(scripts, exist_ok=True)
+        with open(os.path.join(repo, "Cargo.toml"), "w") as f:
+            f.write('[package]\nversion = "0.1.0"\n')
+        for name in ("install-rode", "make-app-bundle", "rode"):
+            shutil.copy2(os.path.join(SCRIPTS, name), scripts)
+        fake = os.path.join(base, "rscode")
+        with open(fake, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(fake, 0o755)
+        r = subprocess.run(["bash", os.path.join(scripts, "install-rode"), "--binary", fake,
+                            "--app-dir", app_dir, "--bin-dir", os.path.join(base, "bin")],
+                           capture_output=True, text=True, env=fake_env(base))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(app_dir, "rscode.app", "Contents", "Resources", "rode.env")) as f:
+            return f.read()
+
+    def make_build(self, base, name):
+        os.makedirs(os.path.join(base, name, "out"), exist_ok=True)
+        open(os.path.join(base, name, "out", "bootstrap-fork.js"), "w").close()
+
+    def test_the_lsp_build_wins_and_the_plain_one_is_the_fallback(self):
+        base = os.path.realpath(tempfile.mkdtemp(prefix="rode-test-"))
+        self.make_build(base, "codeoss-exthost")
+        self.make_build(base, "codeoss-exthost-lsp")
+        env = self.install(base, os.path.join(base, "apps"))
+        self.assertIn(f"RSCODE_CODE_OSS={os.path.join(base, 'codeoss-exthost-lsp')}", env)
+        os.remove(os.path.join(base, "codeoss-exthost-lsp", "out", "bootstrap-fork.js"))
+        env = self.install(base, os.path.join(base, "apps2"))
+        self.assertIn(f"RSCODE_CODE_OSS={os.path.join(base, 'codeoss-exthost')}", env)
 
 
 class NotInstalled(unittest.TestCase):

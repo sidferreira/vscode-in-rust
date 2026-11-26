@@ -89,17 +89,37 @@ fn user_data_dir() -> PathBuf {
     }
 }
 
+/// The Code-OSS built-in language-feature extensions the app loads (issue #39). Only these for
+/// now; each is loaded from `<code_oss>/extensions/<name>` when its `package.json` `main` is built.
+pub const BUILTIN_EXTENSIONS: &[&str] = &["json-language-features", "css-language-features", "html-language-features"];
+
+/// The folders among `names` under `extensions_dir` that are built: their `package.json` names a
+/// `main` file that exists. Unbuilt or unreadable ones are left out; the order of `names` is kept.
+pub fn builtin_roots(extensions_dir: &Path, names: &[&str]) -> Vec<PathBuf> {
+    names
+        .iter()
+        .filter_map(|name| {
+            let dir = extensions_dir.join(name);
+            let manifest: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).ok()?).ok()?;
+            let main = manifest.get("main")?.as_str()?;
+            dir.join(main).is_file().then_some(dir)
+        })
+        .collect()
+}
+
 /// What to start from the environment, `None` (silently: extensions are off) without a Code-OSS
 /// build or Node.
 ///
 /// * `RSCODE_CODE_OSS`: the Code-OSS build (`out/bootstrap-fork.js`); `RSCODE_NODE`: Node.
+///   Its built language-feature extensions ([`BUILTIN_EXTENSIONS`]) come first, so any copy
+///   below overrides them.
 /// * `RSCODE_EXTENSIONS_DIR`: the folder of installed extensions, default `~/.vscode/extensions`
 ///   (read only; empty turns the installed ones off).
 /// * `RSCODE_EXTENSIONS_DEV`: more folders, `:` separated, each a folder of extensions or one
 ///   extension (a development checkout), which override installed copies.
 pub fn config_for(launch: Result<Launch, String>, workspace: &Path, cx: &App) -> Option<Config> {
     let launch = launch.ok()?;
-    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut roots: Vec<PathBuf> = builtin_roots(&launch.code_oss.join("extensions"), BUILTIN_EXTENSIONS);
     match std::env::var_os("RSCODE_EXTENSIONS_DIR") {
         Some(d) if d.is_empty() => {}
         Some(d) => roots.push(PathBuf::from(d)),
@@ -113,6 +133,71 @@ pub fn config_for(launch: Result<Launch, String>, workspace: &Path, cx: &App) ->
         roots.extend(std::env::split_paths(&dev).filter(|p| !p.as_os_str().is_empty()));
     }
     Some(config(launch, roots, user_data_dir().join("ExtensionHost"), workspace, cx))
+}
+
+#[cfg(test)]
+mod builtin_roots_tests {
+    //! The built-in language features of a Code-OSS build (issue #39).
+    use super::{BUILTIN_EXTENSIONS, builtin_roots};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    /// A fresh folder for one test, named for this process so parallel runs do not collide.
+    fn scratch(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("rscode-builtin-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// An extension folder whose manifest names `main`; `built` also writes that file.
+    fn extension(root: &Path, name: &str, main: &str, built: bool) {
+        let dir = root.join(name);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("package.json"), format!(r#"{{ "name": "{name}", "main": "{main}" }}"#)).unwrap();
+        if built {
+            fs::create_dir_all(dir.join(main).parent().unwrap()).unwrap();
+            fs::write(dir.join(main), "").unwrap();
+        }
+    }
+
+    #[test]
+    fn the_list_is_the_three_language_features() {
+        assert_eq!(BUILTIN_EXTENSIONS, &["json-language-features", "css-language-features", "html-language-features"]);
+    }
+
+    #[test]
+    fn only_built_extensions_are_loaded_in_list_order() {
+        let root = scratch("built");
+        extension(&root, "html-language-features", "./client/out/htmlClientMain.js", true);
+        extension(&root, "json-language-features", "./client/out/node/jsonClientMain.js", true);
+        extension(&root, "css-language-features", "./client/out/cssClientMain.js", false);
+        let roots = builtin_roots(&root, BUILTIN_EXTENSIONS);
+        assert_eq!(roots, vec![root.join("json-language-features"), root.join("html-language-features")]);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_built_folder_outside_the_list_is_not_loaded() {
+        let root = scratch("other");
+        extension(&root, "git", "./dist/main.js", true);
+        extension(&root, "css-language-features", "./dist/main.js", true);
+        assert_eq!(builtin_roots(&root, BUILTIN_EXTENSIONS), vec![root.join("css-language-features")]);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn missing_or_broken_manifests_are_skipped() {
+        let root = scratch("broken");
+        fs::create_dir_all(root.join("json-language-features")).unwrap();
+        fs::write(root.join("json-language-features/package.json"), "{ not json").unwrap();
+        fs::create_dir_all(root.join("css-language-features")).unwrap();
+        extension(&root, "html-language-features", "./out/main.js", true);
+        fs::write(root.join("html-language-features/package.json"), r#"{ "name": "x" }"#).unwrap();
+        assert!(builtin_roots(&root, BUILTIN_EXTENSIONS).is_empty());
+        assert!(builtin_roots(&root.join("no-such-folder"), BUILTIN_EXTENSIONS).is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
 }
 
 /// `application.shellEnvironmentResolutionTimeout` in seconds, clamped to 1..=120 like upstream.

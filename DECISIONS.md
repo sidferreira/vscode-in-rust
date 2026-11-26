@@ -2748,8 +2748,8 @@ lives on the worker:
   `OutlineService::request`: a cached version does nothing, a started request is sent to the worker when a
   host runs. The answer goes through `OutlineState::deliver`, which the worker's `FromHost::Symbols` arm calls.
 - **One model per document**, kept until the next version of that document is delivered (breadcrumbs keep
-  showing the previous symbols while the new ones are asked for). Models of closed documents are not
-  evicted yet (a small leak, to fix with the Outline view).
+  showing the previous symbols while the new ones are asked for). Models of closed documents are dropped
+  on the next frame (ADR-0130).
 - **Without a host** nothing is answered (the bar shows no symbols). Headless tests answer in-process through
   `OutlineState::fake` (a `#[cfg(test)]` closure), so the whole UI path runs under `TestAppContext`.
 - **Real host**: `outline/e2e_tests.rs` runs the language-features fixture (`lang-features-fixture`, its
@@ -2948,7 +2948,7 @@ actions in the section header, shown while the section is open (sort, follow cur
   reveals on every change too).
 - **Filter on type.** While the filter is on, the section's keys edit the filter text (printable keys;
   Backspace takes one back, Escape clears). The rows are the names that contain the text, case-insensitively,
-  with their ancestors, all shown open (upstream filters with fuzzy matching; a substring is used here).
+  with their ancestors, all shown open. The match is fuzzy since ADR-0130 (it was a substring before).
   The text is not kept between sessions; the toggle is. Turning the filter on focuses the section.
 - **Persistence.** `WorkspaceState.outline` (`OutlineViewState`: `follow_cursor`, `sort_by`, `filter_on_type`),
   saved with the session and restored at its start. `#[serde(default)]` keeps older session files
@@ -3237,3 +3237,31 @@ command in PATH" works:
 Not done: a second `rode` starts a second process and window instead of handing the paths to the running
 instance (upstream's single-instance IPC), and there is no `-n`/`-r`/`-g file:line:col`/`--diff`. A missing
 file is not created as a new file the way `code new.txt` does.
+
+## ADR-0130 — Outline follow-ups: evict closed documents, parse diagnostics once per change, fuzzy filter on type (2026-11-26)
+
+Closes the three follow-ups of ADR-0086, ADR-0092 and ADR-0094 (issue #22).
+
+- **Eviction.** Each frame (`outline_sync_at`) keeps only the models of the documents in `editors.open`.
+  `OutlineState::retain_open` drops, for every other document, the service's model and pending request
+  (`OutlineService::forget`), the answer count, the marked model and the cached markers; it also clears
+  `seen` when the active document closed, so reopening the same file at the same version is asked again.
+  Checking each frame catches every close path (the tab close, `close_missing`, session restore) without
+  hooking each one.
+- **Diagnostics parsed once per change.** `OutlineState::sync_markers` caches the markers of each document
+  for one snapshot generation (`ext.generation`, which the host snapshot bumps). The parse runs only when
+  the document has no cached markers; a frame that finds them does no work. When the symbols arrive, the
+  marked model is rebuilt from the cached markers (`remark`), without a parse. Test: `parses` (test-only
+  counter) is unchanged across frames and goes up by one per change.
+- **Filter on type is fuzzy.** The rows are kept when their name fuzzy-matches the text, with their ancestors
+  (the match is upstream's tree find, `TypeFilter` in `abstractTree.ts`: `fuzzyScore` with
+  `firstMatchCanBeWeak` and `boostFullMatch`). The scorer is the one Quick Open and the suggest list use:
+  `vsr_quickinput::fuzzy::fuzzy_score`, a port of `filters.ts`, so no new crate. The repo has no `nucleo`, and
+  the port already matches upstream's scores. The case-folding helper is repeated in `outline/view.rs`
+  (the port keeps its own private).
+
+Tests: `closing_a_document_drops_its_outline_map`, `a_document_still_open_in_another_tab_keeps_its_map`,
+`diagnostics_are_parsed_once_per_change_not_once_per_frame` (e2e), and `filter_on_type_matches_fuzzily_as_the_tree_find_does`
+(view: `fbr` matches `fooBar` and keeps its parent, `MTL` matches `getMatchTypeLabel`, `bf` matches nothing).
+
+Not done: the worker's in-flight job of a closed document runs to its end (its answer is then ignored).

@@ -50,6 +50,7 @@ impl Workbench {
         }
         self.settings_active = false;
         self.welcome_active = false;
+        self.github.pr_active = false;
         self.session.close_prompt = Some(paths);
         cx.notify();
     }

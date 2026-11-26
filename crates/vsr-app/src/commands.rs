@@ -178,6 +178,7 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
         action(ToggleSidebar, Workbench),
     );
     crate::panel::register_commands(r);
+    crate::github::register_commands(r);
     r.register(D::new("workbench.view.explorer", "Show Explorer").category("View").f1(), action(ShowExplorer, Workbench));
     r.register(D::new("workbench.view.search", "Show Search").category("View").f1(), action(sv::FocusSearch, Workbench));
     r.register(D::new("workbench.action.openSettings", "Open Settings (UI)").category("Preferences").f1(), action(OpenSettings, Workbench));

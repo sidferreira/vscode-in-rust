@@ -7439,6 +7439,7 @@ dependencies = [
  "vsr-editor",
  "vsr-exthost",
  "vsr-find",
+ "vsr-github",
  "vsr-languages",
  "vsr-quickinput",
  "vsr-rpc",
@@ -7484,6 +7485,14 @@ dependencies = [
  "vsr-editor",
  "vsr-search",
  "vsr-text",
+]
+
+[[package]]
+name = "vsr-github"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

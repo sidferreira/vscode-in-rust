@@ -256,6 +256,7 @@ impl Workbench {
             "search" => ActivityView::Search,
             "scm" => ActivityView::Scm,
             "extensions" => ActivityView::Extensions,
+            // "pullRequests" is saved but not restored: nothing starts `gh` at launch (ADR-0114).
             _ => ActivityView::Explorer,
         };
         self.session.pending_search = state.search.clone();
@@ -388,6 +389,7 @@ impl Workbench {
                     ActivityView::Search => "search",
                     ActivityView::Scm => "scm",
                     ActivityView::Extensions => "extensions",
+                    ActivityView::PullRequests => "pullRequests",
                 }
                 .into(),
             },
@@ -579,6 +581,7 @@ impl Workbench {
             self.session.confirmed = false;
             self.settings_active = false;
             self.welcome_active = false;
+            self.github.pr_active = false;
             self.start_save_as_queue(untitled, true, window, cx);
             return;
         }
@@ -592,6 +595,7 @@ impl Workbench {
         self.editors.activate(i);
         self.settings_active = false;
         self.welcome_active = false;
+        self.github.pr_active = false;
         self.editor_view.focus(window, cx);
         cx.notify();
     }

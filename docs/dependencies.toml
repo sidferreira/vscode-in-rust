@@ -179,14 +179,11 @@ note = "Done (ADR-0054): five editor.scrollbar.* settings wired."
 [[node]]
 id = "scrollbar-content-height"
 title = "Horizontal scrollbar height in the editor's scroll height"
-status = "todo"
+status = "done"
 effort = "S"
 effort_source = "guess"
 needs = ["editor-scrollbar"]
-reasons = [
-  "needs the horizontal bar's height in the scroll height (rscode's list measures whole rows)",
-]
-note = "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight: needs a spacer row (ADR-0054)."
+note = "Done (ADR-0135): editor.scrollbar.ignoreHorizontalScrollbarInContentHeight adds one spacer row for a shown horizontal bar."
 
 [[node]]
 id = "overview-ruler-glyph-margin"
@@ -195,7 +192,7 @@ status = "done"
 effort = "M"
 effort_source = "guess"
 needs = ["editor-scrollbar"]
-note = "Done (ADR-0055): cursor, selection and find marks; overviewRulerBorder and hideCursorInOverviewRuler wired. Folding is not accounted for yet. The glyph margin is its own node."
+note = "Done (ADR-0055): cursor, selection and find marks; overviewRulerBorder and hideCursorInOverviewRuler wired. Marks follow the view lines, so folding and wrapping move them (ADR-0135). The glyph margin is its own node."
 
 [[node]]
 id = "glyph-margin"

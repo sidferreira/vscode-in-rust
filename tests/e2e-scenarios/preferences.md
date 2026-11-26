@@ -168,4 +168,4 @@ Headless (`crates/vsr-app/src/editor_view/scrollbar_e2e.rs`). The bars are found
 | `scrollByPage` makes a track click move one viewport | ready | `scroll_by_page_click_moves_one_viewport` |
 | dragging the slider moves the list by the slider's ratio | ready | `dragging_the_slider_moves_the_list_by_the_slider_ratio` |
 | the horizontal bar follows `auto` for a wide line, and is absent while word wrap is on | ready | `horizontal_auto_shows_for_a_wide_line_and_not_while_wrapping` |
-| `ignoreHorizontalScrollbarInContentHeight` | blocked (needs the bar's height in the scroll height) | |
+| `ignoreHorizontalScrollbarInContentHeight`: a shown horizontal bar adds one spacer row to the scroll range, unless ignored or `scrollBeyondLastLine` is on | ready | `a_shown_horizontal_bar_adds_one_spacer_row_to_the_scroll_range`, `no_spacer_row_for_a_bar_that_overflows_nothing`, `scroll_beyond_last_line_does_not_add_the_bar_row` |

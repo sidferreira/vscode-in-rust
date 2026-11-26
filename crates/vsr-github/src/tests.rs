@@ -409,3 +409,22 @@ fn a_timeout_is_its_own_error() {
     let (g, _) = gh(FakeRunner::new().on(Tool::Gh, &[], Err(SpawnError::Timeout)));
     assert!(matches!(g.repo(), Err(GhError::Timeout { .. })));
 }
+
+#[test]
+fn the_working_tree_is_dirty_when_status_lists_anything() {
+    let (g, fake) = gh(FakeRunner::new().git(&["status", "--porcelain"], " M src/lib.rs\n"));
+    assert_eq!(g.working_tree_dirty(), Ok(true));
+    assert_eq!(fake.calls(), ["git status --porcelain"]);
+    let (g, _) = gh(FakeRunner::new().git(&["status", "--porcelain"], ""));
+    assert_eq!(g.working_tree_dirty(), Ok(false));
+}
+
+#[test]
+fn a_detached_head_is_reported_by_branch_info() {
+    let fake = FakeRunner::new()
+        .git(&["rev-parse", "--abbrev-ref", "HEAD"], "HEAD\n")
+        .git_fails(&["rev-parse", "--abbrev-ref", "--symbolic-full-name"], 128, "fatal: HEAD does not point to a branch")
+        .git(&["log"], "x\n");
+    let (g, _) = gh(fake);
+    assert!(g.branch_info().unwrap().is_detached());
+}

@@ -44,6 +44,13 @@ pub struct BranchInfo {
     pub last_commit_subject: String,
 }
 
+impl BranchInfo {
+    /// `git rev-parse --abbrev-ref HEAD` says `HEAD` when no branch is checked out.
+    pub fn is_detached(&self) -> bool {
+        self.branch == "HEAD"
+    }
+}
+
 /// A repository folder and the runner that serves it.
 #[derive(Clone)]
 pub struct Github {
@@ -138,10 +145,20 @@ impl Github {
 
     /// The branch, whether it has an upstream and the last commit's subject.
     pub fn branch_info(&self) -> Result<BranchInfo, GhError> {
-        let branch = self.exec(Tool::Git, &["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string();
+        let branch = self.current_branch()?;
         let has_upstream = self.exec(Tool::Git, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).is_ok();
         let last_commit_subject = self.exec(Tool::Git, &["log", "-1", "--format=%s"]).map(|s| s.trim().to_string()).unwrap_or_default();
         Ok(BranchInfo { branch, has_upstream, last_commit_subject })
+    }
+
+    /// The checked-out branch (`HEAD` when detached).
+    pub fn current_branch(&self) -> Result<String, GhError> {
+        Ok(self.exec(Tool::Git, &["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string())
+    }
+
+    /// Whether `git status --porcelain` lists anything (changed, staged or untracked files).
+    pub fn working_tree_dirty(&self) -> Result<bool, GhError> {
+        Ok(!self.exec(Tool::Git, &["status", "--porcelain"])?.trim().is_empty())
     }
 
     /// `git push -u origin HEAD`. Only ever called after the user confirmed.

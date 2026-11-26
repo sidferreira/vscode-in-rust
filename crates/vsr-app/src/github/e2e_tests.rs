@@ -40,9 +40,19 @@ fn signed_in() -> FakeRunner {
         .gh_with(&["pr", "list"], &["--search"], &format!("[{}]", pr(15, "Please review", "hubot", false)))
         .gh(&["pr", "view", "12"], DETAILS)
         .gh(&["pr", "checkout"], "")
+        .git(&["status", "--porcelain"], "")
+        .git(&["rev-parse", "--abbrev-ref", "HEAD"], "feat/12\n")
 }
 
 fn start<'a>(cx: &'a mut TestAppContext, name: &str, fake: FakeRunner) -> (Entity<Workbench>, &'a mut VisualTestContext, Arc<FakeRunner>) {
+    let fake = Arc::new(fake);
+    let runner = fake.clone();
+    let (wb, vcx) = start_with(cx, name, move |g| g.set_runner(runner));
+    (wb, vcx, fake)
+}
+
+/// Like [`start`], with `setup` choosing how the workbench gets its runner (before anything can start the real gh).
+fn start_with<'a>(cx: &'a mut TestAppContext, name: &str, setup: impl FnOnce(&mut super::GithubState) + 'static) -> (Entity<Workbench>, &'a mut VisualTestContext) {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let dir = std::env::temp_dir().join(format!("rscode-github-e2e-{name}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
@@ -55,15 +65,13 @@ fn start<'a>(cx: &'a mut TestAppContext, name: &str, fake: FakeRunner) -> (Entit
         crate::commands::init(cx);
         AppConfig::install(cx, None); // in memory
     });
-    let fake = Arc::new(fake);
-    let runner = fake.clone();
     let (wb, vcx) = cx.add_window_view(move |_, cx| {
         let mut wb = Workbench::new(dir, cx);
-        wb.github.set_runner(runner); // before anything can start the real gh
+        setup(&mut wb.github);
         wb
     });
     vcx.run_until_parked();
-    (wb, vcx, fake)
+    (wb, vcx)
 }
 
 fn click(cx: &mut VisualTestContext, selector: &'static str) {
@@ -422,4 +430,145 @@ fn create_outside_a_repository_reports_it(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(!has_picker(&wb, cx));
     assert!(wb.read_with(cx, |wb, _| wb.github.notice.clone()).unwrap().error);
+}
+
+// ---- review fixes ------------------------------------------------------------------------------
+
+#[gpui_kit::test]
+fn refresh_finds_a_gh_that_was_installed_after_the_first_failure(cx: &mut TestAppContext) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let located = Arc::new(AtomicUsize::new(0));
+    let counter = located.clone();
+    let (wb, cx) = start_with(cx, "gh-installed", move |g| {
+        g.set_runner_factory(Arc::new(move || -> Arc<dyn vsr_github::GhRunner> {
+            if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+                Arc::new(FakeRunner::new().on(Tool::Gh, &[], Err(SpawnError::NotFound)))
+            } else {
+                Arc::new(signed_in())
+            }
+        }));
+    });
+    show_view(cx);
+    assert_eq!(wb.read_with(cx, |wb, _| wb.github.load.clone()).unwrap().unwrap_err(), GhError::GhMissing);
+    click(cx, "github:refresh");
+    let load = wb.read_with(cx, |wb, _| wb.github.load.clone()).unwrap();
+    assert!(load.is_ok(), "{load:?}");
+}
+
+fn make_dirty(wb: &Entity<Workbench>, cx: &mut VisualTestContext) {
+    wb.update(cx, |wb, cx| {
+        wb.open(&wb.root.join("a.txt"));
+        wb.editors.open.last_mut().unwrap().type_text("dirty");
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().is_dirty()));
+}
+
+#[gpui_kit::test]
+fn checkout_with_an_unsaved_editor_asks_first(cx: &mut TestAppContext) {
+    let (wb, cx, fake) = start(cx, "checkout-dirty-editor", signed_in());
+    make_dirty(&wb, cx);
+    wb.update_in(cx, |wb, window, cx| wb.github_checkout(12, window, cx));
+    cx.run_until_parked();
+    assert_eq!(fake.count("gh pr checkout"), 0, "nothing is checked out before the answer");
+    assert_eq!(labels(&wb, cx), ["Checkout anyway", "Cancel"]);
+    // Cancel (second row) checks nothing out.
+    picker(&wb, cx).update(cx, |p, _| p.set_active_item(1));
+    accept(&wb, cx);
+    assert_eq!(fake.count("gh pr checkout"), 0);
+    // Again, and this time confirm.
+    wb.update_in(cx, |wb, window, cx| wb.github_checkout(12, window, cx));
+    cx.run_until_parked();
+    accept(&wb, cx);
+    assert_eq!(fake.count("gh pr checkout 12"), 1);
+}
+
+#[gpui_kit::test]
+fn escape_on_the_checkout_question_checks_nothing_out(cx: &mut TestAppContext) {
+    let (wb, cx, fake) = start(cx, "checkout-escape", signed_in());
+    make_dirty(&wb, cx);
+    wb.update_in(cx, |wb, window, cx| wb.github_checkout(12, window, cx));
+    cx.run_until_parked();
+    picker(&wb, cx).update(cx, |p, cx| p.dismiss(cx));
+    cx.run_until_parked();
+    assert_eq!(fake.count("gh pr checkout"), 0);
+}
+
+#[gpui_kit::test]
+fn checkout_with_a_dirty_git_tree_asks_first(cx: &mut TestAppContext) {
+    let fake = signed_in().git(&["status", "--porcelain"], " M src/lib.rs\n");
+    let (wb, cx, fake) = start(cx, "checkout-dirty-tree", fake);
+    wb.update_in(cx, |wb, window, cx| wb.github_checkout(12, window, cx));
+    cx.run_until_parked();
+    assert_eq!(fake.count("git status --porcelain"), 1);
+    assert_eq!(fake.count("gh pr checkout"), 0);
+    assert_eq!(labels(&wb, cx), ["Checkout anyway", "Cancel"]);
+    accept(&wb, cx);
+    assert_eq!(fake.count("gh pr checkout 12"), 1);
+}
+
+#[gpui_kit::test]
+fn checkout_with_nothing_unsaved_and_a_clean_tree_does_not_ask(cx: &mut TestAppContext) {
+    let (wb, cx, fake) = start(cx, "checkout-clean", signed_in());
+    wb.update_in(cx, |wb, window, cx| wb.github_checkout(12, window, cx));
+    cx.run_until_parked();
+    assert!(!has_picker(&wb, cx));
+    assert_eq!(fake.count("gh pr checkout 12"), 1);
+}
+
+#[gpui_kit::test]
+fn a_checkout_updates_the_branch_from_the_runner_and_reloads_changed_files(cx: &mut TestAppContext) {
+    let (wb, cx, _fake) = start(cx, "checkout-after", signed_in());
+    let a = wb.read_with(cx, |wb, _| wb.root.join("a.txt"));
+    wb.update(cx, |wb, _| wb.open(&a));
+    cx.run_until_parked();
+    // The checkout changes the file on disk (the fake runner cannot, so do it here).
+    fs::write(&a, "changed by the checkout").unwrap();
+    wb.update_in(cx, |wb, window, cx| wb.github_checkout(12, window, cx));
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.branch.clone()), Some("feat/12".to_string()), "the branch comes from the runner, off the UI thread");
+    let text = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().buffer().value());
+    assert_eq!(text, "changed by the checkout", "the open editor shows the new file");
+}
+
+#[gpui_kit::test]
+fn a_detached_head_stops_the_create_flow(cx: &mut TestAppContext) {
+    let fake = create_fake(true).git(&["rev-parse", "--abbrev-ref", "HEAD"], "HEAD\n");
+    let (wb, cx, fake) = start(cx, "create-detached", fake);
+    cx.dispatch_action(CreatePullRequest);
+    cx.run_until_parked();
+    assert!(!has_picker(&wb, cx));
+    let notice = wb.read_with(cx, |wb, _| wb.github.notice.clone()).unwrap();
+    assert!(notice.error && notice.text.contains("Check out a branch before creating a pull request"), "{notice:?}");
+    assert_eq!(fake.count("git push"), 0);
+    assert_eq!(fake.count("gh pr create"), 0);
+    assert!(wb.read_with(cx, |wb, _| wb.github.create.is_none()));
+}
+
+#[gpui_kit::test]
+fn a_stale_prepare_cannot_overwrite_a_newer_create_flow(cx: &mut TestAppContext) {
+    let (wb, cx, _fake) = start(cx, "create-stale", create_fake(true));
+    cx.dispatch_action(CreatePullRequest); // the older one: generation 1
+    cx.dispatch_action(CreatePullRequest); // the newer one: generation 2
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.github.create.as_ref().map(|f| f.info.branch.clone())), Some("feat/new".into()));
+    // The older prepare answers late, with another branch.
+    let stale = vsr_github::BranchInfo { branch: "stale".into(), has_upstream: true, last_commit_subject: "stale".into() };
+    wb.update_in(cx, |wb, window, cx| wb.github_create_prepared(1, Ok((stale, "main".into())), window, cx));
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.github.create.as_ref().map(|f| f.info.branch.clone())), Some("feat/new".into()));
+    assert_eq!(picker(&wb, cx).read_with(cx, |p, cx| p.query(cx)), "Add the new thing");
+}
+
+#[gpui_kit::test]
+fn quick_open_replacing_the_picker_ends_the_create_flow(cx: &mut TestAppContext) {
+    let (wb, cx, fake) = start(cx, "create-replaced", create_fake(true));
+    cx.dispatch_action(CreatePullRequest);
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.github.create.is_some()));
+    cx.dispatch_action(crate::quick_open::GoToFile);
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.github.create.is_none()), "the flow is over");
+    assert_eq!(fake.count("gh pr create"), 0);
 }

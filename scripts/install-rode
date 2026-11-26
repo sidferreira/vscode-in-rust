@@ -15,8 +15,8 @@
 # What `rode` gets by default, written to rscode.app/Contents/Resources/rode.env:
 #   RSCODE_CODE_OSS        this repo's ../codeoss-exthost when it is built (extension host on)
 #   RSCODE_NODE            Node 24 from mise when installed, else `node` on PATH at install time
-#   RSCODE_EXTENSIONS_DIR  empty: your ~/.vscode/extensions are NOT loaded (issue #31); set it
-#                          in your shell to load them
+#   (RSCODE_EXTENSIONS_DIR is left unset, so your ~/.vscode/extensions load, issue #31;
+#    `RSCODE_EXTENSIONS_DIR= rode .` starts without them)
 # A variable already set in your shell when you run `rode` wins over these.
 set -euo pipefail
 
@@ -104,7 +104,6 @@ q() { printf "%q" "$1"; }
   echo "RODE_VERSION=$(q "${version:-0.1.0} ($sha$dirty, $profile)")"
   if [[ -n "$code_oss" ]]; then echo ": \"\${RSCODE_CODE_OSS=$(q "$code_oss")}\"; export RSCODE_CODE_OSS"; fi
   if [[ -n "$node" ]]; then echo ": \"\${RSCODE_NODE=$(q "$node")}\"; export RSCODE_NODE"; fi
-  echo ': "${RSCODE_EXTENSIONS_DIR=}"; export RSCODE_EXTENSIONS_DIR'
 } >"$app/Contents/Resources/rode.env"
 
 codesign --force --sign - "$app" >/dev/null 2>&1 || echo "warning: ad-hoc codesign failed" >&2

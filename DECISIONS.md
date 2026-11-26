@@ -3376,10 +3376,10 @@ command in PATH" works:
   profile written at install time. `--dry-run` prints the binary, arguments and environment and starts
   nothing (the script tests use it; no test opens a window, ADR-0026).
 - **Environment.** `install-rode` writes `Contents/Resources/rode.env`: `RSCODE_CODE_OSS` (the repo's
-  `../codeoss-exthost` when built), `RSCODE_NODE` (Node 24 from mise, else `node` on PATH) and
-  `RSCODE_EXTENSIONS_DIR` empty. Each applies only when the variable is unset in the caller's shell. The user's
-  `~/.vscode/extensions` are therefore **not** loaded by `rode` until issue #31 decides the default
-  (`RSCODE_EXTENSIONS_DIR=~/.vscode/extensions rode .` loads them).
+  `../codeoss-exthost` when built) and `RSCODE_NODE` (Node 24 from mise, else `node` on PATH). Each applies
+  only when the variable is unset in the caller's shell. `RSCODE_EXTENSIONS_DIR` is left unset, so the user's
+  `~/.vscode/extensions` load, as in the dev app (decided in issue #31, 2026-11-26: "yes");
+  `RSCODE_EXTENSIONS_DIR= rode .` starts without them.
 - **Arguments in the binary** (`crates/vsr-app/src/cli.rs`): the first folder is the workspace root, files
   open pinned after session restore (the last one active; one already restored is activated, not opened
   twice), a file-only call uses the first file's folder as root, extra folders and missing paths are reported

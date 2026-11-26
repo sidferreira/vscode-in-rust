@@ -75,11 +75,16 @@ class Installed(unittest.TestCase):
         self.assertIn("wait: 0", out)
         self.assertIn("wait: 1", self.dry("-w"))
 
-    def test_install_time_defaults_apply_and_user_extensions_are_off(self):
+    def test_install_time_defaults_apply_and_user_extensions_load(self):
+        # Issue #31: the user's ~/.vscode/extensions load by default, so rode leaves
+        # RSCODE_EXTENSIONS_DIR unset and the app falls back to that folder.
         out = self.dry()
         self.assertIn(f"env: RSCODE_CODE_OSS={self.code_oss}", out)
         self.assertIn("env: RSCODE_NODE=/opt/node24/bin/node", out)
-        self.assertIn("env: RSCODE_EXTENSIONS_DIR=", out)
+        self.assertFalse([l for l in out if l.startswith("env: RSCODE_EXTENSIONS_DIR")], out)
+
+    def test_an_empty_extensions_dir_in_the_shell_still_turns_them_off(self):
+        self.assertIn("env: RSCODE_EXTENSIONS_DIR=", self.dry(RSCODE_EXTENSIONS_DIR=""))
 
     def test_the_shell_environment_wins_over_the_defaults(self):
         out = self.dry(RSCODE_EXTENSIONS_DIR="/x/exts", RSCODE_NODE="/y/node")

@@ -7,6 +7,7 @@ Where rscode stands, what is blocked on you, and how the next session picks up.
 - `main` is at the overnight batch (44 commits after `df7c147`), **not pushed**: push needs 1Password (SSH). The batch commits made after 1Password locked are **unsigned**, as asked ("if ok, commit unsigned" after the Haiku and Opus reviews).
 - Gates on `main`: 2,110 Rust tests pass (real Code-OSS host, `RSCODE_CODE_OSS=../codeoss-exthost-lsp`), clippy clean, `upstream-sync check` ok, 0 orphan test refs, script unittests ok.
 - Settings (2,062): **wired 330** · blocked 325 · todo 428 (rest exthost / n/a).
+- `rode` loads your `~/.vscode/extensions` by default (#31, decided 2026-11-26). Built-in json/css/html extensions still need `RSCODE_EXTENSIONS_DEV` until #39.
 - Installed app: `rode` (ADR-0110) → `~/Applications/rscode.app`, release build of `main`, pointed at `../codeoss-exthost-lsp`. Rerun `scripts/install-rode` after merges.
 - Code-OSS host builds: `../codeoss-exthost-lsp` has json, css and html language features compiled (use this one); `../codeoss-exthost` has only json compiled.
 - Work items are GitHub issues (#1–#38). Close the ones below once `main` is pushed.
@@ -26,7 +27,6 @@ Issues to close after the push: #1, #2, #5, #11, #22, #23, #25, #26, #27, #30. P
 | # | Need | Why | What to do |
 |---|---|---|---|
 | 1 | **Unlock 1Password and push** | `main` is 44 commits ahead; signing and push go through 1Password. | Unlock, then `git push` (or ask me). Say whether the unsigned overnight commits are fine as they are. |
-| 2 | **Extensions default** (#31) | `rode` does not load `~/.vscode/extensions` yet. | Keep opt-in, or load them by default? |
 
 Housekeeping: `~/.Trash/rscode-cleanup-*` can be emptied; stale remote branches `wip/session-restore-welcome`, `wip/syntax-highlighting`, `wip/theme-service`.
 

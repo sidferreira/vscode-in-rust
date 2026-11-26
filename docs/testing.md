@@ -179,6 +179,9 @@ channel, 1% of pixels. Reference images: see the policy note in ADR-0163.
   the entry is a follow-up for the main agent, since `.gitignore` is outside this change.
 - **Nothing committed without approval.** No image (baseline, actual output, or diff) is committed
   until the user explicitly approves committing images. The default for a checkout is no images.
+  Approved exception (user, 2026-11-26, after reviewing them): the 12 offscreen references in
+  `tests/ui-snapshots/*.png` (tier d; rscode window content only, demo workspace) are committed.
+  Actual/diff output stays under `target/` and is never committed.
 - **Missing baselines skip.** A visual test whose baseline is missing is skipped, not failed,
   unless `UPDATE_BASELINE=1` is set. This keeps fresh clones and CI green.
 - **Record mode.** `UPDATE_BASELINE=1 cargo test --test visual` records baselines on the local

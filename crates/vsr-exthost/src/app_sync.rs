@@ -97,6 +97,7 @@ impl Documents {
 
 impl ExtensionHost {
     pub fn close_document(&mut self, path: &Path, timeout: Duration) -> Result<(), HostError> {
+        self.on_demand.retain(|p| p != path);
         let Some(delta) = self.main_thread.documents.remove_document(path) else {
             return Ok(());
         };
@@ -149,13 +150,12 @@ impl ExtensionHost {
     }
 
     fn call_delta(&mut self, delta: Value, timeout: Duration) -> Result<(), HostError> {
-        self.call(
+        self.send_json(
             ext_host::EXT_HOST_DOCUMENTS_AND_EDITORS,
             "$acceptDocumentsAndEditorsDelta",
-            &[Arg::Json(delta)],
+            vec![delta],
             timeout,
         )
-        .map(|_| ())
     }
 }
 

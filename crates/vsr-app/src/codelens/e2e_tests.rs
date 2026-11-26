@@ -110,3 +110,39 @@ fn editor_code_lens_off_never_asks_the_providers(cx: &mut TestAppContext) {
     assert!(!off.enabled);
     assert_eq!(asks.get(), 0, "editor.codeLens is off: nothing is asked");
 }
+
+#[gpui::test]
+fn a_lens_that_never_resolves_is_asked_once_and_closing_the_document_drops_its_lenses(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "never", "{}");
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    wb.update(cx, |wb, _| wb.codelens.disable());
+    let resolves = Rc::new(Cell::new(0));
+    let counted = resolves.clone();
+    wb.update(cx, |wb, _| {
+        wb.codelens.fake = Some(FakeLenses {
+            lists: Box::new(|_| vec![(3, CodeLensList { lenses: vec![lens_on_line_one()], cache_id: None })]),
+            resolve: Box::new(move |_| {
+                counted.set(counted.get() + 1);
+                None
+            }),
+        })
+    });
+    let t0 = Instant::now();
+    wb.update(cx, |wb, _| {
+        wb.codelens_sync_at(t0, on());
+        for frame in 0..120 {
+            wb.codelens_sync_at(t0 + DEBOUNCE + Duration::from_millis(16 * frame), on());
+        }
+    });
+    assert_eq!(resolves.get(), 1, "a lens that stays commandless is resolved once, not every frame");
+    wb.update(cx, |wb, _| assert_eq!(wb.codelens.lenses(&file).len(), 1));
+    wb.update(cx, |wb, cx| {
+        wb.editors.close(0);
+        cx.notify();
+    });
+    wb.update(cx, |wb, _| {
+        wb.codelens_sync_at(t0 + Duration::from_secs(10), on());
+        assert!(wb.codelens.lenses(&file).is_empty(), "the closed document's lenses are dropped");
+    });
+}

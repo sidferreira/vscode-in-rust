@@ -259,7 +259,7 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
                 }
                 Ok(ToHost::CodeLenses { id, path }) => {
                     if let Some(mut old) = lensing.take() {
-                        host.cancel_query(&mut old.query);
+                        cancel_lens(&mut host, &mut old);
                     }
                     lensing = match start_lens(&mut host, id, &path) {
                         Some(job) => Some(job),
@@ -464,6 +464,16 @@ fn finish_lens(host: &mut ExtensionHost, mut job: LensJob, out: &UnboundedSender
         let _ = out.unbounded_send(FromHost::Problem(format!("code lens ({}): {message}", name.unwrap_or_default())));
     }
     let _ = out.unbounded_send(FromHost::CodeLenses { id: job.id, groups: provided.results });
+}
+
+/// A request replaced by a newer one: its calls are cancelled, and the lists the providers that
+/// already answered cached are released in the host.
+fn cancel_lens(host: &mut ExtensionHost, job: &mut LensJob) {
+    let answered = job.query.take();
+    host.cancel_query(&mut job.query);
+    for (handle, cache) in crate::codelens::cache_ids(&answered.results) {
+        host.release(Kind::CodeLens, handle, cache);
+    }
 }
 
 /// A protocol range (UTF-16 columns) with its columns in `char`s, using the document's text.
@@ -707,6 +717,14 @@ fn _assert_send() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_replaced_lens_request_releases_the_lists_that_already_answered() {
+        // `cancel_lens` releases exactly these (it needs a running host, so the ids are checked).
+        let list = |cache| CodeLensList { lenses: vec![], cache_id: cache };
+        let answered = vec![(1, list(Some(10))), (2, list(None)), (3, list(Some(30)))];
+        assert_eq!(crate::codelens::cache_ids(&answered), vec![(1, 10), (3, 30)]);
+    }
 
     #[test]
     fn workspace_contains_finds_plain_paths_and_globs() {

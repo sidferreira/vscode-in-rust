@@ -73,6 +73,42 @@ pub struct ExtensionHost {
     closed: bool,
     /// The defaults extensions contribute (nested), re-sent with every configuration change.
     extension_defaults: Value,
+    /// Documents added for `workspace.openTextDocument` of a file the app has not opened, oldest
+    /// first (ADR-0103). An editor opening the file takes one over; closing it, or the cap
+    /// ([`MAX_ON_DEMAND`]), removes it.
+    pub(crate) on_demand: Vec<PathBuf>,
+    /// What a host without a session was asked to send (the unit tests read it).
+    #[cfg(test)]
+    sent: Vec<(&'static str, Vec<Value>)>,
+}
+
+/// Files bigger than this are not read for `workspace.openTextDocument` (upstream's large-file
+/// guard, `files.maxMemoryForLargeFilesMB` territory).
+pub const MAX_ON_DEMAND_BYTES: u64 = 50 * 1024 * 1024;
+
+/// How many on-demand documents the host keeps; the oldest is removed beyond it.
+pub const MAX_ON_DEMAND: usize = 256;
+
+/// The language of a file nobody opened in an editor, from its extension.
+fn on_demand_language(path: &Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("json") => "json",
+        Some("css") => "css",
+        Some("scss") => "scss",
+        Some("less") => "less",
+        Some("html" | "htm") => "html",
+        Some("md") => "markdown",
+        _ => "plaintext",
+    }
+}
+
+/// The text of a file for an on-demand document; `None` when it cannot be read as UTF-8 or is
+/// bigger than [`MAX_ON_DEMAND_BYTES`].
+fn read_on_demand(path: &Path) -> Option<String> {
+    if std::fs::metadata(path).ok()?.len() > MAX_ON_DEMAND_BYTES {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()
 }
 
 impl ExtensionHost {
@@ -163,6 +199,9 @@ impl ExtensionHost {
             start: Some(start),
             closed: false,
             extension_defaults,
+            on_demand: Vec::new(),
+            #[cfg(test)]
+            sent: Vec::new(),
         };
         me.wait(&ws, Duration::from_secs(30))?;
         me.wait(&cfg, Duration::from_secs(30))?;
@@ -230,26 +269,63 @@ impl ExtensionHost {
         let Ok(path) = crate::file_system::file_path(uri) else {
             return;
         };
-        let Ok(text) = std::fs::read_to_string(&path) else {
+        let Some(text) = read_on_demand(&path) else {
             return;
         };
-        let language = match path.extension().and_then(|e| e.to_str()) {
-            Some("json") => "json",
-            Some("css") => "css",
-            Some("scss") => "scss",
-            Some("less") => "less",
-            Some("html" | "htm") => "html",
-            Some("md") => "markdown",
-            _ => "plaintext",
-        };
+        let language = on_demand_language(&path);
         let delta = self.main_thread.documents.add_document(&path, &text, language);
-        if let Some(session) = self.session.as_ref() {
-            let _ = session.request(
-                ext_host::EXT_HOST_DOCUMENTS_AND_EDITORS,
-                "$acceptDocumentsAndEditorsDelta",
-                &[Arg::Json(delta)],
-            );
+        let _ = self.tell(
+            ext_host::EXT_HOST_DOCUMENTS_AND_EDITORS,
+            "$acceptDocumentsAndEditorsDelta",
+            vec![delta],
+        );
+        self.on_demand.push(path);
+        while self.on_demand.len() > MAX_ON_DEMAND {
+            let oldest = self.on_demand.remove(0);
+            if let Some(delta) = self.main_thread.documents.remove_document(&oldest) {
+                let _ = self.tell(
+                    ext_host::EXT_HOST_DOCUMENTS_AND_EDITORS,
+                    "$acceptDocumentsAndEditorsDelta",
+                    vec![delta],
+                );
+            }
         }
+    }
+
+    /// A request to the host that is not waited for (the reply is dropped).
+    pub(crate) fn tell(
+        &mut self,
+        rpc_id: u8,
+        method: &'static str,
+        args: Vec<Value>,
+    ) -> Result<(), HostError> {
+        #[cfg(test)]
+        if self.session.is_none() {
+            self.sent.push((method, args));
+            return Ok(());
+        }
+        let args: Vec<Arg> = args.into_iter().map(Arg::Json).collect();
+        self.session()
+            .request(rpc_id, method, &args)
+            .map(|_| ())
+            .map_err(|e| HostError::Codec(e.to_string()))
+    }
+
+    /// A request with JSON arguments, waited for.
+    pub(crate) fn send_json(
+        &mut self,
+        rpc_id: u8,
+        method: &'static str,
+        args: Vec<Value>,
+        timeout: Duration,
+    ) -> Result<(), HostError> {
+        #[cfg(test)]
+        if self.session.is_none() {
+            self.sent.push((method, args));
+            return Ok(());
+        }
+        let args: Vec<Arg> = args.into_iter().map(Arg::Json).collect();
+        self.call(rpc_id, method, &args, timeout).map(|_| ())
     }
 
     /// `ExtHostFileSystemEventService.$onFileEvent`: the changes the watchers were promised, sent
@@ -344,13 +420,12 @@ impl ExtensionHost {
 
     /// `ExtHostDocumentsAndEditors.$acceptDocumentsAndEditorsDelta`.
     fn send_delta(&mut self, delta: Value, timeout: Duration) -> Result<(), HostError> {
-        self.call(
+        self.send_json(
             ext_host::EXT_HOST_DOCUMENTS_AND_EDITORS,
             "$acceptDocumentsAndEditorsDelta",
-            &[Arg::Json(delta)],
+            vec![delta],
             timeout,
         )
-        .map(|_| ())
     }
 
     /// Tell the host a document is open (the main thread's model gets it too).
@@ -361,6 +436,21 @@ impl ExtensionHost {
         language: &str,
         timeout: Duration,
     ) -> Result<(), HostError> {
+        // A document `workspace.openTextDocument` added is reused, not added twice (ADR-0103):
+        // the host gets the edit that makes it the editor's text, or, for another language, the
+        // document is removed and added again.
+        if let Some(i) = self.on_demand.iter().position(|p| p == path) {
+            self.on_demand.remove(i);
+            if let Some(doc) = self.main_thread.documents.open.get(&crate::app_sync::resource_key(path)) {
+                if doc.language == language {
+                    return match crate::app_sync::replace_diff(&doc.text, text) {
+                        Some(edit) => self.edit_document(path, &[edit], timeout),
+                        None => Ok(()),
+                    };
+                }
+                self.close_document(path, timeout)?;
+            }
+        }
         let delta = self
             .main_thread
             .documents
@@ -397,13 +487,12 @@ impl ExtensionHost {
                 .ok_or_else(|| {
                     HostError::Codec(format!("{} is not an open document", path.display()))
                 })?;
-        self.call(
+        self.send_json(
             ext_host::EXT_HOST_DOCUMENTS,
             "$acceptModelChanged",
-            &[Arg::Json(uri), Arg::Json(event), Arg::Json(json!(dirty))],
+            vec![uri, event, json!(dirty)],
             timeout,
         )
-        .map(|_| ())
     }
 
     /// `ExtHostConfiguration.$acceptConfigurationChanged`: new layers (see
@@ -504,5 +593,119 @@ fn merge(a: Value, b: Value) -> Value {
             Value::Object(a)
         }
         (_, b) => b,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use vsr_rpc::handshake::file_uri;
+
+    const T: Duration = Duration::from_secs(1);
+
+    /// A host without a process: what it would send is recorded in `sent`.
+    fn detached() -> ExtensionHost {
+        let (_tx, events) = std::sync::mpsc::channel();
+        ExtensionHost {
+            session: None,
+            events,
+            main_thread: MainThread::new(),
+            start: None,
+            closed: false,
+            extension_defaults: json!({}),
+            on_demand: Vec::new(),
+            sent: Vec::new(),
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("rscode-host-{name}-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn try_open(host: &mut ExtensionHost, path: &Path) {
+        let call = vsr_rpc::rpc::Call {
+            req: 1,
+            rpc_id: vsr_rpc::proxy_ids::main::MAIN_THREAD_DOCUMENTS,
+            method: "$tryOpenDocument".into(),
+            args: vec![Arg::Json(file_uri(path))],
+            cancellable: false,
+        };
+        host.open_on_demand(&call);
+    }
+
+    fn added(host: &ExtensionHost) -> usize {
+        host.sent.iter().filter(|(_, a)| a[0].get("addedDocuments").is_some()).count()
+    }
+
+    #[test]
+    fn an_editor_opening_an_on_demand_document_reuses_it() {
+        let dir = scratch("reuse");
+        let file = dir.join("a.json");
+        fs::write(&file, "{\"a\": 1}").unwrap();
+        let mut host = detached();
+        try_open(&mut host, &file);
+        assert_eq!(added(&host), 1);
+        // The same text: nothing is sent.
+        host.open_document(&file, "{\"a\": 1}", "json", T).unwrap();
+        assert_eq!(added(&host), 1, "no second addedDocuments");
+        assert_eq!(host.sent.len(), 1);
+        assert!(host.on_demand.is_empty(), "the editor took it over");
+        // Closing it later removes it.
+        host.close_document(&file, T).unwrap();
+        assert!(host.main_thread.documents.open.is_empty());
+        assert!(host.sent.last().unwrap().1[0].get("removedDocuments").is_some());
+    }
+
+    #[test]
+    fn the_editor_text_that_differs_from_disk_bumps_the_version() {
+        let dir = scratch("differs");
+        let file = dir.join("a.json");
+        fs::write(&file, "{\"a\": 1}").unwrap();
+        let mut host = detached();
+        try_open(&mut host, &file);
+        host.open_document(&file, "{\"a\": 2}", "json", T).unwrap();
+        assert_eq!(added(&host), 1);
+        assert_eq!(host.sent.last().unwrap().0, "$acceptModelChanged");
+        let doc = &host.main_thread.documents.open[&crate::app_sync::resource_key(&file)];
+        assert_eq!((doc.version, doc.text.as_str()), (2, "{\"a\": 2}"));
+    }
+
+    #[test]
+    fn a_closed_on_demand_document_is_removed_and_the_cap_drops_the_oldest() {
+        let dir = scratch("cap");
+        let mut host = detached();
+        let files: Vec<PathBuf> = (0..MAX_ON_DEMAND + 2)
+            .map(|i| {
+                let f = dir.join(format!("f{i}.json"));
+                fs::write(&f, "{}").unwrap();
+                f
+            })
+            .collect();
+        for f in &files {
+            try_open(&mut host, f);
+        }
+        assert_eq!(host.main_thread.documents.open.len(), MAX_ON_DEMAND);
+        assert!(!host.main_thread.documents.open.contains_key(&crate::app_sync::resource_key(&files[0])), "the oldest went first");
+        host.close_document(&files[5], T).unwrap();
+        assert!(!host.on_demand.contains(&files[5]));
+        assert_eq!(host.main_thread.documents.open.len(), MAX_ON_DEMAND - 1);
+    }
+
+    #[test]
+    fn files_over_the_size_cap_are_not_read() {
+        let dir = scratch("big");
+        let big = dir.join("big.json");
+        let f = fs::File::create(&big).unwrap();
+        f.set_len(MAX_ON_DEMAND_BYTES + 1).unwrap();
+        let mut host = detached();
+        try_open(&mut host, &big);
+        assert!(host.main_thread.documents.open.is_empty() && host.sent.is_empty());
+        let small = dir.join("small.json");
+        fs::write(&small, "{}").unwrap();
+        try_open(&mut host, &small);
+        assert_eq!(added(&host), 1);
     }
 }

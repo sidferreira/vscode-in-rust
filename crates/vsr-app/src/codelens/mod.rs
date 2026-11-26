@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use vsr_exthost::language_features::dto::{CodeLens, CodeLensList};
+use vsr_exthost::language_features::dto::{CodeLens, CodeLensList, Range};
 use vsr_settings::Configuration;
 
 use crate::Workbench;
@@ -55,19 +55,23 @@ pub struct Lens {
     pub lens: CodeLens,
 }
 
-/// A request that was sent and not answered yet.
+/// A request that was sent and not answered yet, for the document at `version`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pending {
     pub id: u64,
     pub path: PathBuf,
+    pub version: u64,
 }
 
 /// The lenses of one document, and the provider lists the host holds for them (released when the
-/// document's lenses are replaced).
+/// document's lenses are replaced or the document is closed).
 #[derive(Debug, Default, Clone, PartialEq)]
 struct Doc {
     lists: Vec<(u32, u64)>,
     lenses: Vec<Lens>,
+    /// The lenses (provider, range) whose resolve was asked for. Each is asked once per answer: a
+    /// lens that stays without a command is not asked again until a new answer replaces it.
+    tried: Vec<(u32, Range)>,
 }
 
 /// Lenses the tests answer with, instead of a running host.
@@ -85,7 +89,9 @@ pub struct CodeLensState {
     /// The active document and its version the last time it was observed.
     last: Option<(PathBuf, u64)>,
     /// The document whose request waits for the debounce, and when the debounce ends.
-    due: Option<(PathBuf, Instant)>,
+    due: Option<(PathBuf, u64, Instant)>,
+    /// The version each observed document was last seen at: an answer for another one is stale.
+    latest: HashMap<PathBuf, u64>,
     awaited: Option<Pending>,
     docs: HashMap<PathBuf, Doc>,
     /// Resolve requests in flight: the document and the lens asked for.
@@ -106,21 +112,49 @@ impl CodeLensState {
             return;
         }
         self.last = Some((path.to_path_buf(), version));
-        self.due = Some((path.to_path_buf(), now + DEBOUNCE));
+        self.latest.insert(path.to_path_buf(), version);
+        self.due = Some((path.to_path_buf(), version, now + DEBOUNCE));
     }
 
     /// `editor.codeLens` is off: nothing is asked, and the next observation asks again.
     pub fn disable(&mut self) {
         self.last = None;
         self.due = None;
+        self.awaited = None;
+    }
+
+    /// The documents that are open are `open`: the others lose their lenses, their pending
+    /// request and their resolves. Returns the provider lists they held, to be released.
+    pub fn retain_open(&mut self, open: &[&Path]) -> Vec<(u32, u64)> {
+        let is_open = |p: &Path| open.contains(&p);
+        let mut released = Vec::new();
+        self.docs.retain(|p, d| {
+            let keep = is_open(p);
+            if !keep {
+                released.append(&mut d.lists);
+            }
+            keep
+        });
+        self.latest.retain(|p, _| is_open(p));
+        self.resolving.retain(|_, (p, _)| is_open(p));
+        if self.last.as_ref().is_some_and(|(p, _)| !is_open(p)) {
+            self.last = None;
+        }
+        if self.due.as_ref().is_some_and(|(p, _, _)| !is_open(p)) {
+            self.due = None;
+        }
+        if self.awaited.as_ref().is_some_and(|a| !is_open(&a.path)) {
+            self.awaited = None;
+        }
+        released
     }
 
     /// The request whose debounce ended (it is then the one awaited).
     pub fn tick(&mut self, now: Instant) -> Option<Pending> {
-        if self.due.as_ref().is_some_and(|(_, t)| now >= *t) {
-            let (path, _) = self.due.take()?;
+        if self.due.as_ref().is_some_and(|(_, _, t)| now >= *t) {
+            let (path, version, _) = self.due.take()?;
             self.next_id += 1;
-            let p = Pending { id: self.next_id, path };
+            let p = Pending { id: self.next_id, path, version };
             self.awaited = Some(p.clone());
             return Some(p);
         }
@@ -128,10 +162,14 @@ impl CodeLensState {
     }
 
     /// The providers' lists for request `id`. The document's lenses are replaced and the lists it
-    /// held before are returned, to be released. `None` when `id` is not the one awaited: nothing
+    /// held before are returned, to be released. `None` when `id` is not the one awaited, or the
+    /// document changed since the request went out (the answer is for an older text): nothing
     /// changes, and the caller releases the new lists (`cache_ids`).
     pub fn deliver(&mut self, id: u64, groups: Vec<(u32, CodeLensList)>) -> Option<Vec<(u32, u64)>> {
         let p = self.awaited.take_if(|p| p.id == id)?;
+        if self.latest.get(&p.path) != Some(&p.version) {
+            return None;
+        }
         let mut lists = Vec::new();
         let mut lenses = Vec::new();
         for (handle, list) in groups {
@@ -141,7 +179,7 @@ impl CodeLensState {
             lenses.extend(list.lenses.into_iter().map(|lens| Lens { handle, lens }));
         }
         lenses.sort_by_key(|l| (l.lens.range.start_line, l.lens.range.start_column));
-        let old = self.docs.insert(p.path, Doc { lists, lenses }).map(|d| d.lists).unwrap_or_default();
+        let old = self.docs.insert(p.path, Doc { lists, lenses, tried: Vec::new() }).map(|d| d.lists).unwrap_or_default();
         Some(old)
     }
 
@@ -150,16 +188,18 @@ impl CodeLensState {
         self.docs.get(path).map(|d| d.lenses.as_slice()).unwrap_or(&[])
     }
 
-    /// The lenses of `path` without a command that are not being resolved yet: each one gets a
-    /// request id, to answer with [`CodeLensState::resolved`].
+    /// The lenses of `path` without a command that were not asked for yet: each one gets a request
+    /// id, to answer with [`CodeLensState::resolved`]. A lens is asked once per answer, whether or
+    /// not the resolve gave it a command.
     pub fn resolve_requests(&mut self, path: &Path) -> Vec<(u64, u32, CodeLens)> {
-        let todo: Vec<Lens> = self
-            .lenses(path)
+        let Some(doc) = self.docs.get_mut(path) else { return Vec::new() };
+        let todo: Vec<Lens> = doc
+            .lenses
             .iter()
-            .filter(|l| l.lens.command.is_none())
-            .filter(|l| !self.resolving.values().any(|(p, asked)| p == path && asked == *l))
+            .filter(|l| l.lens.command.is_none() && !doc.tried.contains(&(l.handle, l.lens.range)))
             .cloned()
             .collect();
+        doc.tried.extend(todo.iter().map(|l| (l.handle, l.lens.range)));
         todo.into_iter()
             .map(|l| {
                 self.next_id += 1;
@@ -203,6 +243,9 @@ impl Workbench {
             .flatten()
             .filter(|e| e.path.is_absolute() && !e.is_untitled())
             .map(|e| (e.path.clone(), e.editor.version()));
+        let open: Vec<&Path> = self.editors.open.iter().map(|e| e.path.as_path()).collect();
+        let dropped = self.codelens.retain_open(&open);
+        self.codelens_release(dropped);
         if let Some((path, version)) = &active {
             self.codelens.observe(path, *version, now);
         }
@@ -368,5 +411,71 @@ mod tests {
         c.observe(p, 1, t0);
         c.disable();
         assert!(c.tick(t0 + Duration::from_secs(1)).is_none());
+    }
+
+    #[test]
+    fn a_lens_whose_resolve_gave_no_command_is_not_asked_again() {
+        let t0 = Instant::now();
+        let p = Path::new("/w/a.rs");
+        let mut c = CodeLensState::default();
+        c.observe(p, 1, t0);
+        let req = c.tick(t0 + DEBOUNCE).unwrap();
+        c.deliver(req.id, vec![(4, list(vec![at(2)], None))]);
+        let (id, _, lens) = c.resolve_requests(p).pop().unwrap();
+        assert!(!c.resolved(id, lens), "the answer has no command");
+        assert!(c.resolve_requests(p).is_empty(), "asked once, not every frame");
+        // A new answer (the next version) makes it a new lens, asked once more.
+        c.observe(p, 2, t0 + Duration::from_secs(1));
+        let req = c.tick(t0 + Duration::from_secs(2)).unwrap();
+        c.deliver(req.id, vec![(4, list(vec![at(2)], None))]);
+        assert_eq!(c.resolve_requests(p).len(), 1);
+        assert!(c.resolve_requests(p).is_empty());
+    }
+
+    #[test]
+    fn closing_a_document_returns_its_lists_and_forgets_it() {
+        let t0 = Instant::now();
+        let (a, b) = (Path::new("/w/a.rs"), Path::new("/w/b.rs"));
+        let mut c = CodeLensState::default();
+        for (path, list_id) in [(a, 10), (b, 20)] {
+            c.observe(path, 1, t0);
+            let req = c.tick(t0 + DEBOUNCE).unwrap();
+            c.deliver(req.id, vec![(1, list(vec![at(1)], Some(list_id)))]);
+        }
+        assert_eq!(c.retain_open(&[a, b]), vec![], "both are open");
+        assert_eq!(c.retain_open(&[b]), vec![(1, 10)], "a closed: its list is released");
+        assert!(c.lenses(a).is_empty());
+        assert_eq!(c.lenses(b).len(), 1);
+        assert_eq!(c.retain_open(&[b]), vec![], "released once");
+        // Reopening it at the same version asks again.
+        c.observe(a, 1, t0 + Duration::from_secs(5));
+        assert!(c.tick(t0 + Duration::from_secs(6)).is_some());
+    }
+
+    #[test]
+    fn an_answer_for_an_older_version_is_dropped() {
+        let t0 = Instant::now();
+        let p = Path::new("/w/a.rs");
+        let mut c = CodeLensState::default();
+        c.observe(p, 1, t0);
+        let v1 = c.tick(t0 + DEBOUNCE).unwrap();
+        assert_eq!(v1.version, 1);
+        c.observe(p, 2, t0 + DEBOUNCE + Duration::from_millis(10));
+        assert!(c.deliver(v1.id, vec![(1, list(vec![at(1)], Some(5)))]).is_none(), "v1 arrived during the debounce of v2");
+        assert!(c.lenses(p).is_empty(), "not applied to v2's text");
+        let v2 = c.tick(t0 + Duration::from_secs(1)).unwrap();
+        assert_eq!(v2.version, 2);
+        assert_eq!(c.deliver(v2.id, vec![(1, list(vec![at(1)], None))]), Some(vec![]));
+    }
+
+    #[test]
+    fn disabling_forgets_the_awaited_request() {
+        let t0 = Instant::now();
+        let p = Path::new("/w/a.rs");
+        let mut c = CodeLensState::default();
+        c.observe(p, 1, t0);
+        let req = c.tick(t0 + DEBOUNCE).unwrap();
+        c.disable();
+        assert!(c.deliver(req.id, vec![]).is_none());
     }
 }

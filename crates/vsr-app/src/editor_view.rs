@@ -304,6 +304,8 @@ impl EditorView {
     pub(crate) fn anchor_at(&self, e: &OpenEditor, line: usize, column: usize) -> (f32, f32, f32) {
         let buf = e.buffer();
         let tab = e.editor.options().tab_size;
+        // A line past the end (the text changed since the caller looked) clamps to the last one.
+        let line = line.clamp(1, buf.line_count());
         let pos = Position::new(line, column.max(1));
         let (row, text, col) = match e.editor.view_lines() {
             Some(v) => {
@@ -337,7 +339,7 @@ impl EditorView {
         // The range is in chars, the editor's columns are UTF-16 units: convert the start.
         let column = match sh.range {
             Some(r) => {
-                let text = e.buffer().line_content(line);
+                let text = e.buffer().line_content(line.clamp(1, e.buffer().line_count()));
                 1 + text.chars().take(r.start_column.saturating_sub(1) as usize).map(char::len_utf16).sum::<usize>()
             }
             None => sh.point.column as usize,
@@ -447,6 +449,7 @@ impl EditorView {
             (f32::from(o.x), f32::from(o.y))
         };
         self.hover.scrolled_to(scroll_top);
+        self.hover.sync_document(&editor.path, version, lines);
         let hover = match self.hover_drawn() {
             Some(sh) => {
                 let word = self.hover_word_box(editor, sh);
@@ -967,11 +970,20 @@ fn mouse_move<T: EditorHost>(this: &mut T, ev: &MouseMoveEvent, window: &mut Win
     }
 }
 
-/// The pointer moved over the text: the word under it starts its hover delay (ADR-0109). A timer
-/// wakes the editor when the delay ends, so the request goes out without another mouse move.
+/// Whether the word's occurrences are drawn at all (`editor.occurrencesHighlight` is not `off`): only
+/// then does their delay gate anything. The selection highlight is not delayed.
+fn occurrences_gate_needed(cfg: &EditorSettings) -> bool {
+    cfg.occurrences_highlight != OccurrencesHighlight::Off
+}
+
 /// Whether the word's occurrences are drawn in this frame (`editor.occurrencesHighlightDelay`). When
 /// they are not due yet, a timer wakes the editor at the time they are.
 fn occurrences_due<T: EditorHost>(view: &mut EditorView, e: &OpenEditor, cfg: &EditorSettings, cx: &mut Context<T>) -> bool {
+    // With the word highlight off nothing waits for the gate: no timer, no repaint, no work.
+    if !occurrences_gate_needed(cfg) {
+        view.occurrences_timer = None;
+        return true;
+    }
     // The gate is keyed on the caret's word, as upstream keeps the highlight while the caret stays in it.
     let sel = e.editor.selection();
     let span = match e.editor.word_at(sel.active) {
@@ -998,6 +1010,8 @@ fn occurrences_due<T: EditorHost>(view: &mut EditorView, e: &OpenEditor, cfg: &E
     }
 }
 
+/// The pointer moved over the text: the word under it starts its hover delay (ADR-0109). A timer
+/// wakes the editor when the delay ends, so the request goes out without another mouse move.
 fn hover_pointer<T: EditorHost>(editors: &Editors, view: &mut EditorView, ev: &MouseMoveEvent, window: &Window, cx: &mut Context<T>) {
     // A drag selects text: no hover while a button is held (upstream hides it on a mouse down).
     if ev.pressed_button.is_some() {
@@ -1702,6 +1716,14 @@ fn rows(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn occurrence_highlight_off_needs_no_gate_but_the_delay_does_when_on() {
+        let mut cfg = EditorSettings::default();
+        assert!(occurrences_gate_needed(&cfg), "single file is the default");
+        cfg.occurrences_highlight = OccurrencesHighlight::Off;
+        assert!(!occurrences_gate_needed(&cfg), "off: no timer, no repaint");
+    }
 
     #[test]
     fn line_number_labels_follow_the_setting() {

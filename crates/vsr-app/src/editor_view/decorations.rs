@@ -55,7 +55,9 @@ impl BracketCache {
 /// so the tests drive it.
 #[derive(Default)]
 pub struct OccurrenceGate {
-    key: Option<(PathBuf, u64, Position, Position)>,
+    /// The path last checked; it is copied only when it differs, not every frame.
+    path: PathBuf,
+    key: Option<(u64, Position, Position)>,
     since: Option<Instant>,
 }
 
@@ -69,11 +71,17 @@ impl OccurrenceGate {
         now: Instant,
         delay: Duration,
     ) -> Result<(), Duration> {
-        let key = (path.to_path_buf(), version, selection.0, selection.1);
-        match &self.key {
-            Some(k) if *k == key => {}
-            Some(_) => self.since = Some(now),
-            None => self.since = Some(now.checked_sub(delay).unwrap_or(now)),
+        let key = (version, selection.0, selection.1);
+        let same = self.path == path && self.key == Some(key);
+        if !same {
+            if self.key.is_some() {
+                self.since = Some(now);
+            } else {
+                self.since = Some(now.checked_sub(delay).unwrap_or(now));
+            }
+            if self.path != path {
+                self.path = path.to_path_buf();
+            }
         }
         self.key = Some(key);
         let due = self.since.unwrap_or(now) + delay;
@@ -391,6 +399,16 @@ mod tests {
         assert_eq!(g.check(p, 1, moved, t0 + ms(900), ms(300)), Ok(()), "stays due while the caret rests");
         // An edit (a new version) starts the wait again.
         assert_eq!(g.check(p, 2, moved, t0 + ms(900), ms(300)), Err(ms(300)));
+    }
+
+    #[test]
+    fn occurrence_gate_keeps_the_path_it_was_given_and_restarts_on_another_document() {
+        let (t0, ms) = (Instant::now(), Duration::from_millis);
+        let sel = (Position { line: 1, column: 1 }, Position { line: 1, column: 1 });
+        let mut g = OccurrenceGate::default();
+        assert_eq!(g.check(Path::new("a.txt"), 1, sel, t0, ms(300)), Ok(()));
+        assert_eq!(g.check(Path::new("b.txt"), 1, sel, t0, ms(300)), Err(ms(300)), "another document waits");
+        assert_eq!(g.check(Path::new("b.txt"), 1, sel, t0 + ms(100), ms(300)), Err(ms(200)));
     }
 
     #[test]

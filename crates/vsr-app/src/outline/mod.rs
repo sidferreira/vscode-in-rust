@@ -56,6 +56,9 @@ pub struct OutlineState {
     markers: HashMap<String, Vec<Marker>>,
     /// The snapshot generation `markers` was parsed for.
     markers_generation: Option<u64>,
+    /// A hash of the open documents' paths at the last `retain_open_paths`: the set is rebuilt and the
+    /// state pruned only when it changes (or an answer arrived), not every frame.
+    open_hash: Option<u64>,
     /// How many times diagnostics were parsed into markers (tests: the parse is once per change).
     #[cfg(test)]
     pub parses: usize,
@@ -123,6 +126,8 @@ impl OutlineState {
         let providers = groups.len();
         let accepted = self.service.deliver(&key(path), version, groups).is_some();
         if accepted {
+            // The document may have closed since the request: prune again at the next frame.
+            self.open_hash = None;
             self.answered.insert(key(path), providers);
             self.remark(path);
         }
@@ -135,6 +140,9 @@ impl OutlineState {
     pub fn sync_markers(&mut self, path: &Path, generation: u64, parse: impl FnOnce() -> Vec<Marker>) {
         if self.markers_generation != Some(generation) {
             self.markers.clear();
+            // The marked models were built from the markers just dropped: the documents that are not
+            // active would keep stale marks until they are active again.
+            self.marked.clear();
             self.markers_generation = Some(generation);
         }
         let k = key(path);
@@ -184,6 +192,26 @@ impl OutlineState {
         self.service.cached(&key(path))
     }
 
+    /// `retain_open` for the open documents' `paths`, a no-op while they are the ones of the last call
+    /// (nothing opened or closed): the frame that finds the same editors builds no set.
+    pub fn retain_open_paths<'a>(&mut self, paths: impl Iterator<Item = &'a Path> + Clone) {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let mut n = 0usize;
+        for p in paths.clone() {
+            p.hash(&mut h);
+            n += 1;
+        }
+        n.hash(&mut h);
+        let sig = h.finish();
+        if self.open_hash == Some(sig) {
+            return;
+        }
+        self.open_hash = Some(sig);
+        let open: HashSet<String> = paths.map(key).collect();
+        self.retain_open(&open);
+    }
+
     /// Drops everything kept for the documents not in `open` (they closed): their models, marked
     /// models and answer counts, and any request still waiting for them (ADR-0086).
     pub fn retain_open(&mut self, open: &HashSet<String>) {
@@ -214,8 +242,7 @@ impl Workbench {
     }
 
     pub(crate) fn outline_sync_at(&mut self, now: Instant) {
-        let open: HashSet<String> = self.editors.open.iter().map(|e| key(&e.path)).collect();
-        self.outline.retain_open(&open);
+        self.outline.retain_open_paths(self.editors.open.iter().map(|e| e.path.as_path()));
         let active = self
             .editor_surface_active()
             .then(|| self.editors.active_editor())
@@ -337,5 +364,55 @@ mod tests {
         assert_eq!(s.view_model(path).map(|m| m.top_level().len()), Some(0), "a new answer replaces it");
         s.sync_markers(path, 2, Vec::new);
         assert!(s.view_model(path).is_some(), "no markers, the plain model");
+    }
+
+    #[test]
+    fn a_new_generation_clears_the_marks_of_the_documents_that_are_not_active() {
+        let mut s = OutlineState::default();
+        let (a, b) = (Path::new("/w/a.rs"), Path::new("/w/b.rs"));
+        let main = DocumentSymbol {
+            name: "main".into(),
+            detail: String::new(),
+            kind: 11,
+            tags: vec![],
+            container_name: None,
+            range: Range::new(1, 1, 1, 13),
+            selection_range: Range::new(1, 1, 1, 13),
+            children: vec![],
+        };
+        for p in [a, b] {
+            s.service.request(&key(p), 1);
+            s.deliver(p, 1, vec![ProviderSymbols::new(Some("fake"), vec![main.clone()])]);
+            s.sync_markers(p, 1, || vec![Marker { range: Range::new(1, 5, 1, 9), severity: severity::ERROR }]);
+        }
+        let top = |s: &OutlineState, p| {
+            let m = s.view_model(p).unwrap();
+            m.marker(m.top_level()[0]).map(|m| m.top_severity)
+        };
+        assert_eq!(top(&s, b), Some(severity::ERROR));
+        // The diagnostics changed (a new generation) and only `a` is active.
+        s.sync_markers(a, 2, Vec::new);
+        assert_eq!(top(&s, a), None, "the active document is re-marked");
+        assert_eq!(top(&s, b), None, "the other document does not keep the stale mark");
+    }
+
+    #[test]
+    fn retain_open_paths_prunes_only_when_the_open_set_changes() {
+        let mut s = OutlineState::default();
+        let (a, b) = (Path::new("/w/a.rs"), Path::new("/w/b.rs"));
+        for p in [a, b] {
+            s.service.request(&key(p), 1);
+            s.deliver(p, 1, vec![ProviderSymbols::new(Some("fake"), vec![])]);
+        }
+        s.retain_open_paths([a, b].into_iter());
+        assert!(s.answered(b).is_some());
+        s.retain_open_paths([a].into_iter());
+        assert!(s.answered(b).is_none(), "b closed");
+        assert!(s.answered(a).is_some());
+        // An answer for the closed document arrives late: the next frame prunes it again.
+        s.service.request(&key(b), 2);
+        s.deliver(b, 2, vec![ProviderSymbols::new(Some("fake"), vec![])]);
+        s.retain_open_paths([a].into_iter());
+        assert!(s.answered(b).is_none());
     }
 }

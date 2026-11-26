@@ -344,3 +344,56 @@ fn the_widget_is_not_drawn_while_the_suggest_list_is_open(cx: &mut TestAppContex
     assert!(wb.read_with(cx, |wb, _| wb.editor_view.hover_drawn().is_none()), "the suggest list covers it");
     assert!(hover_shown(&wb, cx), "the answer is kept for when the list closes");
 }
+
+/// Replaces the whole text of the active editor without a key, mouse or scroll event (an extension's
+/// edit, a revert, an undo from the palette), and paints.
+fn edit_outside_the_keys(wb: &Entity<Workbench>, cx: &mut VisualTestContext, text: &str) {
+    let text = text.to_string();
+    wb.update(cx, |wb, cx| {
+        let i = wb.editors.active.unwrap();
+        let e = &mut wb.editors.open[i].editor;
+        e.select_all();
+        e.type_text(&text);
+        cx.notify();
+    });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn a_hover_on_a_line_removed_by_a_non_key_edit_is_dropped_and_paint_does_not_panic(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench_text(cx, "line-removed", "{}", "a\nb\nfn main() {}\n");
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    let point = Point { path: file.clone(), line: 3, column: 5 };
+    let t0 = Instant::now();
+    answer_with(&wb, cx, "fn main()");
+    wb.update(cx, |wb, cx| {
+        let s = crate::hover::settings(cx);
+        wb.editor_view.hover.pointer(t0, Some((point, (10.0, 20.0))), s);
+    });
+    frame_at(&wb, cx, t0 + Duration::from_millis(300));
+    wb.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert!(hover_shown(&wb, cx), "shown on the last line");
+    edit_outside_the_keys(&wb, cx, "x");
+    assert!(!hover_shown(&wb, cx), "the edit drops the hover");
+    // The anchor of a line past the end clamps instead of panicking.
+    let b = char_box(&wb, cx, 99, 1);
+    assert!(b.1 >= 0.0);
+}
+
+#[gpui::test]
+fn a_hover_is_dropped_when_another_tab_becomes_active(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "other-tab", "{}");
+    let file = proj.join("src/main.rs");
+    let other = proj.join("src/other.rs");
+    fs::write(&other, "fn other() {}\n").unwrap();
+    open(&wb, cx, &file);
+    show_on_main(&wb, cx, &file);
+    wb.update(cx, |wb, cx| {
+        wb.open(&other);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(!hover_shown(&wb, cx), "the hover belongs to the other document");
+}

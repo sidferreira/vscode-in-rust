@@ -971,6 +971,16 @@ impl Default for EditorGroupSettings {
     }
 }
 
+/// `tabSizingFixedMinWidth` and `...MaxWidth` in px: both are at least the schema's minimum (38), and
+/// the maximum is at least the minimum, so a tab is never zero-width nor has `min > max`.
+fn fixed_tab_widths(c: &Configuration) -> (u32, u32) {
+    const SCHEMA_MINIMUM: u32 = 38;
+    let read = |key: &str, default: u32| c.get_f64(key).map_or(default, |n| n.round().max(0.) as u32).max(SCHEMA_MINIMUM);
+    let min = read("workbench.editor.tabSizingFixedMinWidth", 50);
+    let max = read("workbench.editor.tabSizingFixedMaxWidth", 160).max(min);
+    (min, max)
+}
+
 /// The number `workbench.editor.showTabIndex` shows before the tab at `index` (0-based), if any.
 /// Upstream ignores the setting unless `workbench.editor.showTabs` is `multiple`.
 pub fn tab_index_badge(show_index: bool, show_tabs: ShowTabs, index: usize) -> Option<usize> {
@@ -1011,12 +1021,8 @@ impl EditorGroupSettings {
                 .get_bool("workbench.editor.tabActionCloseVisibility")
                 .unwrap_or(d.tab_action_close_visibility),
             tab_sizing: c.get_enum("workbench.editor.tabSizing").unwrap_or(d.tab_sizing),
-            tab_sizing_fixed_min_width: c
-                .get_f64("workbench.editor.tabSizingFixedMinWidth")
-                .map_or(d.tab_sizing_fixed_min_width, |n| n.round().max(0.) as u32),
-            tab_sizing_fixed_max_width: c
-                .get_f64("workbench.editor.tabSizingFixedMaxWidth")
-                .map_or(d.tab_sizing_fixed_max_width, |n| n.round().max(0.) as u32),
+            tab_sizing_fixed_min_width: fixed_tab_widths(c).0,
+            tab_sizing_fixed_max_width: fixed_tab_widths(c).1,
             empty_hint: c.get_str("workbench.editor.empty.hint") != Some("hidden"),
         }
     }
@@ -1108,6 +1114,19 @@ mod tests {
 
     fn config(user: &str) -> Configuration {
         Configuration::new(&SettingsRegistry::load_default(), UserSettings::parse(user).unwrap())
+    }
+
+    #[test]
+    fn tab_sizing_fixed_widths_are_clamped_to_the_schema_minimum_and_max_is_at_least_min() {
+        let w = |user: &str| {
+            let g = EditorGroupSettings::from_configuration(&config(user));
+            (g.tab_sizing_fixed_min_width, g.tab_sizing_fixed_max_width)
+        };
+        assert_eq!(w(""), (50, 160), "the defaults");
+        assert_eq!(w(r#"{"workbench.editor.tabSizingFixedMaxWidth": 0}"#), (50, 50), "a zero max is not a zero-width tab");
+        assert_eq!(w(r#"{"workbench.editor.tabSizingFixedMinWidth": 0}"#), (38, 160), "the schema minimum");
+        assert_eq!(w(r#"{"workbench.editor.tabSizingFixedMinWidth": 300}"#), (300, 300), "min above the default max");
+        assert_eq!(w(r#"{"workbench.editor.tabSizingFixedMinWidth": 200, "workbench.editor.tabSizingFixedMaxWidth": 100}"#), (200, 200));
     }
 
     #[test]

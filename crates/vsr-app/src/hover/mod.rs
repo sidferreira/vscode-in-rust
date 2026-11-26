@@ -118,6 +118,8 @@ pub struct HoverState {
     armed: Option<Armed>,
     awaited: Option<Pending>,
     pub shown: Option<Shown>,
+    /// The document version the widget was first painted at: an edit since drops it.
+    shown_version: Option<u64>,
     /// When the widget goes away, while the pointer is off the word (sticky).
     hide_at: Option<Instant>,
     /// The pointer is over the widget itself.
@@ -206,7 +208,25 @@ impl HoverState {
         self.armed = None;
         self.awaited = None;
         self.shown = None;
+        self.shown_version = None;
         self.hide_at = None;
+    }
+
+    /// At paint, for the active editor `path` at `version` with `line_count` lines: a widget that is
+    /// for another document, or for a document whose text changed since (an edit outside the key
+    /// commands: an extension's edit, a revert, an undo from the palette), or for a line that is gone,
+    /// is dropped. Upstream hides the widget when the model content changes or the editor changes.
+    pub fn sync_document(&mut self, path: &std::path::Path, version: u64, line_count: usize) {
+        let Some(sh) = &self.shown else { return };
+        let stale = sh.point.path != path
+            || sh.point.line as usize > line_count
+            || sh.point.line == 0
+            || self.shown_version.is_some_and(|v| v != version);
+        if stale {
+            self.dismiss();
+        } else {
+            self.shown_version.get_or_insert(version);
+        }
     }
 
     /// The scroll offset of the editor at paint: a change since the last paint dismisses the widget.
@@ -243,6 +263,7 @@ impl HoverState {
             at: p.at,
         });
         self.hide_at = None;
+        self.shown_version = None;
         true
     }
 }
@@ -305,7 +326,11 @@ impl Workbench {
             return Vec::new();
         }
         let Some(e) = self.editors.open.iter().find(|e| e.path == p.path) else { return Vec::new() };
-        let line = e.buffer().line_content(p.line as usize);
+        let line = p.line as usize;
+        if line == 0 || line > e.buffer().line_count() {
+            return Vec::new();
+        }
+        let line = e.buffer().line_content(line);
         if line.encode_utf16().count() >= self.editors.max_tokenization_line_length { vec![LONG_LINE_WARNING.to_string()] } else { Vec::new() }
     }
 

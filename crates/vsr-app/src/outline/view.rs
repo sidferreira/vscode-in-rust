@@ -184,13 +184,42 @@ fn lower_char(c: char) -> char {
 /// The match is upstream's tree find (`TypeFilter`): `fuzzyScore` with `firstMatchCanBeWeak` and
 /// `boostFullMatch`, the scorer `vsr-quickinput` ports.
 fn filter_keep(rows: &[OutlineRow], text: &str) -> Vec<bool> {
-    let pattern: Vec<char> = text.chars().collect();
-    let pattern_low: Vec<char> = pattern.iter().map(|&c| lower_char(c)).collect();
+    // The pattern is cached for the filter string, and the row's chars go through two buffers reused
+    // for every row: a frame allocates none of them again while the text is the same.
+    thread_local! {
+        static SCRATCH: std::cell::RefCell<Scratch> = std::cell::RefCell::new(Scratch::default());
+    }
+    #[derive(Default)]
+    struct Scratch {
+        text: String,
+        pattern: Vec<char>,
+        pattern_low: Vec<char>,
+        word: Vec<char>,
+        word_low: Vec<char>,
+    }
+    SCRATCH.with(|sc| {
+        let sc = &mut *sc.borrow_mut();
+        if sc.text != text || sc.pattern.is_empty() {
+            sc.text.clear();
+            sc.text.push_str(text);
+            sc.pattern.clear();
+            sc.pattern.extend(text.chars());
+            sc.pattern_low.clear();
+            sc.pattern_low.extend(sc.pattern.iter().map(|&c| lower_char(c)));
+        }
+        let Scratch { pattern, pattern_low, word, word_low, .. } = sc;
+        filter_keep_with(rows, pattern, pattern_low, word, word_low)
+    })
+}
+
+fn filter_keep_with(rows: &[OutlineRow], pattern: &[char], pattern_low: &[char], word: &mut Vec<char>, word_low: &mut Vec<char>) -> Vec<bool> {
     let options = FuzzyScoreOptions { first_match_can_be_weak: true, boost_full_match: true };
-    let fuzzy = |name: &str| {
-        let word: Vec<char> = name.chars().collect();
-        let word_low: Vec<char> = word.iter().map(|&c| lower_char(c)).collect();
-        fuzzy_score(&pattern, &pattern_low, 0, &word, &word_low, 0, options).is_some()
+    let mut fuzzy = |name: &str| {
+        word.clear();
+        word.extend(name.chars());
+        word_low.clear();
+        word_low.extend(word.iter().map(|&c| lower_char(c)));
+        fuzzy_score(pattern, pattern_low, 0, word, word_low, 0, options).is_some()
     };
     let mut keep = vec![false; rows.len()];
     for i in 0..rows.len() {

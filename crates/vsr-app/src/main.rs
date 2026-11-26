@@ -1575,7 +1575,7 @@ impl Render for Workbench {
             }
             None => {}
         }
-        middle = middle.child(self.editor_area(cx, &layout)).children(right_group);
+        middle = middle.child(self.editor_area(window, cx, &layout)).children(right_group);
         if vertical_activity && right {
             middle = middle.child(self.activity_bar(cx, layout.side_bar, layout.activity_bar));
         }

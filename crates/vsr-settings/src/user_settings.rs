@@ -1,7 +1,8 @@
 //! A settings.json document: flat `"key": value` JSONC, read and written in place.
 //!
 //! Comments and trailing commas are accepted on load. Saving writes plain JSON, so comments
-//! in an existing file are not kept.
+//! in an existing file are not kept. Keys keep the order of the file and a new key goes last, as
+//! upstream's jsonc edits do (`setProperty` changes a value in place and appends a new property).
 
 use std::fs;
 use std::io;
@@ -44,7 +45,7 @@ impl UserSettings {
         self.values.get(key)
     }
 
-    /// The keys and values the user has set, sorted by key.
+    /// The keys and values the user has set, in the order of the file (new keys last).
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
         self.values.iter().map(|(k, v)| (k.as_str(), v))
     }
@@ -55,7 +56,8 @@ impl UserSettings {
 
     /// Removes the user's value so the default applies again.
     pub fn reset(&mut self, key: &str) {
-        self.values.remove(key);
+        // `remove` is a swap-remove under `preserve_order`: it would move the last key into the gap.
+        self.values.shift_remove(key);
     }
 
     pub fn is_modified(&self, key: &str) -> bool {
@@ -100,5 +102,24 @@ pub fn default_user_settings_path() -> PathBuf {
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".config"));
         config.join("rscode/User/settings.json")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saving_keeps_the_order_of_the_file_with_new_keys_last() {
+        let mut u = UserSettings::parse(r#"{"z.last": 1, "a.first": 2, "m.mid": 3}"#).unwrap();
+        u.set("a.first", Value::from(20));
+        u.set("b.new", Value::from(4));
+        u.reset("z.last");
+        let keys: Vec<&str> = u.iter().map(|(k, _)| k).collect();
+        assert_eq!(keys, ["a.first", "m.mid", "b.new"], "a changed value stays in place, a removed key leaves no reorder");
+        let text = u.to_text();
+        let order: Vec<usize> = ["a.first", "m.mid", "b.new"].iter().map(|k| text.find(k).unwrap()).collect();
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "the written text has the same order: {text}");
+        assert_eq!(UserSettings::parse(&text).unwrap(), u);
     }
 }

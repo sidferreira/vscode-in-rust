@@ -395,6 +395,54 @@ fn filter_menu_toggles_filters_in_the_search_box(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn filter_button_closes_its_open_menu_when_clicked_again(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "funnel-toggle");
+    let _view = open_settings(&wb, cx);
+    let button = cx.debug_bounds("settings-filter").expect("filter button is rendered");
+    cx.simulate_click(button.center(), Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("filter-modified").is_some(), "the funnel opens the menu");
+    let button = cx.debug_bounds("settings-filter").unwrap();
+    cx.simulate_click(button.center(), Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("filter-modified").is_none(), "the funnel closes an open menu");
+    cx.simulate_click(button.center(), Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("filter-modified").is_some(), "and reopens it on the next click");
+}
+
+#[gpui_kit::test]
+fn lang_and_feature_filters_show_no_settings_until_applied(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "lang-filter");
+    let view = open_settings(&wb, cx);
+    for q in ["@lang:css", "@feature:editor", "@lang:css @feature:x"] {
+        search(&view, cx, q);
+        assert!(keys(&view, cx).is_empty(), "{q}: no settings listed (not applied yet)");
+        assert_eq!(view.read_with(cx, |v, _| v.result_count()), 0, "{q}");
+    }
+    // Applied filters still narrow as before.
+    search(&view, cx, "@lang:css @id:editor.tabSize");
+    assert_eq!(keys(&view, cx), ["editor.tabSize"]);
+}
+
+#[gpui_kit::test]
+fn advanced_tag_is_case_insensitive_and_needs_a_whole_key(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "advanced-case");
+    let (key, tail) = advanced_setting();
+    let view = open_settings(&wb, cx);
+
+    search(&view, cx, &format!("{tail} @tag:ADVANCED"));
+    assert!(keys(&view, cx).contains(&key), "@tag:ADVANCED shows advanced settings");
+
+    // The key inside a longer word does not name the setting, so it stays hidden.
+    search(&view, cx, &format!("x{key}y"));
+    assert!(!keys(&view, cx).contains(&key), "a key inside a longer word does not show it");
+    // Typed as a whole word it does.
+    search(&view, cx, &key);
+    assert!(keys(&view, cx).contains(&key), "typed as a whole key it is shown");
+}
+
+#[gpui_kit::test]
 fn more_actions_copies_setting_id_and_json(cx: &mut TestAppContext) {
     let (wb, cx, _s) = workbench(cx, "copy-json");
     set_user(cx, "editor.tabSize", serde_json::json!(2));

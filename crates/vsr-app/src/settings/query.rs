@@ -23,17 +23,22 @@ pub struct ParsedQuery {
 }
 
 impl ParsedQuery {
+    /// Whether a filter that is applied is present. `@feature:` and `@lang:` are parsed but not
+    /// applied yet, so on their own they do not count (the view then shows no settings).
     pub fn has_filters(&self) -> bool {
-        !(self.tags.is_empty()
-            && self.extensions.is_empty()
-            && self.features.is_empty()
-            && self.ids.is_empty()
-            && self.language.is_none())
+        !(self.tags.is_empty() && self.extensions.is_empty() && self.ids.is_empty())
     }
 
+    /// Whether the `@tag:` / `@modified` / `@stable` list names `tag` (case-insensitive).
     pub fn has_tag(&self, tag: &str) -> bool {
-        self.tags.iter().any(|t| t == tag)
+        self.tags.iter().any(|t| t.eq_ignore_ascii_case(tag))
     }
+}
+
+/// Whether the query names the setting `key` as a whole word (typed as is, any case). A key
+/// inside a longer word, such as `prefix.key.suffix`, does not count.
+pub fn names_setting(query: &str, key: &str) -> bool {
+    query.split_whitespace().any(|w| w.eq_ignore_ascii_case(key))
 }
 
 pub fn parse(query: &str) -> ParsedQuery {
@@ -161,6 +166,34 @@ mod tests {
         assert_eq!(q.text, "font size");
         assert!(!q.has_filters());
         assert_eq!(parse("a@modified").text, "a@modified");
+    }
+
+    #[test]
+    fn lang_and_feature_are_parsed_but_not_filters() {
+        for q in ["@lang:css", "@feature:x", "@lang:css @feature:y,z"] {
+            let p = parse(q);
+            assert!(!p.has_filters(), "{q} must not count as a filter until applied");
+        }
+        assert_eq!(parse("@lang:css").language.as_deref(), Some("css"));
+        assert_eq!(parse("@feature:a,b").features, ["a", "b"]);
+        assert!(parse("font @lang:css @tag:x").has_filters(), "other filters still count");
+    }
+
+    #[test]
+    fn tags_compare_case_insensitively() {
+        let q = parse("@tag:Advanced @TAG:Stable");
+        assert!(q.has_tag("advanced"));
+        assert!(q.has_tag("stable"));
+        assert!(!q.has_tag("preview"));
+    }
+
+    #[test]
+    fn names_setting_matches_whole_words_only() {
+        assert!(names_setting("editor.tabSize", "editor.tabSize"));
+        assert!(names_setting("font EDITOR.TABSIZE", "editor.tabSize"));
+        assert!(!names_setting("my.editor.tabSizes", "editor.tabSize"));
+        assert!(!names_setting("xeditor.tabSize", "editor.tabSize"));
+        assert!(!names_setting("editor.tab", "editor.tabSize"));
     }
 
     #[test]

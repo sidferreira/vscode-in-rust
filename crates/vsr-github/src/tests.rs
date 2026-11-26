@@ -208,7 +208,7 @@ fn an_unrecognised_failure_keeps_gh_s_text() {
 
 #[test]
 fn a_failure_with_empty_stderr_falls_back_to_stdout() {
-    let fake = FakeRunner::new().on(Tool::Gh, &["pr"], Ok(Output { success: false, code: Some(1), stdout: "nope".into(), stderr: String::new() }));
+    let fake = FakeRunner::new().on(Tool::Gh, &["pr"], Ok(Output { success: false, code: Some(1), stdout: "nope".into(), stderr: String::new(), truncated: false }));
     let (g, _) = gh(fake);
     assert!(matches!(g.checkout(1), Err(GhError::Failed { message, .. }) if message == "nope"));
 }
@@ -427,4 +427,22 @@ fn a_detached_head_is_reported_by_branch_info() {
         .git(&["log"], "x\n");
     let (g, _) = gh(fake);
     assert!(g.branch_info().unwrap().is_detached());
+}
+
+#[test]
+fn an_unrecognized_conclusion_is_never_success_or_skipped() {
+    for conclusion in ["SOMETHING_NEW", "ERRORED", "weird"] {
+        let json = format!(r#"{{"name":"x","status":"COMPLETED","conclusion":"{conclusion}"}}"#);
+        let c: Check = serde_json::from_str(&json).unwrap();
+        assert_eq!(c.outcome(), CheckOutcome::Failed, "{conclusion}");
+    }
+}
+
+#[test]
+fn truncated_output_is_reported_as_too_large_not_as_a_parse_error() {
+    let big = Output { success: true, code: Some(0), stdout: "[{\"number\":1,".into(), stderr: String::new(), truncated: true };
+    let (g, _) = gh(FakeRunner::new().on(Tool::Gh, &["pr", "list"], Ok(big)));
+    let err = g.list_prs(PrFilter::Open).unwrap_err();
+    assert!(matches!(err, GhError::OutputTooLarge { .. }), "{err:?}");
+    assert!(err.headline().contains("more than 16 MB") && err.headline().contains("narrow the query"), "{}", err.headline());
 }

@@ -67,7 +67,12 @@ impl Github {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let command = format!("{} {}", if tool == Tool::Gh { "gh" } else { "git" }, args.join(" "));
         let out = self.runner.run(tool, &args, &self.cwd).map_err(|e| spawn_error(tool, &command, e))?;
-        if out.success { Ok(out.stdout) } else { Err(error::classify(&command, &out)) }
+        if out.success {
+            // Cut-off output cannot be trusted (a half JSON document would read as a parse error).
+            if out.truncated { Err(GhError::OutputTooLarge { command }) } else { Ok(out.stdout) }
+        } else {
+            Err(error::classify(&command, &out))
+        }
     }
 
     fn json<T: DeserializeOwned>(&self, args: &[&str]) -> Result<T, GhError> {

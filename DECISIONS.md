@@ -3520,6 +3520,20 @@ Review fixes (same day):
 - **Checks.** A `COMPLETED` run with an empty or missing conclusion is neutral, not failed; only FAILURE, TIMED_OUT, CANCELLED,
   ACTION_REQUIRED and STARTUP_FAILURE fail; STALE, SKIPPED and NEUTRAL are neutral.
 
+Second review fixes (same day):
+- **Output limit is an error.** `Output` has a `truncated` flag set when more than 16 MB was dropped; `Github::exec` (so every
+  `json` call) turns it into `GhError::OutputTooLarge` ("gh returned more than 16 MB; narrow the query") before any parse.
+- **Timeouts stop the whole tree.** The child runs in its own process group (`process_group(0)`); on timeout the group gets
+  SIGTERM, then SIGKILL after 300 ms (`libc::killpg`, `libc` added to this crate; it is already in the lockfile), so the `git`
+  that `gh pr checkout` spawns dies too and releases the pipes. Readers end when the group dies; a timed-out call does not wait for them.
+- **Detached calls are bounded.** `spawn_detached` kills the group after 30 s when the slow path is still running, and reaps the
+  child on the `try_wait` error path.
+- **`RSCODE_GH` must be absolute.** A relative value is an error (`locate_gh_in` returns `Err(message)`; the runner then fails
+  every `gh` call with `GhError::GhOverrideInvalid`, which the view shows) rather than being ignored. This is a separate variant
+  rather than a message on `GhMissing`, which stays a unit variant.
+- **Unknown check conclusions fail.** Only NEUTRAL, SKIPPED, STALE and an empty/missing conclusion are neutral; any other
+  conclusion counts as failed, so a new gh value cannot hide a failure.
+
 Tests: unit tests with the fake runner and canned JSON in the shape of real gh output for every call and error path;
 `tests/spawn.rs` runs a fake `gh` shell script found on a `PATH` of its own (in a fresh temp folder) to prove spawning,
 the working directory and that a multi-line body arrives as one argument. The real `gh` is never started by a test.
@@ -3568,6 +3582,16 @@ Review fixes (same day):
   session restore never touches `github.pr` (the tab is not restored, it starts `None`). The only other places that clear
   `pr_active` (close prompt, quit with a conflicting file) do so to show the editor being asked about; the tab stays and its
   tab-bar entry brings it back, like Settings and Welcome. Clearing `pr` there would lose the tab on a cancelled close.
+
+Second review fixes (same day):
+- **Abandoning the Create flow drops what it has in flight.** `github_picker_closed` bumps `create_gen` as well as clearing
+  `create`, so Escape, Quick Open replacing the step, or any other close ends the flow and a late push or preparation result is
+  ignored. A GitHub picker that is not a Create step (`github_pick`, e.g. "Checkout anyway") replacing a Create step also ends
+  the flow; only `github_pick_in(true, ..)` from the flow itself keeps it. While a push runs there is no picker, so the push
+  callback also drops its result when any other picker is open by then, and says "Pushed 'branch'; the pull request was not created."
+- **Untracked files count as dirty.** `git status --porcelain` lists untracked files, so the checkout prompt also fires for an
+  untracked build folder or scratch file. Kept on purpose: asking too often is safer than switching branches under files the
+  user may care about.
 
 Left: Markdown for the body, reviews and comments in the tab, file diffs, a status-bar entry for the current branch's pull
 request, several PR tabs, and a periodic refresh.

@@ -572,3 +572,43 @@ fn quick_open_replacing_the_picker_ends_the_create_flow(cx: &mut TestAppContext)
     assert!(wb.read_with(cx, |wb, _| wb.github.create.is_none()), "the flow is over");
     assert_eq!(fake.count("gh pr create"), 0);
 }
+
+#[gpui_kit::test]
+fn quick_open_during_a_push_is_not_taken_over_when_the_push_finishes(cx: &mut TestAppContext) {
+    let (wb, cx, fake) = start(cx, "create-push-abandoned", create_fake(false));
+    cx.dispatch_action(CreatePullRequest);
+    cx.run_until_parked();
+    // Confirm the push, but let it stay in flight: no parking until Quick Open is open.
+    picker(&wb, cx).update(cx, |p, cx| p.accept(false, cx));
+    cx.dispatch_action(crate::quick_open::GoToFile);
+    cx.run_until_parked(); // the push finishes now
+    assert_eq!(fake.count("git push"), 1);
+    assert_eq!(wb.read_with(cx, |wb, _| wb.quick.provider.clone()), "", "Quick Open is still the open picker, not the Title step");
+    assert!(has_picker(&wb, cx));
+    assert!(wb.read_with(cx, |wb, _| wb.github.create.is_none()), "the abandoned flow was not resumed");
+    assert_eq!(fake.count("gh pr create"), 0);
+}
+
+#[gpui_kit::test]
+fn closing_the_picker_or_replacing_it_with_another_bumps_the_generation(cx: &mut TestAppContext) {
+    let (wb, cx, _fake) = start(cx, "create-gen", create_fake(true));
+    let cgen = |wb: &Entity<Workbench>, cx: &mut VisualTestContext| wb.read_with(cx, |wb, _| wb.github.create_gen);
+    cx.dispatch_action(CreatePullRequest);
+    cx.run_until_parked();
+    let before = cgen(&wb, cx);
+    // Escape.
+    picker(&wb, cx).update(cx, |_, cx| cx.emit(crate::quick_input::QuickPickEvent::Dismiss));
+    cx.run_until_parked();
+    assert!(cgen(&wb, cx) > before, "Escape abandons the flow");
+    // A non-Create picker replacing a Create step.
+    cx.dispatch_action(CreatePullRequest);
+    cx.run_until_parked();
+    let before = cgen(&wb, cx);
+    assert!(wb.read_with(cx, |wb, _| wb.github.create.is_some()));
+    wb.update_in(cx, |wb, window, cx| {
+        wb.github_pick("Other".into(), String::new(), Some(super::create::choices(&[("A", "a")])), window, cx, |_, _, _, _, _| {})
+    });
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.github.create.is_none()), "the Create flow is cleared");
+    assert!(cgen(&wb, cx) > before);
+}

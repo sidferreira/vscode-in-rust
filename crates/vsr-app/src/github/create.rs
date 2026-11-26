@@ -118,7 +118,7 @@ impl Workbench {
             CreateStep::Base => ("Base branch".into(), flow.base.clone(), None),
             CreateStep::Draft => ("Create as a draft?".into(), String::new(), Some(choices(&[("No, ready for review", "ready"), ("Yes, create as a draft", "draft")]))),
         };
-        self.github_pick(placeholder, initial, choices, window, cx, |this, item, query, window, cx| {
+        self.github_pick_in(true, placeholder, initial, choices, window, cx, |this, item, query, window, cx| {
             this.github_create_accept(item.and_then(|i| i.value), query, window, cx)
         });
     }
@@ -138,7 +138,17 @@ impl Workbench {
                 cx.spawn_in(window, async move |this, cx| {
                     let result = cx.background_executor().spawn(async move { client.push_upstream() }).await;
                     this.update_in(cx, |this, window, cx| match result {
-                        _ if flow.generation != this.github.create_gen => {}
+                        // The flow was abandoned meanwhile (the picker closed, replaced by another
+                        // one): the push result must not bring it back.
+                        _ if flow.generation != this.github.create_gen || this.quick.pick.is_some() => {
+                            if this.github.notice.as_ref().is_some_and(|n| n.text.starts_with("Pushing '")) {
+                                this.github.notice = Some(match result {
+                                    Ok(()) => Notice { text: format!("Pushed '{}'; the pull request was not created.", flow.info.branch), error: false },
+                                    Err(e) => Notice { text: format!("Push failed: {}", e.headline()), error: true },
+                                });
+                                cx.notify();
+                            }
+                        }
                         Ok(()) => {
                             this.github.notice = None;
                             flow.info.has_upstream = true;
@@ -243,8 +253,7 @@ impl Workbench {
         self.github.keep_create = false;
     }
 
-    /// A Quick Pick: `choices` (filtered by the typed text), or a text step when `None`. `accept`
-    /// gets the chosen item and the typed text, with the picker already closed.
+    /// A Quick Pick that is not a step of the Create flow: replacing a Create step with it ends the flow.
     pub(super) fn github_pick(
         &mut self,
         placeholder: String,
@@ -254,8 +263,29 @@ impl Workbench {
         cx: &mut Context<Self>,
         accept: impl Fn(&mut Workbench, Option<PickItem>, String, &mut Window, &mut Context<Workbench>) + 'static,
     ) {
+        self.github_pick_in(false, placeholder, initial, choices, window, cx, accept);
+    }
+
+    /// A Quick Pick: `choices` (filtered by the typed text), or a text step when `None`. `accept`
+    /// gets the chosen item and the typed text, with the picker already closed.
+    /// `create_step`: whether it is a step of the Create flow (which keeps the flow when it replaces the previous step).
+    #[allow(clippy::too_many_arguments)]
+    fn github_pick_in(
+        &mut self,
+        create_step: bool,
+        placeholder: String,
+        initial: String,
+        choices: Option<Vec<PickItem>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        accept: impl Fn(&mut Workbench, Option<PickItem>, String, &mut Window, &mut Context<Workbench>) + 'static,
+    ) {
         if self.quick.pick.is_some() {
-            self.github_hide_picker(false, window, cx);
+            if create_step {
+                self.github_hide_picker(false, window, cx);
+            } else {
+                self.hide_quick_open(false, window, cx);
+            }
         }
         let hint = placeholder.clone();
         let source = move |query: &str, _cx: &mut App| -> PickResult {
@@ -280,7 +310,6 @@ impl Workbench {
                 accept(this, Some(item.clone()), query.clone(), window, cx);
             }
             QuickPickEvent::Dismiss => {
-                this.github.create = None;
                 this.hide_quick_open(true, window, cx);
             }
             _ => {}

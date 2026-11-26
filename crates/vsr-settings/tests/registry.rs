@@ -100,3 +100,31 @@ fn registry_has_all_exported_settings() {
     let registry = SettingsRegistry::load_default();
     assert!(registry.len() > 2000, "got {}", registry.len());
 }
+
+fn all_keys(nodes: &[vsr_settings::TocNode], out: &mut HashSet<String>) {
+    for n in nodes {
+        out.extend(n.settings.iter().cloned());
+        all_keys(&n.children, out);
+    }
+}
+
+#[test]
+fn advanced_toc_adds_only_advanced_settings() {
+    let registry = SettingsRegistry::load_default();
+    let (mut plain, mut adv) = (HashSet::new(), HashSet::new());
+    all_keys(registry.toc_for(false), &mut plain);
+    all_keys(registry.toc_for(true), &mut adv);
+    assert!(plain.is_subset(&adv));
+    let added: Vec<&String> = adv.difference(&plain).collect();
+    assert!(!added.is_empty(), "advanced settings appear in the second TOC");
+    assert!(added.iter().all(|k| registry.get(k).unwrap().tags.iter().any(|t| t == "advanced")), "{added:?}");
+    assert!(plain.iter().all(|k| registry.is_shown_by_default(k)));
+}
+
+#[test]
+fn extension_settings_know_their_extension() {
+    let registry = SettingsRegistry::load_default();
+    assert_eq!(registry.get("editor.fontSize").unwrap().extension_id, None);
+    let ext = registry.keys().filter_map(|k| registry.get(k)).find(|s| s.extension_id.is_some());
+    assert!(ext.is_some());
+}

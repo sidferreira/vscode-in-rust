@@ -61,7 +61,14 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Welcome", &["workbench.startupEditor"]),
-    ("Settings editor", &["workbench.settings.settingsSearchTocBehavior", "workbench.settings.editor"]),
+    (
+        "Settings editor",
+        &[
+            "workbench.settings.settingsSearchTocBehavior",
+            "workbench.settings.editor",
+            "workbench.settings.alwaysShowAdvancedSettings",
+        ],
+    ),
     ("Application", &["application.shellEnvironmentResolutionTimeout"]),
     (
         "Session",

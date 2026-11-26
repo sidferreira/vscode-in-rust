@@ -55,6 +55,7 @@ pub const ADD: char = '\u{EA60}';
 pub const TRASH: char = '\u{EA81}';
 pub const GIT_PULL_REQUEST: char = '\u{EA64}';
 pub const GO_TO_FILE: char = '\u{EA94}';
+pub const FILTER: char = '\u{EAF1}';
 
 /// Register the codicon TTF with gpui's text system.
 pub fn install(cx: &App) {

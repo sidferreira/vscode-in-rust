@@ -15,6 +15,8 @@
 pub mod markdown;
 #[path = "settings/model.rs"]
 pub mod model;
+#[path = "settings/query.rs"]
+pub mod query;
 #[path = "settings/validate.rs"]
 pub mod validate;
 
@@ -29,6 +31,7 @@ use std::rc::Rc;
 
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use serde_json::Value;
@@ -101,6 +104,10 @@ pub struct SettingsView {
     errors: HashMap<String, String>,
     dropdown: Option<String>,
     menu: Option<String>,
+    /// The search box's filter menu is open.
+    filter_menu: bool,
+    /// `workbench.settings.alwaysShowAdvancedSettings`.
+    always_advanced: bool,
     focus: FocusHandle,
     save_error: Option<String>,
     _subs: Vec<Subscription>,
@@ -110,6 +117,10 @@ const TOC_DEFAULT_WIDTH: f32 = 200.0;
 
 /// `workbench.settings.settingsSearchTocBehavior`: whether the TOC is filtered (true) or hidden
 /// (`hide`) while a search runs.
+fn always_show_advanced(c: &vsr_settings::Configuration) -> bool {
+    c.get_bool("workbench.settings.alwaysShowAdvancedSettings").unwrap_or(false)
+}
+
 fn toc_filters_on_search(c: &vsr_settings::Configuration) -> bool {
     c.get_str("workbench.settings.settingsSearchTocBehavior") != Some("hide")
 }
@@ -127,7 +138,8 @@ impl SettingsView {
         let save_error = app.error().map(str::to_string);
         let path = app.path().map(PathBuf::from);
         let toc_filters = toc_filters_on_search(app.configuration());
-        let rows = model::build_rows(registry.toc());
+        let always_advanced = always_show_advanced(app.configuration());
+        let rows = model::build_rows(registry.toc_for(always_advanced));
         let header_ix = model::header_indices(&rows);
         let list = ListState::new(rows.len(), ListAlignment::Top, px(600.));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search settings"));
@@ -144,6 +156,12 @@ impl SettingsView {
             this.user = app.user().clone();
             this.save_error = app.error().map(str::to_string);
             this.toc_filters_on_search = toc_filters_on_search(app.configuration());
+            let always = always_show_advanced(app.configuration());
+            if always != this.always_advanced {
+                this.always_advanced = always;
+                this.run_search();
+                this.toc_expanded.clear();
+            }
             cx.notify();
         }));
         let weak = cx.entity().downgrade();
@@ -174,6 +192,8 @@ impl SettingsView {
             errors: HashMap::new(),
             dropdown: None,
             menu: None,
+            filter_menu: false,
+            always_advanced,
             focus: cx.focus_handle(),
             save_error,
             _subs: subs,
@@ -225,28 +245,88 @@ impl SettingsView {
         !self.query.trim().is_empty()
     }
 
-    fn set_query(&mut self, query: String, cx: &mut Context<Self>) {
-        self.query = query;
-        self.dropdown = None;
-        self.menu = None;
-        // A new query clears the TOC category (upstream: `categoryFilter = undefined`).
-        self.category = None;
-        self.search_keys = if self.searching() {
-            // `@id:<key>` shows exactly that setting (upstream's id filter).
-            match self.query.trim().strip_prefix("@id:") {
-                Some(id) => self.registry.get(id.trim()).map(|s| s.key.clone()).into_iter().collect(),
-                None => self.registry.search(&self.query).into_iter().map(|s| s.key.clone()).collect(),
+    fn parsed_query(&self) -> query::ParsedQuery {
+        query::parse(&self.query)
+    }
+
+    /// Advanced settings are listed when the setting is on or `@tag:advanced` is in the query
+    /// (upstream `canShowAdvancedSettings`).
+    fn show_advanced(&self) -> bool {
+        self.always_advanced || (self.searching() && self.parsed_query().has_tag("advanced"))
+    }
+
+    /// The TOC for the current view: with or without advanced settings.
+    fn active_toc(&self) -> &[vsr_settings::TocNode] {
+        self.registry.toc_for(self.show_advanced())
+    }
+
+    /// Setting keys matching the query: free text ranked by the registry, narrowed by the filters.
+    fn matching_keys(&self) -> Vec<String> {
+        let q = self.parsed_query();
+        let registry = &self.registry;
+        let base: Vec<&SettingSchema> = if q.text.is_empty() {
+            if !q.has_filters() {
+                return Vec::new();
             }
+            registry.keys().filter_map(|k| registry.get(k)).collect()
         } else {
-            Vec::new()
+            registry.search(&q.text)
         };
+        let show_advanced = self.show_advanced();
+        let query_lower = self.query.to_lowercase();
+        base.into_iter()
+            .filter(|s| {
+                let advanced = s.tags.iter().any(|t| t == "advanced");
+                // An advanced setting named by `@id:` or typed by key stays reachable.
+                let named = q.ids.iter().any(|f| query::id_matches(f, &s.key)) || query_lower.contains(&s.key.to_lowercase());
+                (!advanced || show_advanced || named) && self.passes_filters(s, &q)
+            })
+            .map(|s| s.key.clone())
+            .collect()
+    }
+
+    /// Upstream `matchesAllTags` / `matchesAnyExtension` / `matchesAnyId`.
+    fn passes_filters(&self, s: &SettingSchema, q: &query::ParsedQuery) -> bool {
+        let has_tag = |t: &str| {
+            s.tags.iter().any(|x| x.eq_ignore_ascii_case(t)) || (t == "modified" && self.user.is_modified(&s.key))
+        };
+        if !q.tags.is_empty() {
+            let stable = q.has_tag("stable");
+            if stable && (has_tag("preview") || has_tag("experimental")) {
+                return false;
+            }
+            if !q.tags.iter().filter(|t| !(stable && *t == "stable")).all(|t| has_tag(&t.to_lowercase())) {
+                return false;
+            }
+        }
+        if !q.extensions.is_empty()
+            && !s.extension_id.as_ref().is_some_and(|id| q.extensions.iter().any(|e| e.eq_ignore_ascii_case(id)))
+        {
+            return false;
+        }
+        q.ids.is_empty() || q.ids.iter().any(|f| query::id_matches(f, &s.key))
+    }
+
+    /// Recompute the matches, the search TOC and the list from `self.query`.
+    fn run_search(&mut self) {
+        self.search_keys = if self.searching() { self.matching_keys() } else { Vec::new() };
         self.search_toc = if self.searching() {
             let matches: HashSet<&str> = self.search_keys.iter().map(String::as_str).collect();
-            model::flatten_search_toc(self.registry.toc(), &matches)
+            model::flatten_search_toc(self.active_toc(), &matches)
         } else {
             Vec::new()
         };
         self.refresh_rows();
+    }
+
+    fn set_query(&mut self, query: String, cx: &mut Context<Self>) {
+        self.query = query;
+        self.dropdown = None;
+        self.menu = None;
+        self.filter_menu = false;
+        // A new query clears the TOC category (upstream: `categoryFilter = undefined`).
+        self.category = None;
+        self.run_search();
         if !self.searching() {
             // Leaving search collapses the TOC and selects Commonly Used (upstream `collapseAll`).
             self.toc_expanded.clear();
@@ -260,14 +340,14 @@ impl SettingsView {
         self.rows = if self.searching() {
             let keys: Vec<&str> = match &self.category {
                 Some(id) => {
-                    let group = model::subtree_keys(self.registry.toc(), id);
+                    let group = model::subtree_keys(self.active_toc(), id);
                     self.search_keys.iter().filter(|k| group.contains(k.as_str())).map(String::as_str).collect()
                 }
                 None => self.search_keys.iter().map(String::as_str).collect(),
             };
             model::search_rows(keys)
         } else {
-            model::build_rows(self.registry.toc())
+            model::build_rows(self.active_toc())
         };
         self.header_ix = model::header_indices(&self.rows);
         self.list.reset(self.rows.len());
@@ -278,7 +358,7 @@ impl SettingsView {
         if self.searching() {
             if self.toc_filters_on_search { self.search_toc.clone() } else { Vec::new() }
         } else {
-            model::flatten_toc(self.registry.toc(), &self.toc_expanded)
+            model::flatten_toc(self.active_toc(), &self.toc_expanded)
         }
     }
 
@@ -299,7 +379,7 @@ impl SettingsView {
         if let Some(group) = model::group_at(&self.rows, first_visible).map(str::to_string)
             && self.selected_toc.as_deref() != Some(&group)
         {
-            for a in model::ancestors(self.registry.toc(), &group) {
+            for a in model::ancestors(self.active_toc(), &group) {
                 self.toc_expanded.insert(a);
             }
             self.selected_toc = Some(group);
@@ -352,6 +432,19 @@ impl SettingsView {
         self.save_error = AppConfig::set_value(cx, key, value).err();
         self.user = AppConfig::get(cx).user().clone();
         cx.notify();
+    }
+
+    /// `"key": value` as upstream's "Copy Setting as JSON" writes it (value pretty-printed, 2 spaces).
+    fn setting_as_json(&self, key: &str) -> Option<String> {
+        let schema = self.registry.get(key)?;
+        let value = serde_json::to_string_pretty(&self.current_value(schema)).ok()?;
+        Some(format!("\"{key}\": {value}"))
+    }
+
+    /// Apply a filter-menu action: set the search text and put the caret back in the search box.
+    fn set_filter_query(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_search_text(&text, window, cx);
+        self.focus_search(window, cx);
     }
 
     fn open_settings_json(&mut self, cx: &mut Context<Self>) {
@@ -679,6 +772,7 @@ impl SettingsView {
                 .top(px(15.))
                 .bottom(px(if is_bool { 23. } else { 18. }))
                 .w(px(2.))
+                .debug_selector(|| format!("modified:{row_id}"))
                 .bg(to_gpui(t.settings_modified_indicator))
         });
 
@@ -871,6 +965,16 @@ impl SettingsView {
                     cx.notify();
                 },
             ));
+            let json_key = key.to_string();
+            let copy_json = item(format!("copy-json:{row_id}"), "Copy Setting as JSON", true).on_click(cx.listener(
+                move |this, _: &ClickEvent, _w, cx| {
+                    if let Some(text) = this.setting_as_json(&json_key) {
+                        cx.write_to_clipboard(ClipboardItem::new_string(text));
+                    }
+                    this.menu = None;
+                    cx.notify();
+                },
+            ));
             holder = holder.child(deferred(
                 div()
                     .id(format!("menu:{row_id}"))
@@ -890,7 +994,8 @@ impl SettingsView {
                         cx.notify();
                     }))
                     .child(reset)
-                    .child(copy),
+                    .child(copy)
+                    .child(copy_json),
             ).with_priority(3));
         }
         holder
@@ -926,12 +1031,14 @@ impl SettingsView {
                         .text_color(to_gpui(t.description_fg))
                         .child(c),
                 )
-            });
+            })
+            .child(self.filter_button(cx));
 
         let tab = |scope: Scope, label: &'static str| {
             let active = self.scope == scope;
             div()
                 .id(format!("scope-tab:{label}"))
+                .debug_selector(move || format!("scope-tab:{label}"))
                 .px(px(8.))
                 .pt(px(7.))
                 .pb(px(6.5))
@@ -961,8 +1068,136 @@ impl SettingsView {
                     .border_b_1()
                     .border_color(to_gpui(t.settings_header_border))
                     .child(tab(Scope::User, "User"))
-                    .child(tab(Scope::Workspace, "Workspace")),
+                    .child(tab(Scope::Workspace, "Workspace"))
+                    .child(div().flex_1())
+                    .when(self.path.is_some(), |d| {
+                        d.child(
+                            div()
+                                .id("open-settings-json")
+                                .debug_selector(|| "open-settings-json".to_string())
+                                .flex_none()
+                                .w(px(22.))
+                                .h(px(22.))
+                                .mb(px(3.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(5.))
+                                .cursor_pointer()
+                                .font_family(icons::FAMILY)
+                                .text_size(px(16.))
+                                .text_color(to_gpui(t.foreground))
+                                .hover(|s| s.bg(to_gpui(t.list_hover_bg)))
+                                .tooltip(|window, cx| Tooltip::new("Open Settings (JSON)").build(window, cx))
+                                .child(icons::glyph(icons::GO_TO_FILE))
+                                .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| this.open_settings_json(cx))),
+                        )
+                    }),
             )
+    }
+
+    /// The funnel button in the search box and its menu (upstream `SettingsSearchFilterDropdownMenuActionViewItem`).
+    fn filter_button(&self, cx: &mut Context<Self>) -> Div {
+        let t = &self.theme;
+        let open = self.filter_menu;
+        let button = div()
+            .id("settings-filter")
+            .debug_selector(|| "settings-filter".to_string())
+            .flex_none()
+            .w(px(22.))
+            .h(px(22.))
+            .mr(px(4.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(5.))
+            .cursor_pointer()
+            .font_family(icons::FAMILY)
+            .text_size(px(16.))
+            .text_color(to_gpui(t.foreground))
+            .when(open, |d| d.bg(to_gpui(t.list_hover_bg)))
+            .hover(|s| s.bg(to_gpui(t.list_hover_bg)))
+            .child(icons::glyph(icons::FILTER))
+            .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
+                this.filter_menu = !this.filter_menu;
+                cx.notify();
+            }));
+        let mut holder = div().relative().flex_none().child(button);
+        if !open {
+            return holder;
+        }
+        const PREVIEW: &str = "@tag:preview";
+        const EXPERIMENTAL: &str = "@tag:experimental";
+        // (id, label, new query when picked, checked); `None` entries are separators.
+        let q = self.query.clone();
+        let has = |f: &str| q.split(' ').any(|w| w == f);
+        let entries: Vec<Option<(&'static str, &'static str, String, bool)>> = vec![
+            Some(("filter-modified", "Modified", query::toggle(&q, "@modified"), has("@modified"))),
+            None,
+            Some(("filter-ext", "Extension ID...", query::append(&q, "@ext:"), false)),
+            Some(("filter-id", "Setting ID...", query::append(&q, "@id:"), false)),
+            None,
+            Some(("filter-stable", "Stable", query::toggle_exclusive(&q, "@stable", &[PREVIEW, EXPERIMENTAL]), has("@stable"))),
+            Some(("filter-preview", "Preview", query::toggle_exclusive(&q, PREVIEW, &["@stable", EXPERIMENTAL]), has(PREVIEW))),
+            Some((
+                "filter-experimental",
+                "Experimental",
+                query::toggle_exclusive(&q, EXPERIMENTAL, &["@stable", PREVIEW]),
+                has(EXPERIMENTAL),
+            )),
+            None,
+            Some(("filter-advanced", "Advanced", query::toggle(&q, "@tag:advanced"), has("@tag:advanced"))),
+        ];
+        let mut menu = div()
+            .id("settings-filter-menu")
+            .occlude()
+            .absolute()
+            .top(px(24.))
+            .right_0()
+            .min_w(px(160.))
+            .py(px(4.))
+            .rounded(px(5.))
+            .border_1()
+            .border_color(to_gpui(t.menu_border))
+            .bg(to_gpui(t.menu_bg))
+            .text_color(to_gpui(t.foreground))
+            .on_mouse_down_out(cx.listener(|this, _, _w, cx| {
+                this.filter_menu = false;
+                cx.notify();
+            }));
+        for entry in entries {
+            menu = match entry {
+                None => menu.child(div().h(px(1.)).my(px(4.)).bg(to_gpui(t.menu_border))),
+                Some((id, label, next, checked)) => menu.child(
+                    div()
+                        .id(id)
+                        .debug_selector(|| id.to_string())
+                        .h(px(24.))
+                        .pl(px(6.))
+                        .pr(px(12.))
+                        .flex()
+                        .items_center()
+                        .whitespace_nowrap()
+                        .text_size(px(13.))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(to_gpui(t.menu_selection_bg)).text_color(gpui_kit::white()))
+                        .child(
+                            div()
+                                .w(px(20.))
+                                .font_family(icons::FAMILY)
+                                .text_size(px(16.))
+                                .when(checked, |d| d.child(icons::glyph(icons::CHECK))),
+                        )
+                        .child(label)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                            this.filter_menu = false;
+                            this.set_filter_query(next.clone(), window, cx);
+                        })),
+                ),
+            };
+        }
+        holder = holder.child(deferred(menu).with_priority(3));
+        holder
     }
 
     fn toc(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1033,9 +1268,9 @@ impl SettingsView {
                     )
                 })
                 .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                    if let Some(true) = this.registry.toc().iter().find(|n| n.id == id_select).map(|n| !n.children.is_empty()) {
+                    if let Some(true) = this.active_toc().iter().find(|n| n.id == id_select).map(|n| !n.children.is_empty()) {
                         this.toc_expanded.insert(id_select.clone());
-                    } else if !model::ancestors(this.registry.toc(), &id_select).is_empty() {
+                    } else if !model::ancestors(this.active_toc(), &id_select).is_empty() {
                         // nested node: keep parents open
                     }
                     this.select_toc(&id_select, cx);
@@ -1056,6 +1291,7 @@ impl SettingsView {
         if self.scope == Scope::Workspace {
             return div()
                 .id("settings-workspace-note")
+                .debug_selector(|| "settings-workspace-note".to_string())
                 .flex_1()
                 .mt(px(20.))
                 .px(px(24.))

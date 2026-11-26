@@ -3704,6 +3704,53 @@ and `explorer.fileNesting.patterns` was read in sorted key order, because `serde
 `explorer/settings.rs` (`file_nesting_patterns_keep_the_declaration_order`). The 26 trie tests are already
 ported (`upstream/ports.toml`, `explorer-file-nesting`).
 
+## ADR-0142 — Settings editor: search filters, filter menu, Copy as JSON, header JSON button, advanced settings (2026-11-26)
+
+**Context.** ADR-0017 listed what the Settings editor lacked. Compared with upstream
+(`settingsEditor2.ts`, `settingsTree.ts`, `settingsTreeModels.ts`, `settingsSearchMenu.ts`) the gaps that show
+at first glance were: only `@id:` worked as a filter (exact, one key); no filter menu; the More Actions
+menu lacked Copy Setting as JSON; no Open Settings (JSON) button; `workbench.settings.alwaysShowAdvancedSettings`
+was todo (ADR-0097). Already present and only now covered by tests: the modified bar on changed rows,
+Reset Setting, Copy Setting ID, and the User / Workspace tabs.
+
+**Built.**
+- `settings/query.rs`: a port of `parseQuery`. Filters `@modified`, `@stable`, `@tag:x`, `@ext:a,b`, `@feature:`,
+  `@id:a,b` (a trailing `.*` matches a prefix, as upstream) and `@lang:`, quoted values, and the rest as text.
+  A filter must start a word (upstream's regexes also match inside words). Pure helpers for the menu's toggles.
+- The view applies the filters like upstream's `matchesAllTags`, `matchesAnyExtension` and `matchesAnyId`:
+  `@modified` is a computed tag from the user settings; `@stable` excludes preview and experimental; with no text
+  the filters run over all settings, with text over the ranked search results. `SettingSchema::extension_id`
+  (new) carries the contributing built-in extension.
+- Filter menu: a funnel button in the search box with Modified, Extension ID..., Setting ID..., Stable, Preview,
+  Experimental (the last three exclusive) and Advanced. Entries toggle or append text in the search box, like
+  upstream's `createToggleAction`.
+- More Actions: Copy Setting as JSON (`"key": value`, value pretty-printed with two spaces, the current value).
+- Header: an Open Settings (JSON) button (codicon go-to-file) at the right end of the scope-tab row, opening the user
+  settings.json. Upstream puts it in the editor title bar; rscode has no per-editor title actions yet.
+- Scope tabs: User and Workspace are shown. rscode has user scope only, so the Workspace tab shows
+  "Workspace settings are not supported yet." (no `.vscode/settings.json` merge, no folder scope, ADR-0017).
+- Advanced settings: `SettingsRegistry` builds a second TOC with advanced settings (`toc_for(true)`); the first stays
+  as before. The view picks one at view time: `workbench.settings.alwaysShowAdvancedSettings` or `@tag:advanced` in
+  the query (upstream `canShowAdvancedSettings`). Search leaves advanced settings out unless that holds, the
+  setting is named by `@id:`, or its key is in the query (upstream `shouldShowSetting`).
+
+**Not done (follow-ups).** `@lang:` is parsed and ignored (no `[language]` override settings view); `@feature:` is
+parsed and ignored; the menu has no Feature..., Tag..., Language..., Online services, Organization policies or ExP
+entries; the filters are not re-applied when settings change while a filter is active (the list stays stable while a
+value is edited); no Workspace/Folder scopes; no per-extension `@ext:` suggestions; no search suggestions; the
+`Modified` indicator is the left bar only (no "Also modified in" hints).
+
+**Crates.** None added (the query grammar is small; `regex` is not a dependency of `vsr-app`).
+
+**Tests.** `settings/query.rs` unit tests; `crates/vsr-settings/tests/registry.rs`
+(`advanced_toc_adds_only_advanced_settings`, `extension_settings_know_their_extension`); E2E in
+`settings/e2e_tests.rs`: `modified_filter_lists_only_changed_settings_and_rows_show_the_indicator`,
+`id_filter_takes_lists_and_wildcards`, `ext_filter_lists_that_extensions_settings`,
+`filter_menu_toggles_filters_in_the_search_box`, `more_actions_copies_setting_id_and_json`,
+`header_open_settings_json_button_opens_the_file`, `workspace_tab_explains_that_only_user_settings_exist`,
+`advanced_settings_are_hidden_until_asked_for`, `always_show_advanced_settings_adds_them_to_the_toc_and_search`.
+Wired: `workbench.settings.alwaysShowAdvancedSettings`.
+
 ## ADR-0155 — Code lens: the provider query, the debounce and resolve (step 1 of ADR-0108); layout, click and fonts not done (2026-11-26)
 
 Step 3 of the navigation providers (ADR-0108 plan). This records what is in: the model and the worker query,

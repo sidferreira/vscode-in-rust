@@ -37,6 +37,8 @@ pub struct SettingSchema {
     pub order: Option<i64>,
     pub tags: Vec<String>,
     pub deprecated: Option<String>,
+    /// The built-in extension that contributes the setting (`@ext:` filter); `None` for core settings.
+    pub extension_id: Option<String>,
 }
 
 /// One entry of `default-configuration.json`, as exported from VS Code.
@@ -88,6 +90,7 @@ impl SettingSchema {
             order: raw.order,
             tags: raw.tags.clone().unwrap_or_default(),
             deprecated,
+            extension_id: raw.source.clone().filter(|s| s != "core"),
         }
     }
 }

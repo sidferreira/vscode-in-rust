@@ -391,8 +391,6 @@ impl EditorView {
         let hover = crate::hover::overlay(&self.hover, cfg.line_height, &theme, cx);
         let id: SharedString = editor.path.display().to_string().into();
         let list_focus = focus.clone();
-        // `editor.scrollBeyondLastLine`: empty rows after the last line (the page is measured at paint).
-        let rows_total = decorations::scroll_rows(view_line_count, self.rows_per_page(), cfg.scroll_beyond_last_line);
         // `editor.scrollBeyondLastColumn`: room after the widest line, so the list scrolls past it (not
         // with word wrap, where no line is wider than the viewport).
         let scroll_extra = if wrapping { 0.0 } else { cfg.scroll_beyond_last_column as f32 * used_char_w };
@@ -405,6 +403,15 @@ impl EditorView {
         // The bars and the overview ruler: the viewport and extents come from the last paint, before the
         // list's closure takes `cfg` and `theme`.
         let (vertical_in, horizontal_in) = scrollbar::inputs(&scroll, self.bounds.get().size, &bar_settings);
+        // The rows: view lines, then the empty rows of `editor.scrollBeyondLastLine` (the page is measured at
+        // paint), then the horizontal bar's spacer rows (ADR-0135).
+        let rows_total = decorations::scroll_rows(view_line_count, self.rows_per_page(), cfg.scroll_beyond_last_line)
+            + scrollbar::spacer_rows(
+                &horizontal_in,
+                cfg.scrollbar_ignore_horizontal_in_content_height,
+                cfg.scroll_beyond_last_line,
+                cfg.line_height,
+            );
         // The marks follow the view lines (folding and wrapping, ADR-0036, ADR-0042), as the rows do.
         let view_lines = editor.editor.view_lines();
         let lane = overview_ruler::Lane {

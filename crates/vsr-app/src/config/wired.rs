@@ -264,7 +264,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
     ("Comments", &["editor.comments.insertSpace", "editor.comments.ignoreEmptyLines"]),
     ("Indentation", &["editor.detectIndentation", "editor.indentSize"]),
     ("Overview ruler", &["editor.overviewRulerBorder", "editor.hideCursorInOverviewRuler"]),
-    ("Editor scrolling", &["editor.scrollBeyondLastLine", "editor.scrollBeyondLastColumn", "editor.scrollbar.vertical", "editor.scrollbar.horizontal", "editor.scrollbar.verticalScrollbarSize", "editor.scrollbar.horizontalScrollbarSize", "editor.scrollbar.scrollByPage"]),
+    ("Editor scrolling", &["editor.scrollBeyondLastLine", "editor.scrollBeyondLastColumn", "editor.scrollbar.vertical", "editor.scrollbar.horizontal", "editor.scrollbar.verticalScrollbarSize", "editor.scrollbar.horizontalScrollbarSize", "editor.scrollbar.scrollByPage", "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight"]),
     (
         "Word wrap",
         &[

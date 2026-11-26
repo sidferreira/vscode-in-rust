@@ -267,3 +267,61 @@ fn horizontal_auto_shows_for_a_wide_line_and_not_while_wrapping(cx: &mut TestApp
         "wrapped lines fit the viewport, so no bar"
     );
 }
+
+#[gpui_kit::test]
+fn a_shown_horizontal_bar_adds_one_spacer_row_to_the_scroll_range(cx: &mut TestAppContext) {
+    // Upstream `viewLayout.ts` `_getContentHeight` adds the horizontal bar's height to the content height
+    // when `scrollBeyondLastLine` is off and `ignoreHorizontalScrollbarInContentHeight` is off. Rows are
+    // whole, so the bar's height is one spacer row (`scrollbar::spacer_rows`).
+    let text = format!("{}{}", wide_text(), tall_text());
+    let (wb, cx) = workbench(cx, "h-spacer", r#"{"editor.scrollBeyondLastLine": false}"#, &text);
+    settle(&wb, cx);
+    assert!(bar(cx, H_BAR).is_some(), "a wide line shows the bar");
+    let counted = max_scroll_top(&wb, cx);
+    set(&wb, cx, "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight", json!(true));
+    settle(&wb, cx);
+    let ignored = max_scroll_top(&wb, cx);
+    let lh = wb.read_with(cx, |wb, _| wb.editor_view.cfg.line_height);
+    assert!(
+        (counted - ignored - lh).abs() < 1.0,
+        "the bar's row is in the scroll range by default: {counted} vs {ignored} (row {lh})"
+    );
+    set(&wb, cx, "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight", json!(false));
+    settle(&wb, cx);
+    assert!((max_scroll_top(&wb, cx) - counted).abs() < 1.0, "turning it back on restores the row");
+}
+
+#[gpui_kit::test]
+fn no_spacer_row_for_a_bar_that_overflows_nothing(cx: &mut TestAppContext) {
+    let (wb, cx) = workbench(cx, "h-no-spacer", r#"{"editor.scrollBeyondLastLine": false}"#, &tall_text());
+    settle(&wb, cx);
+    assert!(bar(cx, H_BAR).is_none(), "no wide line, no bar");
+    let plain = max_scroll_top(&wb, cx);
+    set(&wb, cx, "editor.scrollbar.horizontal", json!("visible"));
+    settle(&wb, cx);
+    // The bar takes its height from the text area (a smaller viewport), which moves the range by less than a
+    // row; no spacer row is added, so the range does not grow by a whole row.
+    let lh = wb.read_with(cx, |wb, _| wb.editor_view.cfg.line_height);
+    let grown = max_scroll_top(&wb, cx) - plain;
+    assert!(
+        grown.abs() < lh - 1.0,
+        "a bar that overflows nothing adds no row: the range moved by {grown}, a row is {lh}"
+    );
+}
+
+#[gpui_kit::test]
+fn scroll_beyond_last_line_does_not_add_the_bar_row(cx: &mut TestAppContext) {
+    // Upstream's `_getContentHeight` takes the `scrollBeyondLastLine` branch first, so the bar's height is
+    // not added whatever `ignoreHorizontalScrollbarInContentHeight` says.
+    let text = format!("{}{}", wide_text(), tall_text());
+    let (wb, cx) = workbench(cx, "h-beyond", r#"{"editor.scrollBeyondLastLine": true}"#, &text);
+    settle(&wb, cx);
+    assert!(bar(cx, H_BAR).is_some(), "a wide line shows the bar");
+    let beyond = max_scroll_top(&wb, cx);
+    set(&wb, cx, "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight", json!(true));
+    settle(&wb, cx);
+    assert!(
+        (max_scroll_top(&wb, cx) - beyond).abs() < 1.0,
+        "the setting changes nothing while scrollBeyondLastLine is on"
+    );
+}

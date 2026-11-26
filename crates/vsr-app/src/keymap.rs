@@ -71,6 +71,12 @@ pub enum Command {
     AcceptSuggest,
     /// Enter while the widget shows: accepts per `editor.acceptSuggestionOnEnter`.
     AcceptSuggestOnEnter,
+    /// Tab in a snippet session with a next tab stop (`jumpToNextSnippetPlaceholder`, ADR-0120).
+    NextTabstop,
+    /// Shift+Tab in a snippet session with a previous tab stop (`jumpToPrevSnippetPlaceholder`).
+    PrevTabstop,
+    /// Escape in a snippet session (`leaveSnippet`).
+    CancelSnippet,
     /// F12 (`editor.action.revealDefinition`), Cmd+F12 (`goToImplementation`) and the other go-to
     /// commands (ADR-0108).
     Navigate(crate::navigation::Nav),
@@ -212,7 +218,7 @@ pub fn apply(editor: &mut Editor, cmd: Command, page: usize) -> bool {
         Fold(action) => {
             editor.fold_action(action);
         }
-        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | ToggleTabFocusMode | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest | SuggestNext | SuggestPrevious | SuggestNextPage | SuggestPreviousPage | AcceptSuggest | AcceptSuggestOnEnter | Navigate(_) => {
+        Copy | Cut | Paste | Save | CloseTab | ToggleWordWrap | ToggleTabFocusMode | LineComment(_) | BlockComment | TriggerSuggest | HideSuggest | SuggestNext | SuggestPrevious | SuggestNextPage | SuggestPreviousPage | AcceptSuggest | AcceptSuggestOnEnter | NextTabstop | PrevTabstop | CancelSnippet | Navigate(_) => {
             return false;
         }
     }

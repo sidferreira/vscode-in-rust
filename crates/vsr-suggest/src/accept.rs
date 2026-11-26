@@ -37,6 +37,8 @@ pub struct AcceptPlan {
     pub selection: (usize, usize),
     /// The provider's other edits (a missing import).
     pub additional: Vec<(Span, String)>,
+    /// The snippet's tab stops, as offsets into `text` (none for a plain text).
+    pub stops: Vec<crate::snippet::Tabstop>,
 }
 
 /// Adds `indent` after every line break of `text`: the lines of a multi-line completion start at the
@@ -104,6 +106,7 @@ pub fn plan(item: &SuggestItem, cursor: Position, mode: InsertMode, line_indent:
         end_column: cursor.column + after,
         text: expanded.text,
         selection: expanded.selection,
+        stops: expanded.stops,
         additional,
     }
 }
@@ -121,7 +124,7 @@ mod tests {
     }
 
     fn at(column: i64) -> Position {
-        Position { line: 1, column: column }
+        Position { line: 1, column }
     }
 
     #[test]

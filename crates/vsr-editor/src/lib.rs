@@ -19,6 +19,7 @@ pub mod indentation;
 mod move_ops;
 mod replace_ops;
 mod save_ops;
+mod snippet_ops;
 mod selection;
 mod typing;
 mod undo;

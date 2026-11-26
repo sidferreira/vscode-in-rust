@@ -75,6 +75,14 @@ pub struct Run(pub Command);
 pub fn init(cx: &mut App) {
     cx.bind_keys(BINDINGS.iter().map(|&(keys, cmd)| KeyBinding::new(keys, Run(cmd), Some(KEY_CONTEXT))));
     find::bind(cx); // Find widget keys (ADR-0027)
+    // Snippet session keys (ADR-0120): Tab and Shift+Tab move between tab stops, Escape leaves the
+    // snippet. Bound after the plain ones and before the suggest widget's, so a visible list still
+    // takes Tab and Escape.
+    cx.bind_keys([
+        KeyBinding::new("tab", Run(Command::NextTabstop), Some("Editor && inSnippetMode && hasNextTabstop")),
+        KeyBinding::new("shift-tab", Run(Command::PrevTabstop), Some("Editor && inSnippetMode && hasPrevTabstop")),
+        KeyBinding::new("escape", Run(Command::CancelSnippet), Some("Editor && inSnippetMode")),
+    ]);
     // Keys that only apply while the suggest widget shows (ADR-0083). Bound after the plain ones:
     // among bindings that match, the later one wins.
     let ctx = Some("Editor && suggestWidgetVisible");
@@ -185,6 +193,9 @@ pub struct EditorView {
     /// The suggest widget shows: the editor's key context gains `suggestWidgetVisible` (ADR-0083),
     /// set by the workbench before each build.
     pub suggest_visible: bool,
+    /// The snippet session's key context tags (`inSnippetMode`, `hasNextTabstop`, `hasPrevTabstop`,
+    /// with a leading space each), set by the workbench before each build (ADR-0120).
+    pub snippet_tags: &'static str,
     /// What the suggest list draws, set by the workbench before each build (ADR-0084).
     pub suggest_widget: Option<Rc<crate::suggest::widget::WidgetData>>,
     /// What extensions decorate and flag in the active document (ADR-0067), set by the workbench.
@@ -536,6 +547,7 @@ impl EditorView {
         );
         let bounds_cell = self.bounds.clone();
         let suggest_visible = self.suggest_visible;
+        let snippet_tags = self.snippet_tags;
         let input_focus = focus.clone();
         let entity = cx.entity();
         let input_surface = canvas(
@@ -568,7 +580,10 @@ impl EditorView {
         let surface = div()
             .id("editor-surface")
             .key_context(
-                KeyContext::parse(if suggest_visible { "Editor suggestWidgetVisible" } else { KEY_CONTEXT })
+                KeyContext::parse(&format!(
+                    "{KEY_CONTEXT}{}{snippet_tags}",
+                    if suggest_visible { " suggestWidgetVisible" } else { "" }
+                ))
                     .unwrap_or_default(),
             )
             .track_focus(&focus)
@@ -649,9 +664,13 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
     // A suggest key the list did not take (`acceptSuggestionOnEnter: off`) is the key it stands for.
     let cmd = match cmd {
         Command::AcceptSuggestOnEnter => Command::Enter,
-        Command::AcceptSuggest => Command::Tab,
+        Command::AcceptSuggest | Command::NextTabstop => Command::Tab,
         other => other,
     };
+    // A snippet key that found no session (the key context is set a frame earlier) does nothing.
+    if matches!(cmd, Command::PrevTabstop | Command::CancelSnippet) {
+        return;
+    }
     if matches!(cmd, Command::Save) && this.editor_host().0.active_editor().is_some_and(|e| e.is_untitled()) {
         this.save_untitled_requested(window, cx);
         return;
@@ -769,6 +788,9 @@ fn command_event<T: EditorHost>(this: &mut T, cmd: Command) -> Option<EditorEven
         | Command::SuggestPreviousPage
         | Command::AcceptSuggest
         | Command::AcceptSuggestOnEnter
+        | Command::NextTabstop
+        | Command::PrevTabstop
+        | Command::CancelSnippet
         | Command::Navigate(_) => None,
         Command::Backspace => Some(EditorEvent::DeleteLeft),
         Command::Enter => Some(EditorEvent::Typed("\n".into())),

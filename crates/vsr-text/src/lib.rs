@@ -45,11 +45,22 @@ struct Line {
     eol: &'static str,
 }
 
+/// One edit made through [`TextBuffer::edit`]: the UTF-16 offset it started at, the units it removed
+/// and the units it inserted (after line-ending normalisation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextChange {
+    pub offset: usize,
+    pub removed: usize,
+    pub inserted: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct TextBuffer {
     lines: Vec<Line>,
     eol: Eol,
     normalize_eol: bool,
+    /// The changes made since tracking started (ADR-0120); `None` when nothing tracks them.
+    changes: Option<Vec<TextChange>>,
 }
 
 impl TextBuffer {
@@ -75,7 +86,7 @@ impl TextBuffer {
         } else {
             Eol::Lf
         };
-        let mut buf = TextBuffer { lines, eol, normalize_eol };
+        let mut buf = TextBuffer { lines, eol, normalize_eol, changes: None };
         if normalize_eol {
             buf.normalize_all();
         }
@@ -209,6 +220,11 @@ impl TextBuffer {
     pub fn edit(&mut self, range: Range, text: &str) {
         let start = self.validate_position(range.start);
         let end = self.validate_position(range.end);
+        let tracked = self.changes.is_some().then(|| {
+            let offset = self.offset_at(start);
+            let removed = utf16_len(&self.value_in_range(Range::new(start, end)));
+            (offset, removed, self.len_utf16())
+        });
         let (sb, _) = utf16_col_to_byte(&self.lines[start.line - 1].text, start.column);
         let (eb, _) = utf16_col_to_byte(&self.lines[end.line - 1].text, end.column);
 
@@ -236,6 +252,22 @@ impl TextBuffer {
         self.lines.splice(first..end.line, new_lines);
         // Seams: the line before the edit and the last inserted line.
         self.join_split_crlfs(first.saturating_sub(1), first + new_count - 1);
+        if let Some((offset, removed, len_before)) = tracked {
+            let inserted = self.len_utf16() + removed - len_before;
+            if let Some(log) = self.changes.as_mut() {
+                log.push(TextChange { offset, removed, inserted });
+            }
+        }
+    }
+
+    /// Starts recording the changes [`TextBuffer::edit`] makes (`false` stops and drops them).
+    pub fn track_changes(&mut self, on: bool) {
+        self.changes = on.then(Vec::new);
+    }
+
+    /// The changes since the last call, in the order they were made; empty when not tracking.
+    pub fn take_changes(&mut self) -> Vec<TextChange> {
+        self.changes.as_mut().map(std::mem::take).unwrap_or_default()
     }
 
     /// Insert raw text at a UTF-16 offset, mirroring `PieceTreeBase.insert`.

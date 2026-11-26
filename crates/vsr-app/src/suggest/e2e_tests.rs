@@ -628,3 +628,100 @@ fn kind_filters_icons_and_inline_details(cx: &mut TestAppContext) {
     set(cx, "editor.suggest.showInlineDetails", json!(false));
     assert!(wb.update(cx, |wb, _| wb.suggest_widget_data()).unwrap().focused_detail.is_none());
 }
+
+// ---- snippet sessions (ADR-0120) -------------------------------------------------------------
+
+/// A fake provider offering one snippet `fn`, inserted over the typed `f`.
+fn snippet_source(wb: &Entity<Workbench>, cx: &mut VisualTestContext, insert: &'static str) {
+    wb.update(cx, |wb, _| {
+        wb.suggest.fake = Some(Box::new(move |_, line, column, _| {
+            let l = CompletionList::from_json(&json!({"b": [{
+                "a": "fn", "h": insert, "i": 4,
+                "j": { "startLineNumber": line, "startColumn": column - 1, "endLineNumber": line, "endColumn": column } }]}))
+            .unwrap();
+            vec![(1, l)]
+        }));
+    });
+}
+
+/// Accepts the snippet `fn ${1:name}(${2:args}) { $1 }$0` in an empty file.
+fn accept_fn_snippet(wb: &Entity<Workbench>, cx: &mut VisualTestContext, proj: &std::path::Path) {
+    snippet_source(wb, cx, "fn ${1:name}(${2:args}) { $1 }$0");
+    open(wb, cx, &blank(proj, "a.txt", ""));
+    cx.simulate_keystrokes("cmd-down f");
+    pass(cx, 20);
+    cx.simulate_keystrokes("enter");
+}
+
+fn selection_columns(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> (usize, usize) {
+    let s = wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().editor.selection());
+    (s.anchor.column, s.active.column)
+}
+
+fn in_snippet(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> bool {
+    wb.read_with(cx, |wb, _| wb.editors.active_editor().unwrap().snippet.is_some())
+}
+
+#[gpui::test]
+fn tab_moves_through_the_stops_and_the_mirror_follows_typing(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "snippet-tab");
+    accept_fn_snippet(&wb, cx, &proj);
+    assert_eq!(text(&wb, cx), "fn name(args) { name }");
+    assert_eq!(selection_columns(&wb, cx), (4, 8), "`name` is selected");
+    assert!(in_snippet(&wb, cx));
+    cx.simulate_keystrokes("f o o");
+    assert_eq!(text(&wb, cx), "fn foo(args) { foo }", "the mirror of the placeholder follows the typing");
+    cx.simulate_keystrokes("tab");
+    assert_eq!(selection_columns(&wb, cx), (8, 12), "Tab selects `args`");
+    cx.simulate_keystrokes("tab");
+    assert_eq!(selection_columns(&wb, cx), (21, 21), "the final stop is a caret at the end");
+    assert!(!in_snippet(&wb, cx), "arriving at $0 ends the session");
+}
+
+#[gpui::test]
+fn shift_tab_goes_back_and_escape_leaves_the_snippet(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "snippet-back");
+    accept_fn_snippet(&wb, cx, &proj);
+    cx.simulate_keystrokes("tab");
+    assert_eq!(selection_columns(&wb, cx), (9, 13));
+    cx.simulate_keystrokes("shift-tab");
+    assert_eq!(selection_columns(&wb, cx), (4, 8), "Shift+Tab goes to the previous stop");
+    cx.simulate_keystrokes("escape");
+    assert!(!in_snippet(&wb, cx), "Escape leaves the snippet");
+    assert_eq!(text(&wb, cx), "fn name(args) { name }", "leaving keeps the text");
+}
+
+#[gpui::test]
+fn moving_the_caret_out_of_the_snippet_ends_the_session(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "snippet-leave");
+    accept_fn_snippet(&wb, cx, &proj);
+    assert!(in_snippet(&wb, cx));
+    cx.simulate_keystrokes("cmd-up");
+    assert!(!in_snippet(&wb, cx), "a caret before the snippet ends it");
+}
+
+#[gpui::test]
+fn undo_ends_the_session_and_reverts_the_typing_with_its_mirrors(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "snippet-undo");
+    accept_fn_snippet(&wb, cx, &proj);
+    cx.simulate_keystrokes("f o o");
+    assert_eq!(text(&wb, cx), "fn foo(args) { foo }");
+    cx.simulate_keystrokes("cmd-z");
+    assert!(!in_snippet(&wb, cx), "undo ends the session");
+    assert_eq!(text(&wb, cx), "fn f(args) { f }", "the last typing reverts with its mirror");
+    cx.simulate_keystrokes("cmd-z");
+    assert_eq!(text(&wb, cx), "fn name(args) { name }", "the first typed character reverts with its mirror");
+}
+
+#[gpui::test]
+fn the_context_keys_follow_the_stops(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "snippet-keys");
+    accept_fn_snippet(&wb, cx, &proj);
+    pass(cx, 5);
+    let tags = |wb: &Entity<Workbench>, cx: &mut VisualTestContext| wb.read_with(cx, |wb, _| wb.snippet_tags());
+    assert_eq!(tags(&wb, cx), " inSnippetMode hasNextTabstop");
+    cx.simulate_keystrokes("tab");
+    assert_eq!(tags(&wb, cx), " inSnippetMode hasNextTabstop hasPrevTabstop");
+    cx.simulate_keystrokes("escape");
+    assert_eq!(tags(&wb, cx), "");
+}

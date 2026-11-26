@@ -92,6 +92,8 @@ pub struct OpenEditor {
     /// A file that did not exist when it was opened (`rode new.txt`, ADR-0110): it is kept open
     /// while it is missing, and the first save creates it.
     awaiting_first_save: bool,
+    /// The snippet session of the last snippet accepted here, while its tab stops are live (ADR-0120).
+    pub snippet: Option<vsr_suggest::session::SnippetSession>,
 }
 
 /// The modification time of `path`, if it exists.
@@ -137,6 +139,7 @@ impl OpenEditor {
             syntax: None,
             syntax_synced: Cell::new(None),
             awaiting_first_save: false,
+            snippet: None,
         }
     }
 

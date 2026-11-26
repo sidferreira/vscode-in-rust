@@ -11,6 +11,7 @@ pub mod item;
 pub mod list;
 pub mod model;
 pub mod snippet;
+pub mod session;
 pub mod sort;
 pub mod trigger;
 pub mod words;

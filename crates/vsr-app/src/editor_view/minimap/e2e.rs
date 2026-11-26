@@ -346,25 +346,36 @@ fn autohide_scroll_shows_the_minimap_only_after_scrolling(cx: &mut TestAppContex
 
 // ---- performance -------------------------------------------------------------------------------------
 
-#[gpui_kit::test]
-fn a_10k_line_file_draws_only_the_lines_that_fit_and_stays_responsive(cx: &mut TestAppContext) {
+/// Pages through a 10,000-line file with the minimap on and returns the time per page-down
+/// (ADR-0125). The deterministic assertions (only the visible minimap lines are drawn, the minimap
+/// follows the editor) run here as well.
+fn page_through_big_file(cx: &mut TestAppContext) -> std::time::Duration {
     let (wb, cx) = open(cx, "big", 10_000, "");
     let f = frame(&wb, cx).unwrap();
     let drawn = f.layout.end_line - f.layout.start_line + 1.0;
     let fitting = (f.info.canvas_inner_height / f.info.line_height).floor();
     assert!(drawn <= fitting && drawn < 1000.0, "only the visible minimap lines: {drawn} of 10000 (fit {fitting})");
-    // Best of three batches: the suite runs in parallel and agents may be compiling, so one batch
-    // is noisy; the minimum still catches per-key work that grows with the file.
-    let mut per_key = std::time::Duration::MAX;
-    for _ in 0..3 {
+    let per_key = super::super::perf_e2e::best_of(3, || {
         let start = std::time::Instant::now();
         for _ in 0..5 {
             cx.simulate_keystrokes("pagedown pagedown pagedown pagedown");
         }
-        per_key = per_key.min(start.elapsed() / 20);
-    }
-    eprintln!("10k-line file with minimap: {per_key:?} per page-down, best of 3 (debug build, incl. layout and paint)");
-    assert!(per_key < std::time::Duration::from_millis(100), "{per_key:?} per key");
+        start.elapsed() / 20
+    });
     assert!(frame(&wb, cx).unwrap().layout.start_line > 1.0, "the minimap window moved with the editor");
     assert_eq!(MinimapAutohide::None, wb.read_with(cx, |wb, _| wb.editor_view.cfg.minimap.autohide));
+    per_key
+}
+
+#[gpui_kit::test]
+fn a_10k_line_file_draws_only_the_lines_that_fit_and_stays_responsive(cx: &mut TestAppContext) {
+    let per_key = page_through_big_file(cx);
+    eprintln!("10k-line file with minimap: {per_key:?} per page-down, best of 3 (debug build, incl. layout and paint)");
+}
+
+#[gpui_kit::test]
+#[ignore = "wall-clock budget (ADR-0125): cargo test -p vsr-app perf_ -- --ignored --test-threads=1"]
+fn perf_a_10k_line_file_draws_only_the_lines_that_fit_and_stays_responsive(cx: &mut TestAppContext) {
+    let per_key = page_through_big_file(cx);
+    assert!(per_key < super::super::perf_e2e::KEY_BUDGET, "{per_key:?} per key");
 }

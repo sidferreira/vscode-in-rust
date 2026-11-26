@@ -267,24 +267,39 @@ fn the_minimap_counts_view_lines(cx: &mut TestAppContext) {
     assert_eq!(minimap_lines, Some(3));
 }
 
-#[gpui::test]
-fn editing_a_10k_line_file_with_word_wrap_stays_responsive(cx: &mut TestAppContext) {
+/// Types at the end of a wrapped 10,000-line file. Returns the time per key (ADR-0125) and the
+/// time of one wrapping-column change, which recomputes every line.
+fn wrapped_big_file(cx: &mut TestAppContext) -> (std::time::Duration, std::time::Duration) {
     let text: String = (1..=10_000).map(|i| format!("line {i} lorem ipsum dolor sit amet consectetur\n")).collect();
     let (wb, cx, _) = workbench(cx, "big", r#"{"editor.wordWrap":"wordWrapColumn","editor.wordWrapColumn":20}"#, &[("big.txt", &text)]);
     let (models, views) = counts(&wb, cx);
     assert_eq!(models, 10_001);
     assert!(views >= 2 * models - 1, "every line wraps at least once: {views}");
     cx.simulate_keystrokes("cmd-down");
-    let start = std::time::Instant::now();
-    for _ in 0..20 {
-        cx.simulate_input("ab");
-        cx.simulate_keystrokes("enter");
-    }
-    let per_key = start.elapsed() / 60;
-    eprintln!("10k-line file, word wrap on: {per_key:?} per key (debug build, incl. layout and paint)");
-    assert!(per_key < std::time::Duration::from_millis(150), "{per_key:?} per key");
-    // A resize (a new wrapping column) recomputes every line.
+    // Each iteration is three keys (a, b, enter).
+    let per_key = super::perf_e2e::best_of(3, || {
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            cx.simulate_input("ab");
+            cx.simulate_keystrokes("enter");
+        }
+        start.elapsed() / 60
+    });
     let start = std::time::Instant::now();
     set(cx, "editor.wordWrapColumn", json!(30));
-    eprintln!("10k-line file, word wrap column change: {:?} (debug build, incl. layout and paint)", start.elapsed());
+    (per_key, start.elapsed())
+}
+
+#[gpui::test]
+fn editing_a_10k_line_file_with_word_wrap_stays_responsive(cx: &mut TestAppContext) {
+    let (per_key, column_change) = wrapped_big_file(cx);
+    eprintln!("10k-line file, word wrap on: {per_key:?} per key, best of 3 (debug build, incl. layout and paint)");
+    eprintln!("10k-line file, word wrap column change: {column_change:?} (debug build, incl. layout and paint)");
+}
+
+#[gpui::test]
+#[ignore = "wall-clock budget (ADR-0125): cargo test -p vsr-app perf_ -- --ignored --test-threads=1"]
+fn perf_editing_a_10k_line_file_with_word_wrap_stays_responsive(cx: &mut TestAppContext) {
+    let (per_key, _) = wrapped_big_file(cx);
+    assert!(per_key < std::time::Duration::from_millis(150), "{per_key:?} per key");
 }

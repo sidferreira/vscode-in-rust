@@ -201,28 +201,41 @@ fn status_texts_follow_the_caret(cx: &mut TestAppContext) {
     assert_eq!(status(&wb, cx).0, "Ln 2, Col 3 (5 selected)");
 }
 
-#[gpui::test]
-fn editing_a_10k_line_file_stays_responsive(cx: &mut TestAppContext) {
+/// A 10,000-line file open and focused. The workload is `type_at_the_end`.
+fn big_file(cx: &mut TestAppContext) -> (Entity<Workbench>, &mut VisualTestContext) {
     let dir = unique_dir("big");
     let text: String = (1..=10_000).map(|i| format!("line {i} lorem ipsum dolor sit amet\n")).collect();
     fs::write(dir.join("big.txt"), &text).unwrap();
-    let (wb, cx) = open_workbench(cx, &dir, "big.txt");
+    open_workbench(cx, &dir, "big.txt")
+}
 
+/// Types at the end of the big file and returns the time per key (ADR-0125).
+fn type_at_the_end(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> std::time::Duration {
     cx.simulate_keystrokes("cmd-down");
-    assert_eq!(caret(&wb, cx), (10_001, 1));
-    // Best of three batches: the full suite runs tests in parallel and agents may be compiling,
-    // so a single batch is noisy; the minimum still catches O(n) per-key regressions.
-    let mut per_key = std::time::Duration::MAX;
-    for _ in 0..3 {
+    assert_eq!(caret(wb, cx), (10_001, 1));
+    let per_key = super::perf_e2e::best_of(3, || {
         let start = std::time::Instant::now();
         for _ in 0..7 {
             cx.simulate_input("ab");
             cx.simulate_keystrokes("enter");
         }
-        per_key = per_key.min(start.elapsed() / 21);
-    }
-    eprintln!("10k-line file: {per_key:?} per key, best of 3 (debug build, incl. layout and paint)");
-    assert!(value(&wb, cx).ends_with("ab\nab\n"));
-    // Generous bound for an unoptimised build on a loaded machine; catches O(n^2) regressions.
-    assert!(per_key < std::time::Duration::from_millis(100), "{per_key:?} per key");
+        start.elapsed() / 21
+    });
+    assert!(value(wb, cx).ends_with("ab\nab\n"));
+    per_key
+}
+
+#[gpui::test]
+fn editing_a_10k_line_file_stays_responsive(cx: &mut TestAppContext) {
+    let (wb, cx) = big_file(cx);
+    let per_key = type_at_the_end(&wb, cx);
+    eprintln!("10k-line file: {per_key:?} per key, best of 3 (debug build, incl. layout and paint; budget in perf_*)");
+}
+
+#[gpui::test]
+#[ignore = "wall-clock budget (ADR-0125): cargo test -p vsr-app perf_ -- --ignored --test-threads=1"]
+fn perf_editing_a_10k_line_file_stays_responsive(cx: &mut TestAppContext) {
+    let (wb, cx) = big_file(cx);
+    let per_key = type_at_the_end(&wb, cx);
+    assert!(per_key < super::perf_e2e::KEY_BUDGET, "{per_key:?} per key");
 }

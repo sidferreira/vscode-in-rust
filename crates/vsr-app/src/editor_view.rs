@@ -1588,6 +1588,8 @@ mod tests {
 #[cfg(test)]
 mod e2e;
 #[cfg(test)]
+mod perf_e2e;
+#[cfg(test)]
 mod find_e2e;
 #[cfg(test)]
 mod wrap_e2e;

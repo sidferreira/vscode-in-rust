@@ -478,3 +478,130 @@ fn file_nesting_patterns_are_the_setting(cx: &mut TestAppContext) {
     set(cx, "explorer.fileNesting.patterns", json!({ "*.md": "${capture}.html", "*.ts": "" }));
     assert_eq!(row_names(&wb, cx), ["src", "a.js", "a.ts", "notes.md", "notes.html"], "only the custom rule nests (expanded), and an empty rule nests nothing");
 }
+
+// The key bindings of `actions.rs`, sent as keystrokes (the tests above call the actions directly for
+// some of them). Each test checks what the key does and that it does nothing in another context.
+
+fn clipboard(cx: &mut VisualTestContext) -> Option<String> {
+    cx.read_from_clipboard().and_then(|c| c.text())
+}
+
+#[gpui::test]
+fn space_opens_the_selected_file_and_toggles_the_selected_folder(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("keys-space");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let lib = ws.path().join("src/lib.rs");
+    wb.update(cx, |wb, _| wb.select(&lib));
+    focus_tree(&wb, cx);
+    cx.simulate_keystrokes("space");
+    cx.run_until_parked();
+    let open = wb.read_with(cx, |wb, _| wb.editors.open.iter().any(|e| e.path == lib));
+    assert!(open, "Space opens the selected file");
+    // Opening src/lib.rs expanded its folder, so Space on the folder now collapses it.
+    wb.update(cx, |wb, _| wb.select(&ws.path().join("src")));
+    focus_tree(&wb, cx);
+    let src = wb.read_with(cx, |wb, _| wb.root.join("src"));
+    let before = wb.read_with(cx, |wb, _| wb.expanded.contains(&src));
+    cx.simulate_keystrokes("space");
+    assert_eq!(wb.read_with(cx, |wb, _| wb.expanded.contains(&src)), !before, "Space toggles the folder");
+}
+
+#[gpui::test]
+fn space_toggles_the_selected_folder(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("keys-space-folder");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    focus_tree(&wb, cx);
+    wb.update(cx, |wb, _| wb.select(&ws.path().join("src")));
+    cx.simulate_keystrokes("space");
+    assert!(wb.read_with(cx, |wb, _| wb.expanded.contains(&wb.root.join("src"))), "Space expands the folder");
+    cx.simulate_keystrokes("space");
+    assert!(wb.read_with(cx, |wb, _| !wb.expanded.contains(&wb.root.join("src"))), "Space collapses it again");
+}
+
+#[gpui::test]
+fn up_and_down_move_the_selection_by_one_row(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("keys-updown");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    focus_tree(&wb, cx);
+    cx.simulate_keystrokes("down");
+    assert_eq!(selected(&wb, cx).as_deref(), Some("src"));
+    cx.simulate_keystrokes("down");
+    cx.simulate_keystrokes("up");
+    assert_eq!(selected(&wb, cx).as_deref(), Some("src"), "Up goes back to the folder row");
+}
+
+#[gpui::test]
+fn enter_renames_the_selection_and_the_delete_keys_are_off_while_the_name_box_is_open(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("keys-rename");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let lib = ws.path().join("src/lib.rs");
+    wb.update(cx, |wb, _| wb.select(&lib));
+    focus_tree(&wb, cx);
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_some()), "Enter opens the rename box");
+    // With the box open the tree's context is off: Delete edits the name, it does not ask about the file.
+    cx.simulate_keystrokes("delete");
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.confirm.is_none()), "no delete confirmation from inside the name box");
+    assert!(lib.is_file(), "the file is untouched");
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.explorer.inline.is_none()), "Escape cancels the rename");
+}
+
+#[gpui::test]
+fn cmd_backspace_asks_and_trashes_and_cmd_alt_backspace_deletes_permanently(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("keys-backspace");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let lib = ws.path().join("src/lib.rs");
+    wb.update(cx, |wb, _| wb.select(&lib));
+    focus_tree(&wb, cx);
+    cx.simulate_keystrokes("cmd-backspace");
+    cx.run_until_parked();
+    let pending = wb.read_with(cx, |wb, _| wb.explorer.confirm.clone()).expect("the confirmation bar is up");
+    assert!(pending.use_trash, "Cmd+Backspace moves to the Trash");
+    assert!(lib.is_file(), "nothing is deleted before the confirmation");
+    wb.update(cx, |wb, cx| wb.confirm_delete(cx));
+    cx.run_until_parked();
+    assert!(!lib.exists() && bin.path().join("lib.rs").is_file());
+
+    let main = ws.path().join("src/main.rs");
+    wb.update(cx, |wb, _| wb.select(&main));
+    focus_tree(&wb, cx);
+    cx.simulate_keystrokes("cmd-alt-backspace");
+    cx.run_until_parked();
+    let pending = wb.read_with(cx, |wb, _| wb.explorer.confirm.clone()).expect("the confirmation bar is up");
+    assert!(!pending.use_trash, "Cmd+Option+Backspace deletes permanently");
+    wb.update(cx, |wb, cx| wb.confirm_delete(cx));
+    cx.run_until_parked();
+    assert!(!main.exists() && !bin.path().join("main.rs").exists(), "gone, not in the Trash");
+}
+
+#[gpui::test]
+fn alt_cmd_c_copies_the_absolute_path_and_shift_alt_cmd_c_the_relative_one(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("keys-copypath");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let lib = ws.path().join("src/lib.rs");
+    wb.update(cx, |wb, _| wb.select(&lib));
+    focus_tree(&wb, cx);
+    cx.simulate_keystrokes("alt-cmd-c");
+    assert_eq!(clipboard(cx).as_deref(), Some(lib.to_string_lossy().as_ref()));
+    cx.simulate_keystrokes("shift-alt-cmd-c");
+    assert_eq!(clipboard(cx).as_deref(), Some(std::path::Path::new("src").join("lib.rs").to_string_lossy().as_ref()));
+}
+
+#[gpui::test]
+fn the_copy_path_keys_do_nothing_in_the_editor(cx: &mut TestAppContext) {
+    let (ws, bin) = workspace("keys-copypath-editor");
+    let (wb, cx, _events) = start(cx, ws.path(), bin.path());
+    let lib = ws.path().join("src/lib.rs");
+    wb.update(cx, |wb, _| wb.select(&lib));
+    focus_tree(&wb, cx);
+    cx.simulate_keystrokes("space"); // opens lib.rs; the editor takes focus
+    cx.run_until_parked();
+    cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string("sentinel".to_string()));
+    cx.simulate_keystrokes("alt-cmd-c shift-alt-cmd-c");
+    cx.run_until_parked();
+    assert_eq!(clipboard(cx).as_deref(), Some("sentinel"), "Explorer's copy-path keys are scoped to the tree");
+}

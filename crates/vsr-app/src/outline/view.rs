@@ -17,6 +17,7 @@ use vsr_exthost::language_features::dto::{Position, Range as SymbolRange};
 use vsr_exthost::language_features::outline::{
     Item, KindFilter, MarkerCount, NodeId, OutlineModel, ROOT, SortOrder, severity,
 };
+use vsr_quickinput::fuzzy::{FuzzyScoreOptions, fuzzy_score};
 use vsr_search::SearchRange;
 use vsr_settings::Configuration;
 
@@ -115,8 +116,7 @@ pub fn rows(model: &OutlineModel, settings: &OutlineSettings, view: &RowView) ->
     let mut out = Vec::new();
     walk(model, &model.visible_children(ROOT, view.order, &settings.filter), 0, settings, view, &open, &mut out);
     if !view.text.is_empty() {
-        let needle = view.text.to_lowercase();
-        let keep = filter_keep(&out, &needle);
+        let keep = filter_keep(&out, view.text);
         out = out.into_iter().zip(keep).filter_map(|(row, k)| k.then_some(row)).collect();
     }
     out
@@ -171,11 +171,30 @@ fn walk(
     }
 }
 
-/// Which rows survive the filter: a row whose name contains `needle`, and every ancestor of one.
-fn filter_keep(rows: &[OutlineRow], needle: &str) -> Vec<bool> {
+/// A char lowercased to one char, as the scorer compares them (a lowercase that is longer stays).
+fn lower_char(c: char) -> char {
+    let mut it = c.to_lowercase();
+    match (it.next(), it.next()) {
+        (Some(l), None) => l,
+        _ => c,
+    }
+}
+
+/// Which rows survive the filter: a row whose name fuzzy-matches `text`, and every ancestor of one.
+/// The match is upstream's tree find (`TypeFilter`): `fuzzyScore` with `firstMatchCanBeWeak` and
+/// `boostFullMatch`, the scorer `vsr-quickinput` ports.
+fn filter_keep(rows: &[OutlineRow], text: &str) -> Vec<bool> {
+    let pattern: Vec<char> = text.chars().collect();
+    let pattern_low: Vec<char> = pattern.iter().map(|&c| lower_char(c)).collect();
+    let options = FuzzyScoreOptions { first_match_can_be_weak: true, boost_full_match: true };
+    let fuzzy = |name: &str| {
+        let word: Vec<char> = name.chars().collect();
+        let word_low: Vec<char> = word.iter().map(|&c| lower_char(c)).collect();
+        fuzzy_score(&pattern, &pattern_low, 0, &word, &word_low, 0, options).is_some()
+    };
     let mut keep = vec![false; rows.len()];
     for i in 0..rows.len() {
-        if !rows[i].name.to_lowercase().contains(needle) {
+        if !fuzzy(&rows[i].name) {
             continue;
         }
         keep[i] = true;
@@ -875,6 +894,31 @@ mod tests {
         assert!(none_match.is_empty());
         let all = rows(&m, &settings(true), &view_with(&none, SortOrder::Position, None, ""));
         assert_eq!(all.len(), 2, "an empty filter is no filter (collapseItems applies)");
+    }
+
+    #[test]
+    fn filter_on_type_matches_fuzzily_as_the_tree_find_does() {
+        // Upstream source: src/vs/base/browser/ui/tree/abstractTree.ts (TypeFilter) scores each label with fuzzyScore, firstMatchCanBeWeak
+        // and boostFullMatch. "fbr" is not a substring of "fooBar", but its letters occur in order.
+        let outer = sym("Outer", 4, Range::new(1, 1, 4, 2), vec![sym("innerFooBar", 6, Range::new(2, 3, 2, 14), vec![])]);
+        let foo = sym("fooBar", 12, Range::new(5, 1, 5, 7), vec![]);
+        let get = sym("getMatchTypeLabel", 6, Range::new(6, 1, 6, 17), vec![]);
+        let other = sym("unrelated", 12, Range::new(7, 1, 7, 10), vec![]);
+        let m = OutlineModel::create("file:///b.ts", vec![ProviderSymbols::new(Some("ts"), vec![outer, foo, get, other])]);
+        let none = HashSet::new();
+        let filtered = |text: &str| {
+            let r = rows(&m, &settings(false), &view_with(&none, SortOrder::Position, None, text));
+            names(&r).into_iter().map(|(n, d)| (n.to_string(), d)).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            filtered("fbr"),
+            [("Outer".to_string(), 0), ("innerFooBar".to_string(), 1), ("fooBar".to_string(), 0)],
+            "fuzzy: the letters in order; the ancestor of the match stays"
+        );
+        assert_eq!(filtered("mtl"), [("getMatchTypeLabel".to_string(), 0)], "the word starts, any case");
+        assert_eq!(filtered("MTL"), [("getMatchTypeLabel".to_string(), 0)], "case-insensitive");
+        assert!(filtered("bf").is_empty(), "the letters must keep their order (no f after a b)");
+        assert!(filtered("fbz").is_empty(), "a letter that is not there matches nothing");
     }
 
     #[test]

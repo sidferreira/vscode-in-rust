@@ -138,7 +138,7 @@ impl OutlineState {
             self.markers_generation = Some(generation);
         }
         let k = key(path);
-        if !self.markers.contains_key(&k) {
+        if self.markers.get(&k).is_none() {
             #[cfg(test)]
             {
                 self.parses += 1;

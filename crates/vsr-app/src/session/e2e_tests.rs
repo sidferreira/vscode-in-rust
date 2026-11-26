@@ -938,8 +938,58 @@ fn command_line_files_open_after_session_restore_and_win_the_active_tab(cx: &mut
     let (wb, vcx) = start(cx, &env);
     assert_eq!(active_title(&wb, vcx).as_deref(), Some("b.txt"));
     let files = [env.root.join("c.txt"), env.root.join("a.txt")];
+    let files: Vec<crate::cli::LaunchFile> = files.into_iter().map(|path| crate::cli::LaunchFile { path, new: false, position: None }).collect();
     wb.update(vcx, |wb, cx| wb.open_launch_files(&files, cx));
     vcx.run_until_parked();
     assert_eq!(titles(&wb, vcx), ["a.txt", "b.txt", "c.txt"]);
     assert_eq!(active_title(&wb, vcx).as_deref(), Some("a.txt"));
+}
+
+/// `rode new.txt` (ADR-0110): a file that does not exist yet opens as an empty, clean editor, and
+/// the first save creates it. A file in a folder that does not exist is reported, not opened.
+#[gpui_kit::test]
+fn a_command_line_file_that_does_not_exist_opens_empty_and_the_first_save_creates_it(cx: &mut TestAppContext) {
+    // closeOnFileDelete is on, so the once-a-second check is what would close a missing file's tab.
+    let env = env("launch-new-file", Some(r#"{"workbench.editor.closeOnFileDelete": true}"#));
+    let (wb, vcx) = start(cx, &env);
+    let launch = crate::cli::parse(["new.txt", "no-such-dir/x.txt"], &env.root);
+    assert_eq!(launch.missing.len(), 1);
+    assert!(launch.missing[0].ends_with("no-such-dir/x.txt"));
+    wb.update(vcx, |wb, cx| wb.open_launch_files(&launch.files, cx));
+    vcx.run_until_parked();
+    assert_eq!(titles(&wb, vcx), ["new.txt"]);
+    assert_eq!(active_title(&wb, vcx).as_deref(), Some("new.txt"));
+    assert!(!dirty_of(&wb, vcx, "new.txt"), "a new file is clean until it is typed in");
+    assert!(!env.root.join("new.txt").exists(), "nothing is written before the save");
+    // A file-system event on the path, with closeOnFileDelete on, must not close the tab of a file
+    // that is not created yet.
+    wb.update(vcx, |wb, cx| wb.on_disk_changes(vec![env.root.join("new.txt")], cx));
+    vcx.run_until_parked();
+    assert_eq!(titles(&wb, vcx), ["new.txt"]);
+
+    type_in_active(&wb, vcx, "hello\n");
+    assert!(dirty_of(&wb, vcx, "new.txt"));
+    vcx.simulate_keystrokes("cmd-s");
+    vcx.run_until_parked();
+    assert_eq!(fs::read_to_string(env.root.join("new.txt")).unwrap(), "hello\n");
+    assert!(!dirty_of(&wb, vcx, "new.txt"));
+}
+
+/// `rscode -g file:line:column` (ADR-0110): each file opens with the caret at its position; a
+/// position past the end of the file is clamped to its last line.
+#[gpui_kit::test]
+fn goto_puts_the_caret_at_the_line_and_column_and_clamps_past_the_end(cx: &mut TestAppContext) {
+    let env = env("launch-goto", None);
+    let (wb, vcx) = start(cx, &env);
+    let launch = crate::cli::parse(["-g", "b.txt:12:3", "c.txt:99999"], &env.root);
+    wb.update(vcx, |wb, cx| wb.open_launch_files(&launch.files, cx));
+    vcx.run_until_parked();
+    assert_eq!(active_title(&wb, vcx).as_deref(), Some("c.txt"));
+    let (caret_b, caret_c, last_line) = wb.read_with(vcx, |wb, _| {
+        let find = |title: &str| wb.editors.open.iter().find(|e| e.title == title).unwrap();
+        let (b, c) = (find("b.txt"), find("c.txt"));
+        (b.editor.selection().active, c.editor.selection().active, c.buffer().line_count())
+    });
+    assert_eq!(caret_b, Position::new(12, 3));
+    assert_eq!(caret_c, Position::new(last_line, 1), "past the end is the last line");
 }

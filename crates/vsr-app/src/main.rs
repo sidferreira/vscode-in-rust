@@ -73,7 +73,7 @@ actions!(rscode, [Quit]);
 fn main() {
     let launch = cli::parse(std::env::args_os().skip(1), &std::env::current_dir().expect("cwd"));
     for p in &launch.missing {
-        eprintln!("rscode: {}: no such file or folder", p.display());
+        eprintln!("rscode: {}: no such file, and its folder does not exist; skipped", p.display());
     }
     for p in &launch.extra_folders {
         eprintln!("rscode: {}: ignored (one folder per window)", p.display());
@@ -477,13 +477,27 @@ impl Workbench {
 
     /// Files given on the command line (ADR-0110): opened pinned after session restore, in order,
     /// so the last one is active; one already restored is activated, not opened twice.
-    fn open_launch_files(&mut self, files: &[PathBuf], cx: &mut Context<Self>) {
+    fn open_launch_files(&mut self, files: &[cli::LaunchFile], cx: &mut Context<Self>) {
         for f in files {
-            self.open(f);
+            self.open_editor(&f.path, OpenOptions::PINNED, f.new);
+            if let Some((line, column)) = f.position {
+                self.go_to_launch_position(&f.path, line, column);
+            }
         }
         if !files.is_empty() {
             cx.notify();
         }
+    }
+
+    /// `rscode -g file:line:column` (ADR-0110): the caret at that position, clamped to the text and
+    /// scrolled into view, as `open_at` does for a search result.
+    fn go_to_launch_position(&mut self, path: &Path, line: usize, column: usize) {
+        use vsr_editor::Position;
+        let Some(i) = self.editors.index_of(path) else { return };
+        let e = &mut self.editors.open[i];
+        let position = e.editor.buffer().validate_position(Position::new(line, column));
+        e.editor.set_cursor(position, false);
+        self.editor_view.reveal(&self.editors.open[i]);
     }
 
     /// Open `path` as a pinned editor (the default for opens without a source).
@@ -498,10 +512,16 @@ impl Workbench {
     }
 
     fn open_with(&mut self, path: &Path, options: OpenOptions) {
+        self.open_editor(path, options, false);
+    }
+
+    /// `new_file`: the path does not exist yet and opens as an empty editor (`open_new_file`).
+    fn open_editor(&mut self, path: &Path, options: OpenOptions, new_file: bool) {
         self.settings_active = false;
         self.welcome_active = false;
         let was_open = self.editors.index_of(path).is_some();
-        if let Err(e) = self.editors.open_with(path, options) {
+        let result = if new_file { self.editors.open_new_file(path, options) } else { self.editors.open_with(path, options) };
+        if let Err(e) = result {
             self.error = Some(format!("{}: {e}", path.display()));
         } else if !was_open {
             self.apply_remembered_view_state(path); // workbench.editor.restoreViewState

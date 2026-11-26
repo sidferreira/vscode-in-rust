@@ -3249,9 +3249,19 @@ command in PATH" works:
   twice), a file-only call uses the first file's folder as root, extra folders and missing paths are reported
   on stderr and skipped. No clap (no new crates); options belong to the shell launcher.
 
+Amended: a file that does not exist yet opens as an empty, clean editor when its folder exists, as `code new.txt`
+does; the first save creates it (`AwaitingFirstSave`: a tab for a missing file is kept by `closeOnFileDelete`
+until then). A file in a missing folder is reported and skipped. `cli::LaunchFile` carries the `new` flag.
+
+Amended: `-g`/`--goto` (as upstream's boolean flag, `argv.ts`) makes every file argument parse as
+`file:line[:column]` with `parse_goto`, which follows upstream `parseLineAndColumnAware` (`extpath.ts`): numeric
+segments after the path are the line and column, a colon between other segments stays in the path, and the column
+is 1 when only a line is given. Without `-g` a colon is part of the file name. The caret is set with the position
+clamped to the text and scrolled into view, as a search result is (`Workbench::go_to_launch_position`).
+`rode -g` passes the flag through to the binary.
+
 Not done: a second `rode` starts a second process and window instead of handing the paths to the running
-instance (upstream's single-instance IPC), and there is no `-n`/`-r`/`-g file:line:col`/`--diff`. A missing
-file is not created as a new file the way `code new.txt` does.
+instance (upstream's single-instance IPC; the design is in ADR-0160), and there is no `-n`/`-r`/`--diff`.
 
 ## ADR-0125 — Timing tests: the budget runs on demand, the workload runs by default (2026-11-26)
 
@@ -3391,4 +3401,37 @@ and `explorer.fileNesting.patterns` was read in sorted key order, because `serde
 `explorer/e2e_tree.rs` (`file_nesting_nests_stay_with_their_parent_in_the_sort`),
 `explorer/settings.rs` (`file_nesting_patterns_keep_the_declaration_order`). The 26 trie tests are already
 ported (`upstream/ports.toml`, `explorer-file-nesting`).
+
+## ADR-0160 — `rode` single instance: a running rscode takes the paths over a Unix socket (proposed, 2026-11-26)
+
+Status: proposed, not implemented. Upstream's `code` hands its paths to the running instance over IPC
+(`src/vs/code/electron-main`, the `--reuse-window` / `-n` split), so a second `rode .` in a terminal
+opens files in the window already up. Today every `rode` starts a process and a window (ADR-0110).
+
+Design:
+
+- **Socket.** The first rscode process binds a Unix socket `<user data dir>/rscode.sock` (the user data
+  directory of `session/store.rs`, `~/Library/Application Support/rscode` or `$RSCODE_USER_DATA_DIR`), after removing a stale file that nothing answers on.
+  Its listener runs on a background thread and forwards each request to the gpui foreground executor,
+  which calls `Workbench::open_launch_files` and activates the window.
+- **Protocol.** One request per connection, newline-terminated JSON: `{"files": [...], "positions": [...],
+  "new": [...], "cwd": "..."}` with absolute paths (the client resolves them with `cli::parse`, so the
+  server never needs the client's cwd). The server answers `{"ok": true}` and closes. Errors are
+  reported on the client's stderr and the client falls back to starting a process.
+- **Client.** `rscode` (or `rode`) with file arguments and no folder argument connects to the socket;
+  on success it prints nothing and exits 0. A folder argument (one root per window) or `-n`/`--new-window`
+  starts a new process, as does a failed connect. `-w` still waits for the window of the process it started.
+- **Socket path length.** macOS limits Unix socket paths to about 104 bytes; the user data dir under
+  `~/Library/Application Support` is short enough, but tests use a short temp dir (not `/var/folders/...`).
+- **Crates.** The protocol is std only: `std::os::unix::net::{UnixListener, UnixStream}` plus `serde_json`,
+  which the session store already uses. No new crate is needed. `interprocess` was considered for
+  cross-platform named pipes; rscode is macOS-first, so it is not worth a dependency until Windows
+  is a target.
+
+Tests (headless, ADR-0026: no windows): a socket round trip in a temp dir (bind, send a request built by
+`cli::parse`, receive the parsed files on the channel), a stale socket file being replaced, and a request with no
+listener falling back (connect error). The gpui wiring is covered by an E2E that calls the same handler the
+listener thread calls.
+
+Not in this ADR: the `--reuse-window` / `-r` flag, folders in a request, and the Windows named pipe.
 

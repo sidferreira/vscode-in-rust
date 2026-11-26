@@ -89,6 +89,9 @@ pub struct OpenEditor {
     syntax: Option<crate::syntax::SyntaxDoc>,
     /// The `(editor version, line count)` the tokenizer was last synced at.
     syntax_synced: Cell<Option<(u64, usize)>>,
+    /// A file that did not exist when it was opened (`rode new.txt`, ADR-0110): it is kept open
+    /// while it is missing, and the first save creates it.
+    awaiting_first_save: bool,
 }
 
 /// The modification time of `path`, if it exists.
@@ -133,6 +136,7 @@ impl OpenEditor {
             language_explicit: false,
             syntax: None,
             syntax_synced: Cell::new(None),
+            awaiting_first_save: false,
         }
     }
 
@@ -330,6 +334,7 @@ impl OpenEditor {
         fs::write(target, self.editor.buffer().value())?;
         self.editor.mark_saved();
         self.disk_stamp = disk_stamp(target);
+        self.awaiting_first_save = false;
         Ok(())
     }
 }
@@ -445,13 +450,32 @@ impl Editors {
         }
         let bytes = fs::read(path)?;
         let text = String::from_utf8_lossy(&bytes);
-        let mut editor = OpenEditor::from_text(path, &text, self.options, self.default_eol, self.read_only.is_read_only(path));
-        self.init_language(&mut editor, &text);
+        self.open_text(path, &text, options);
+        Ok(())
+    }
+
+    /// Open `path`, which does not exist yet, as an empty clean editor: the first save creates the
+    /// file (`code new.txt`, ADR-0110). A file that exists is opened as `open_with` does.
+    pub fn open_new_file(&mut self, path: &Path, options: OpenOptions) -> io::Result<()> {
+        if self.index_of(path).is_some() {
+            return self.open_with(path, options);
+        }
+        self.pin_dirty_preview();
+        self.open_text(path, "", options);
+        if let Some(i) = self.index_of(path) {
+            self.open[i].awaiting_first_save = true;
+        }
+        Ok(())
+    }
+
+    /// Adds an editor for `path` with `text` (the file's text, or empty for a new file).
+    fn open_text(&mut self, path: &Path, text: &str, options: OpenOptions) {
+        let mut editor = OpenEditor::from_text(path, text, self.options, self.default_eol, self.read_only.is_read_only(path));
+        self.init_language(&mut editor, text);
         editor.editor.set_typing_options(self.typing);
         editor.apply_indentation(self.options, self.detect_indentation);
         self.place(editor, options);
         self.touch_history(path);
-        Ok(())
     }
 
     /// Open a new untitled text (`file.newUntitledFile`, ADR-0058) with `text` and `language`. Its
@@ -733,7 +757,7 @@ impl Editors {
     /// unsaved changes stay open. Returns the paths that were closed.
     pub fn close_missing(&mut self, exists: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
         let missing: Vec<usize> = (0..self.open.len())
-            .filter(|&i| !self.open[i].is_dirty() && !self.open[i].is_untitled() && !exists(&self.open[i].path))
+            .filter(|&i| !self.open[i].is_dirty() && !self.open[i].is_untitled() && !self.open[i].awaiting_first_save && !exists(&self.open[i].path))
             .collect();
         let mut closed = Vec::new();
         for &i in missing.iter().rev() {

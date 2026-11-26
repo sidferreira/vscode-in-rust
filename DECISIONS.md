@@ -3227,6 +3227,9 @@ command in PATH" works:
   twice), a file-only call uses the first file's folder as root, extra folders and missing paths are reported
   on stderr and skipped. No clap (no new crates); options belong to the shell launcher.
 
+Amended: a file that does not exist yet opens as an empty, clean editor when its folder exists, as `code new.txt`
+does; the first save creates it (`AwaitingFirstSave`: a tab for a missing file is kept by `closeOnFileDelete`
+until then). A file in a missing folder is reported and skipped. `cli::LaunchFile` carries the `new` flag.
+
 Not done: a second `rode` starts a second process and window instead of handing the paths to the running
-instance (upstream's single-instance IPC), and there is no `-n`/`-r`/`-g file:line:col`/`--diff`. A missing
-file is not created as a new file the way `code new.txt` does.
+instance (upstream's single-instance IPC), and there is no `-n`/`-r`/`--diff`.

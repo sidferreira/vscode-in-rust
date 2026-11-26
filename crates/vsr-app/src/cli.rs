@@ -2,7 +2,8 @@
 //!
 //! `rscode [folder] [file ...]`, the way `code` reads its paths: the first folder becomes the
 //! workspace root and every file opens in an editor. With only files, the root is the first
-//! file's folder; with nothing, the current directory. Options are handled by the `rode` shell
+//! file's folder; with nothing, the current directory. A file that does not exist yet opens as a
+//! new file when its folder exists (`code new.txt`), else it is reported. Options are handled by the `rode` shell
 //! launcher, so anything starting with `-` is ignored here.
 //!
 //! Upstream source: src/vs/platform/environment/node/argv.ts (paths part only).
@@ -14,11 +15,19 @@ pub struct LaunchArgs {
     /// The workspace folder.
     pub root: PathBuf,
     /// Files to open after the window is up, in the order given.
-    pub files: Vec<PathBuf>,
+    pub files: Vec<LaunchFile>,
     /// Paths that are neither a folder nor a file (reported on stderr, then skipped).
     pub missing: Vec<PathBuf>,
     /// Folders after the first: rscode has one root per window, so these are ignored.
     pub extra_folders: Vec<PathBuf>,
+}
+
+/// A file argument. A file that does not exist yet is `new` when its folder exists: it opens as an
+/// empty editor that the first save creates (`code new.txt`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchFile {
+    pub path: PathBuf,
+    pub new: bool,
 }
 
 /// Parses `args` (without the program name). Relative paths resolve against `cwd`.
@@ -39,7 +48,9 @@ where
         if path.is_dir() {
             folders.push(path);
         } else if path.is_file() {
-            files.push(path);
+            files.push(LaunchFile { path, new: false });
+        } else if path.parent().is_some_and(Path::is_dir) {
+            files.push(LaunchFile { path, new: true });
         } else {
             missing.push(path);
         }
@@ -47,14 +58,21 @@ where
     let mut folders = folders.into_iter();
     let root = folders
         .next()
-        .or_else(|| files.first().and_then(|f| f.parent()).map(Path::to_path_buf))
+        .or_else(|| files.first().and_then(|f| f.path.parent()).map(Path::to_path_buf))
         .unwrap_or_else(|| absolute(cwd));
     LaunchArgs { root, files, missing, extra_folders: folders.collect() }
 }
 
-/// `canonicalize` when the path exists (resolves `..` and symlinks), else the path as given.
+/// `canonicalize` when the path exists (resolves `..` and symlinks). A path that does not exist
+/// yet keeps its canonical folder, so it matches the paths of the files in that folder.
 fn absolute(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    if let Ok(full) = path.canonicalize() {
+        return full;
+    }
+    match (path.parent().and_then(|p| p.canonicalize().ok()), path.file_name()) {
+        (Some(parent), Some(name)) => parent.join(name),
+        _ => path.to_path_buf(),
+    }
 }
 
 #[cfg(test)]
@@ -66,6 +84,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rscode-cli-{name}-{}", std::process::id()));
         let _ = fs::create_dir_all(&dir);
         dir.canonicalize().unwrap()
+    }
+
+    fn file(path: PathBuf, new: bool) -> LaunchFile {
+        LaunchFile { path, new }
     }
 
     #[test]
@@ -93,7 +115,7 @@ mod tests {
         fs::write(cwd.join("src/main.rs"), "fn main() {}\n").unwrap();
         let a = parse(["src/main.rs"], &cwd);
         assert_eq!(a.root, cwd.join("src"));
-        assert_eq!(a.files, vec![cwd.join("src/main.rs")]);
+        assert_eq!(a.files, vec![file(cwd.join("src/main.rs"), false)]);
     }
 
     #[test]
@@ -103,7 +125,25 @@ mod tests {
         fs::write(cwd.join("a.txt"), "").unwrap();
         let a = parse(["b.txt", ".", "a.txt"], &cwd);
         assert_eq!(a.root, cwd);
-        assert_eq!(a.files, vec![cwd.join("b.txt"), cwd.join("a.txt")]);
+        assert_eq!(a.files, vec![file(cwd.join("b.txt"), false), file(cwd.join("a.txt"), false)]);
+    }
+
+    #[test]
+    fn a_missing_file_in_an_existing_folder_opens_as_a_new_file() {
+        let cwd = tmp("new");
+        let a = parse(["new.txt"], &cwd);
+        assert_eq!(a.files, vec![file(cwd.join("new.txt"), true)]);
+        assert_eq!(a.root, cwd);
+        assert!(a.missing.is_empty());
+    }
+
+    #[test]
+    fn a_missing_file_in_a_missing_folder_is_reported_and_skipped() {
+        let cwd = tmp("nodir");
+        let a = parse(["no-such-dir/new.txt"], &cwd);
+        assert!(a.files.is_empty());
+        assert_eq!(a.missing, vec![cwd.join("no-such-dir/new.txt")]);
+        assert_eq!(a.root, cwd);
     }
 
     #[test]
@@ -111,10 +151,10 @@ mod tests {
         let cwd = tmp("extra");
         fs::create_dir_all(cwd.join("one")).unwrap();
         fs::create_dir_all(cwd.join("two")).unwrap();
-        let a = parse(["one", "two", "nope.txt"], &cwd);
+        let a = parse(["one", "two", "gone/nope.txt"], &cwd);
         assert_eq!(a.root, cwd.join("one"));
         assert_eq!(a.extra_folders, vec![cwd.join("two")]);
-        assert_eq!(a.missing, vec![cwd.join("nope.txt")]);
+        assert_eq!(a.missing, vec![cwd.join("gone/nope.txt")]);
         assert!(a.files.is_empty());
     }
 

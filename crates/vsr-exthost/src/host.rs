@@ -704,8 +704,10 @@ mod tests {
     fn fifos_and_devices_are_refused_without_blocking() {
         let dir = scratch("fifo");
         let fifo = dir.join("pipe.json");
-        assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
         let link = dir.join("pipe-link.json");
+        let _ = fs::remove_file(&link);
+        let _ = fs::remove_file(&fifo);
+        assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
         std::os::unix::fs::symlink(&fifo, &link).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         // A regression would block the read forever, so the reads run on a thread the test can time out on.

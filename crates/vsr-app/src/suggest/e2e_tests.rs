@@ -714,6 +714,21 @@ fn undo_ends_the_session_and_reverts_the_typing_with_its_mirrors(cx: &mut TestAp
 }
 
 #[gpui::test]
+fn a_reload_from_disk_ends_the_snippet_and_its_context_keys(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "snippet-reload");
+    accept_fn_snippet(&wb, cx, &proj);
+    pass(cx, 5);
+    assert!(in_snippet(&wb, cx));
+    wb.update(cx, |wb, _| {
+        let i = wb.editors.active.unwrap();
+        let eol = wb.editors.default_eol;
+        wb.editors.open[i].reload("fn longer_name() {}", eol);
+    });
+    assert!(!in_snippet(&wb, cx), "a reload from disk ends the session");
+    assert_eq!(wb.read_with(cx, |wb, _| wb.snippet_tags()), "");
+}
+
+#[gpui::test]
 fn the_context_keys_follow_the_stops(cx: &mut TestAppContext) {
     let (wb, cx, proj) = workbench(cx, "snippet-keys");
     accept_fn_snippet(&wb, cx, &proj);

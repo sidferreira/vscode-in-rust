@@ -16,7 +16,7 @@ mod e2e_tests;
 pub mod goto;
 pub mod view; // the Outline view under the Explorer tree (ADR-0092)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -173,6 +173,26 @@ impl OutlineState {
     pub fn model(&self, path: &Path) -> Option<&OutlineModel> {
         self.service.cached(&key(path))
     }
+
+    /// Drops everything kept for the documents not in `open` (they closed): their models, marked
+    /// models and answer counts, and any request still waiting for them (ADR-0086).
+    pub fn retain_open(&mut self, open: &HashSet<String>) {
+        if self.seen.as_ref().is_some_and(|(p, _)| !open.contains(&key(p))) {
+            self.seen = None;
+        }
+        let closed: HashSet<String> = self
+            .answered
+            .keys()
+            .chain(self.marked.keys())
+            .filter(|k| !open.contains(*k))
+            .cloned()
+            .collect();
+        for k in closed {
+            self.service.forget(&k);
+            self.answered.remove(&k);
+            self.marked.remove(&k);
+        }
+    }
 }
 
 impl Workbench {
@@ -182,6 +202,8 @@ impl Workbench {
     }
 
     pub(crate) fn outline_sync_at(&mut self, now: Instant) {
+        let open: HashSet<String> = self.editors.open.iter().map(|e| key(&e.path)).collect();
+        self.outline.retain_open(&open);
         let active = self
             .editor_surface_active()
             .then(|| self.editors.active_editor())

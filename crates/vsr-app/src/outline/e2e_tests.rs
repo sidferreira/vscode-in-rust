@@ -682,3 +682,36 @@ fn outline_icons_off_draws_no_kind_icon(cx: &mut TestAppContext) {
     set(cx, "outline.icons", serde_json::json!(false));
     assert!(cx.debug_bounds(icon).is_none(), "outline.icons off");
 }
+
+#[gpui::test]
+fn closing_a_document_drops_its_outline_map(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "evict");
+    let main_file = proj.join("src/main.rs");
+    open(&wb, cx, &main_file);
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| main_symbol())));
+    ask(&wb, cx);
+    assert!(wb.read_with(cx, |wb, _| wb.outline.model(&main_file).is_some()), "open: the map is kept");
+
+    wb.update(cx, |wb, cx| {
+        let index = wb.editors.index_of(&main_file).expect("the file is open");
+        wb.close_tab(index);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    wb.update(cx, |wb, _| wb.outline_sync_at(Instant::now()));
+    assert!(wb.read_with(cx, |wb, _| wb.outline.model(&main_file).is_none()), "closed: the map is gone");
+    assert!(wb.read_with(cx, |wb, _| wb.outline.answered(&main_file).is_none()));
+    assert!(wb.read_with(cx, |wb, _| wb.outline.view_model(&main_file).is_none()));
+}
+
+#[gpui::test]
+fn a_document_still_open_in_another_tab_keeps_its_map(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "evict-keep");
+    let main_file = proj.join("src/main.rs");
+    open(&wb, cx, &main_file);
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| main_symbol())));
+    ask(&wb, cx);
+    open(&wb, cx, &proj.join("src/lib.rs"));
+    wb.update(cx, |wb, _| wb.outline_sync_at(Instant::now() + Duration::from_secs(1)));
+    assert!(wb.read_with(cx, |wb, _| wb.outline.model(&main_file).is_some()), "still open: the map stays");
+}

@@ -258,6 +258,16 @@ impl Workbench {
                 }
             }
             FromHost::Locations { id, nav, links } => self.navigation_deliver(id, nav, links, window, cx),
+            FromHost::CodeLenses { id, groups } => {
+                if self.codelens_deliver(id, groups) {
+                    cx.notify();
+                }
+            }
+            FromHost::CodeLensResolved { id, lens } => {
+                if self.codelens.resolved(id, *lens) {
+                    cx.notify();
+                }
+            }
             FromHost::Hovers { id, hovers, .. } => {
                 if self.editor_view.hover.deliver(id, hovers) {
                     cx.notify();

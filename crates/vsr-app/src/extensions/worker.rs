@@ -21,7 +21,7 @@ use vsr_exthost::configuration::ConfigUpdate;
 use vsr_exthost::description::ExtensionDescription;
 use vsr_exthost::discovery::{self, ContributedCommand};
 use vsr_exthost::host::{BootParams, ExtensionHost};
-use vsr_exthost::language_features::dto::{CompletionItem, CompletionList, DocumentSymbol, Hover, LocationLink, Position};
+use vsr_exthost::language_features::dto::{CodeLens, CodeLensList, CompletionItem, CompletionList, DocumentSymbol, Hover, LocationLink, Position};
 use vsr_exthost::language_features::main_thread::Kind;
 use vsr_exthost::language_features::outline::ProviderSymbols;
 use vsr_exthost::language_features::query::{CompletionTrigger, Query};
@@ -70,6 +70,12 @@ pub enum ToHost {
     /// The hovers at a 1-based position of an open document (ADR-0109). `column` counts `char`s.
     /// A newer request replaces the one in flight.
     Hover { id: u64, path: PathBuf, line: u32, column: u32 },
+    /// The code lenses of an open document (ADR-0155). A newer request replaces the one in flight.
+    CodeLenses { id: u64, path: PathBuf },
+    /// `resolveCodeLens` for one lens of list `handle` (ADR-0155); answered with `CodeLensResolved`.
+    ResolveCodeLens { id: u64, handle: u32, lens: Box<CodeLens> },
+    /// The lists the UI is done with: `(provider handle, list cache id)` (`$releaseCodeLenses`).
+    ReleaseCodeLenses(Vec<(u32, u64)>),
     /// Completions at a 1-based position of an open document (ADR-0082). `column` counts `char`s,
     /// as the editor does. A newer request replaces the one in flight.
     Complete { id: u64, path: PathBuf, line: u32, column: u32, trigger: CompletionTrigger },
@@ -100,6 +106,11 @@ pub enum FromHost {
     /// The hovers of request `id`, from every provider that answered, with their ranges in `char`s
     /// (ADR-0109). A position with no hover still answers, with none.
     Hovers { id: u64, hovers: Vec<Hover> },
+    /// The providers' code lens lists for request `id`, one per provider that answered (ADR-0155).
+    /// A document with no provider still answers, with none.
+    CodeLenses { id: u64, groups: Vec<(u32, CodeLensList)> },
+    /// The answer to `ResolveCodeLens` `id`: the lens with its command (or as sent, when it failed).
+    CodeLensResolved { id: u64, lens: Box<CodeLens> },
     /// The providers' completion lists for request `id`, one per provider that answered. Ranges
     /// are in `char`s (converted here, where the document's text is); the lists stay cached in the
     /// host until released (ADR-0082).
@@ -210,6 +221,7 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
     let mut completion: Option<CompletionJob> = None;
     let mut navigation: Option<NavJob> = None;
     let mut hovering: Option<HoverJob> = None;
+    let mut lensing: Option<LensJob> = None;
     'main: loop {
         let mut dirty = false;
         loop {
@@ -245,6 +257,18 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
                         }
                     };
                 }
+                Ok(ToHost::CodeLenses { id, path }) => {
+                    if let Some(mut old) = lensing.take() {
+                        host.cancel_query(&mut old.query);
+                    }
+                    lensing = match start_lens(&mut host, id, &path) {
+                        Some(job) => Some(job),
+                        None => {
+                            let _ = out.unbounded_send(FromHost::CodeLenses { id, groups: Vec::new() });
+                            None
+                        }
+                    };
+                }
                 Ok(ToHost::Complete { id, path, line, column, trigger }) => {
                     if let Some(mut old) = completion.take() {
                         cancel_completion(&mut host, &mut old);
@@ -276,6 +300,12 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
         {
             let job = hovering.take().expect("the job is in flight");
             finish_hover(&mut host, job, &out);
+        }
+        if let Some(job) = lensing.as_mut()
+            && host.poll_query(&mut job.query)
+        {
+            let job = lensing.take().expect("the job is in flight");
+            finish_lens(&mut host, job, &out);
         }
         if let Some(job) = completion.as_mut()
             && let Some(q) = job.query.as_mut()
@@ -407,6 +437,33 @@ fn finish_hover(host: &mut ExtensionHost, mut job: HoverJob, out: &UnboundedSend
         })
         .collect();
     let _ = out.unbounded_send(FromHost::Hovers { id: job.id, hovers });
+}
+
+/// A code lens request on its way (ADR-0155): the providers' lists, polled from the loop.
+struct LensJob {
+    id: u64,
+    query: Query<CodeLensList>,
+}
+
+/// Asks the providers for the code lenses of an open document. `None` when the document is not
+/// open in the host or no call could start.
+fn start_lens(host: &mut ExtensionHost, id: u64, path: &Path) -> Option<LensJob> {
+    if !host.main_thread.documents.open.contains_key(&resource_key(path)) {
+        return None;
+    }
+    let convert = Box::new(|v: &Value| CodeLensList::from_json(v));
+    let query = host.begin_provide(Kind::CodeLens, path, "$provideCodeLenses", &[], convert).ok()?;
+    Some(LensJob { id, query })
+}
+
+/// Sends the lists of the providers that answered, and reports the ones that failed.
+fn finish_lens(host: &mut ExtensionHost, mut job: LensJob, out: &UnboundedSender<FromHost>) {
+    let provided = job.query.take();
+    for (handle, message) in &provided.errors {
+        let name = host.main_thread.language_features.registration(*handle).and_then(|r| r.meta_str("displayName").map(String::from));
+        let _ = out.unbounded_send(FromHost::Problem(format!("code lens ({}): {message}", name.unwrap_or_default())));
+    }
+    let _ = out.unbounded_send(FromHost::CodeLenses { id: job.id, groups: provided.results });
 }
 
 /// A protocol range (UTF-16 columns) with its columns in `char`s, using the document's text.
@@ -589,7 +646,22 @@ fn handle(host: &mut ExtensionHost, index: &EventIndex, fired: &mut HashSet<Stri
                 host.release(Kind::Completion, handle, cache);
             }
         }
-        ToHost::Symbols { .. } | ToHost::Navigate { .. } | ToHost::Hover { .. } | ToHost::Complete { .. } | ToHost::Shutdown => {}
+        ToHost::ResolveCodeLens { id, handle, lens } => {
+            let resolved = match host.resolve_code_lens(handle, &lens, RESOLVE_TIMEOUT) {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = out.unbounded_send(FromHost::Problem(format!("resolve code lens: {e}")));
+                    *lens
+                }
+            };
+            let _ = out.unbounded_send(FromHost::CodeLensResolved { id, lens: Box::new(resolved) });
+        }
+        ToHost::ReleaseCodeLenses(lists) => {
+            for (handle, cache) in lists {
+                host.release(Kind::CodeLens, handle, cache);
+            }
+        }
+        ToHost::Symbols { .. } | ToHost::Navigate { .. } | ToHost::Hover { .. } | ToHost::CodeLenses { .. } | ToHost::Complete { .. } | ToHost::Shutdown => {}
     }
 }
 

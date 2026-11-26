@@ -1,4 +1,4 @@
-//! Code lens (ADR-0111): the providers' lenses of the active document, asked once its edits stop
+//! Code lens (ADR-0155): the providers' lenses of the active document, asked once its edits stop
 //! for `DEBOUNCE` (`editor.codeLens`), and each lens's command resolved when it is asked for.
 //!
 //! Upstream source: src/vs/editor/contrib/codelens/browser/codelensController.ts
@@ -10,7 +10,7 @@
 //! without a command gets `ToHost::ResolveCodeLens`. Every time-based step takes the instant as an
 //! argument, so the tests drive the clock.
 //!
-//! Not done yet (ADR-0111 step 2): the lens rows in the editor's layout, the click that runs the
+//! Not done yet (ADR-0155 step 2): the lens rows in the editor's layout, the click that runs the
 //! command, and the font settings.
 
 #[cfg(test)]

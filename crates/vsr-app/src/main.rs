@@ -20,7 +20,7 @@ mod model;
 mod quick_access; // Command Palette, Go to Line, help on the Quick Pick (ADR-0030)
 mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
-mod codelens; // Code lens: the providers' lenses of the active document (ADR-0111)
+mod codelens; // Code lens: the providers' lenses of the active document (ADR-0155)
 mod hover; // Hover widget (ADR-0109)
 mod navigation; // Go to Definition, Declaration, Type Definition, Implementation (ADR-0108)
 mod outline; // the document outline: symbols per document, debounced (ADR-0086)
@@ -220,7 +220,7 @@ struct Workbench {
     children: HashMap<PathBuf, Vec<DirEntry>>,
     editors: Editors,
     editor_view: EditorView,
-    /// Code lens of the active document (ADR-0111).
+    /// Code lens of the active document (ADR-0155).
     codelens: codelens::CodeLensState,
     /// Settings editor tab (one instance) and whether it is the active tab.
     settings: Option<Entity<SettingsView>>,

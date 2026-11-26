@@ -70,9 +70,9 @@ pub enum ToHost {
     /// The hovers at a 1-based position of an open document (ADR-0109). `column` counts `char`s.
     /// A newer request replaces the one in flight.
     Hover { id: u64, path: PathBuf, line: u32, column: u32 },
-    /// The code lenses of an open document (ADR-0111). A newer request replaces the one in flight.
+    /// The code lenses of an open document (ADR-0155). A newer request replaces the one in flight.
     CodeLenses { id: u64, path: PathBuf },
-    /// `resolveCodeLens` for one lens of list `handle` (ADR-0111); answered with `CodeLensResolved`.
+    /// `resolveCodeLens` for one lens of list `handle` (ADR-0155); answered with `CodeLensResolved`.
     ResolveCodeLens { id: u64, handle: u32, lens: Box<CodeLens> },
     /// The lists the UI is done with: `(provider handle, list cache id)` (`$releaseCodeLenses`).
     ReleaseCodeLenses(Vec<(u32, u64)>),
@@ -106,7 +106,7 @@ pub enum FromHost {
     /// The hovers of request `id`, from every provider that answered, with their ranges in `char`s
     /// (ADR-0109). A position with no hover still answers, with none.
     Hovers { id: u64, hovers: Vec<Hover> },
-    /// The providers' code lens lists for request `id`, one per provider that answered (ADR-0111).
+    /// The providers' code lens lists for request `id`, one per provider that answered (ADR-0155).
     /// A document with no provider still answers, with none.
     CodeLenses { id: u64, groups: Vec<(u32, CodeLensList)> },
     /// The answer to `ResolveCodeLens` `id`: the lens with its command (or as sent, when it failed).
@@ -439,7 +439,7 @@ fn finish_hover(host: &mut ExtensionHost, mut job: HoverJob, out: &UnboundedSend
     let _ = out.unbounded_send(FromHost::Hovers { id: job.id, hovers });
 }
 
-/// A code lens request on its way (ADR-0111): the providers' lists, polled from the loop.
+/// A code lens request on its way (ADR-0155): the providers' lists, polled from the loop.
 struct LensJob {
     id: u64,
     query: Query<CodeLensList>,

@@ -3230,3 +3230,44 @@ command in PATH" works:
 Not done: a second `rode` starts a second process and window instead of handing the paths to the running
 instance (upstream's single-instance IPC), and there is no `-n`/`-r`/`-g file:line:col`/`--diff`. A missing
 file is not created as a new file the way `code new.txt` does.
+
+## ADR-0155 — Code lens: the provider query, the debounce and resolve (step 1 of ADR-0108); layout, click and fonts not done (2026-11-26)
+
+Step 3 of the navigation providers (ADR-0108 plan). This records what is in: the model and the worker query,
+with the lens rows in the layout, the click and the two font settings still to come.
+
+- **Request.** `ToHost::CodeLenses { id, path }` starts `begin_provide(Kind::CodeLens, "$provideCodeLenses")`
+  in the worker, the same job shape as Hover (ADR-0109). A newer request cancels the one in flight. A document
+  that is not open answers with no lists. The answer is `FromHost::CodeLenses { id, groups }`, one list per
+  provider that answered.
+- **Which document.** The active document only (not every open one). The frame observes its path and version;
+  a change starts a 250 ms debounce (upstream's delay), and each new version restarts it. The request goes out
+  when the debounce ends, so one burst of typing asks once.
+- **Lenses.** Kept per document in position order (start line, then column). Delivering a new answer replaces
+  them and returns the provider lists the document held before, which are released with
+  `ToHost::ReleaseCodeLenses` (`$releaseCodeLenses`). An answer to a request no longer awaited changes nothing,
+  and its own lists are released.
+- **Resolve.** A lens without a command gets `ToHost::ResolveCodeLens` (`$resolveCodeLens`, the worker's
+  resolve timeout) once, when the document is active. The answer fills in the command. Lenses are not resolved
+  one by one on screen yet (upstream resolves the visible ones; here all of the active document's, which is
+  more calls than needed).
+- **Settings wired (1).** `editor.codeLens` (on by default): off stops every request (a headless E2E test with a
+  fake provider counts zero asks; a unit test reads the default and the off value).
+- **Tests.** `codelens/mod.rs` unit tests (debounce, stale answers, replacement and release, resolve once, off)
+  and `codelens/e2e_tests.rs` (the request after the debounce, the resolved command, off). The fakes are
+  `CodeLensState::fake`, the same idea as the hover fake (ADR-0109). The worker's `ToHost::CodeLenses` job is
+  not exercised by any test (as with Hover); no real-host E2E yet.
+- **Crates.** None added in this step. The crate policy from the coordinator (well-known maintained crates,
+  previous release, each `crate@version` and why recorded here) applies to any crate a later step needs; none so
+  far.
+- **Not done (ADR-0108 step 3 remains).**
+  - No lens rows in the editor. The editor draws rows with `uniform_list` and maps row to line in about six
+    places (hit testing, caret paint, the scroll margin, `text_anchor`, the view state, and the sticky scroll).
+    A lens row takes a line's height in the view and is not a model line, so every one of those needs the
+    row-to-line map. The likely shape is a lens row of `editor.codeLensFontSize` text in the same
+    `line_height` row, which keeps `uniform_list`; a variable-height list is the other option.
+  - No click on a lens runs its command through the command registry.
+  - `editor.codeLensFontFamily` and `editor.codeLensFontSize` are not wired (they need the rows to draw).
+  - `docs/dependencies.toml` `navigation-providers` stays `todo`, and the regenerated docs and dependency tree
+    are for the step that completes it.
+  - Inlay hints (ADR-0108 step 4) are not started.

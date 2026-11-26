@@ -1,4 +1,4 @@
-//! Headless E2E tests of code lens (ADR-0111). No extension host runs here: the providers' lists and
+//! Headless E2E tests of code lens (ADR-0155). No extension host runs here: the providers' lists and
 //! the resolves come from `CodeLensState::fake`, and the clock is passed in, so the debounce is exact.
 //!
 //! Upstream source: src/vs/editor/contrib/codelens/browser/codelensController.ts

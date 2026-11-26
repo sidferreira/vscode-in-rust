@@ -2,6 +2,14 @@
 
 Where rscode stands, what is blocked on you, and how the next session picks up.
 
+## Update — 2026-11-26 day (batch 8 merged into main, 41d396a, not pushed)
+
+- **Push needed**: `main` is 87 commits ahead of origin (16 unsigned from the overnight batch, the rest signed). The permission check blocks `git push` from the agent; push yourself (`git push origin main`) or allow it.
+- Landed: native pull requests on `gh` (`crates/vsr-github` + Pull Requests view, #40; ADR-0113/0114, two review rounds), built-in json/css/html extensions load by default (#39), `rode` loads `~/.vscode/extensions` (#31), on-demand reads refuse FIFOs/devices (#34), snippet session ends on reload (#35), offscreen UI snapshot tests (ADR-0161–0163; 12 references committed with user approval; `cargo test -p vsr-app ui_snapshots -- --ignored --test-threads=1`), Settings editor filters/menu/Copy as JSON/advanced TOC (ADR-0142), Find whole-word via `editor.wordSeparators` + JS-style empty matches + Search tree view (ADR-0146/0147, 28 upstream tests ported), settings reclassifications.
+- Gates on main: 2,281 Rust tests pass, clippy clean, upstream-sync ok, 0 orphans, script tests ok, 13 UI snapshots match.
+- Close after the push: #31, #34, #35, #39, #40 (plus the earlier list below).
+- New follow-ups: #41 terminal left padding, #42 Settings checkbox descriptions don't wrap, #43 flaky search test under load.
+
 ## State
 
 - `main` is at the overnight batch (44 commits after `df7c147`), **not pushed**: push needs 1Password (SSH). The batch commits made after 1Password locked are **unsigned**, as asked ("if ok, commit unsigned" after the Haiku and Opus reviews).

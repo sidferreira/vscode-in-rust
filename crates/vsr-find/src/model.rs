@@ -34,6 +34,8 @@ pub struct FindState {
     pub is_regex: bool,
     pub match_case: bool,
     pub whole_word: bool,
+    /// `editor.wordSeparators` (Whole Word); the model follows the editor's.
+    pub word_separators: String,
     pub preserve_case: bool,
     /// "Find in Selection": only search inside these ranges.
     pub search_scope: Option<Vec<Range>>,
@@ -49,6 +51,7 @@ impl Default for FindState {
             is_regex: false,
             match_case: false,
             whole_word: false,
+            word_separators: vsr_editor::USUAL_WORD_SEPARATORS.to_string(),
             preserve_case: false,
             search_scope: None,
             loop_: true,
@@ -63,6 +66,7 @@ impl FindState {
             is_regex: self.is_regex,
             match_case: self.match_case,
             whole_word: self.whole_word,
+            word_separators: Some(self.word_separators.clone()),
         }
     }
 }
@@ -199,11 +203,22 @@ impl FindModel {
         let research = self.state.search_string != before.search_string
             || self.state.is_regex != before.is_regex
             || self.state.whole_word != before.whole_word
+            || self.state.word_separators != before.word_separators
             || self.state.match_case != before.match_case
             || self.state.search_scope != before.search_scope;
         if research {
             self.compiled = compile(&self.state.params());
             self.research(ed, move_cursor);
+        }
+    }
+
+    /// `editor.wordSeparators`: what Match Whole Word treats as a word boundary. A change searches
+    /// again on the next [`sync`](Self::sync).
+    pub fn set_word_separators(&mut self, separators: &str) {
+        if self.state.word_separators != separators {
+            self.state.word_separators = separators.to_string();
+            self.compiled = compile(&self.state.params());
+            self.version = None;
         }
     }
 
@@ -568,6 +583,18 @@ mod tests {
         m.sync(&ed);
         assert_eq!(m.matches().len(), 3, "typing in the editor adds a match");
         assert!(m.highlighted().is_none());
+    }
+
+    #[test]
+    fn whole_word_uses_the_editors_word_separators() {
+        let mut ed = editor("foo-bar foo_x foo");
+        let mut m = FindModel::new(FindState::default(), &ed);
+        m.change(&mut ed, false, |s| (s.search_string, s.whole_word) = ("foo".into(), true));
+        assert_eq!(m.matches().len(), 2, "'-' separates, '_' does not");
+        m.set_word_separators(" ");
+        m.sync(&ed);
+        assert_eq!(m.matches().len(), 1, "only a space separates: 'foo-bar' is one word");
+        assert_eq!(m.state().word_separators, " ");
     }
 
     #[test]

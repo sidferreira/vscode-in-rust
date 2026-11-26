@@ -256,7 +256,7 @@ impl FindUi {
 
     /// Per frame, before drawing: apply the settings, keep the model in step with the document
     /// (a different tab gets a fresh model with the same options, no scope).
-    pub(super) fn sync(&mut self, e: &OpenEditor, settings: FindSettings) {
+    pub(super) fn sync(&mut self, e: &OpenEditor, settings: FindSettings, word_separators: &str) {
         self.settings = settings;
         if !self.open {
             return;
@@ -264,6 +264,7 @@ impl FindUi {
         if self.model_path.as_ref() != Some(&e.path) {
             let mut state = self.state().clone();
             state.search_scope = None;
+            state.word_separators = word_separators.to_string();
             self.model = Some(self.new_model(state, e));
             self.model_path = Some(e.path.clone());
             return;
@@ -271,6 +272,7 @@ impl FindUi {
         if let Some(m) = &mut self.model {
             m.cursor_move_on_type = settings.cursor_move_on_type;
             m.set_loop(settings.loop_);
+            m.set_word_separators(word_separators);
             m.sync(&e.editor);
         }
     }

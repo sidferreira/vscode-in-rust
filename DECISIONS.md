@@ -3644,6 +3644,51 @@ and `explorer.fileNesting.patterns` was read in sorted key order, because `serde
 `explorer/settings.rs` (`file_nesting_patterns_keep_the_declaration_order`). The 26 trie tests are already
 ported (`upstream/ports.toml`, `explorer-file-nesting`).
 
+## ADR-0146 — Editor Find: Match Whole Word follows `editor.wordSeparators`, JS-style empty matches, the `textModelSearch` tests (2026-11-26)
+
+**Context.** Gap review of the Find widget against `src/vs/editor/contrib/find/browser/` and
+`textModelSearch.ts` (see the list at the end). Most of the feature list was already there: Find in
+Selection, `autoFindInSelection`, Preserve Case, `$1` / `\u` in the replace string, the four
+`seedSearchStringFromSelection` modes, `loop`, find and replace history, "3 of 12", Replace All as one
+undo step. What differed from upstream in behaviour, not in missing UI:
+
+- **Whole Word** used `\b` (ADR-0027). Upstream does not: it runs the search without a word boundary and
+  then keeps a match only when `isValidMatch` passes, which classifies characters with
+  `editor.wordSeparators`. So a changed setting (a space only, or `-` removed) made the two disagree, as did
+  non-Latin text and searches that start or end in a separator (`listen(`).
+- **Empty matches.** The Rust `regex` iterators skip an empty match that directly follows a non-empty one;
+  a JavaScript global `RegExp` finds it, so `\d*` on `10.243` gave `10, 243` here and `10, "", 243` upstream
+  (issue #74715). Upstream's `Searcher` also stops when a match reaches the end of the line (so `.*` gives one
+  match per line, not two).
+
+**Decisions.**
+- `vsr_find::search::Compiled` no longer builds `\b`: `SearchParams::whole_word` plus
+  `word_separators: Option<String>` (`None` is `USUAL_WORD_SEPARATORS`) make `find_matches` filter with a port
+  of `isValidMatch` / `leftIsWordBoundary` / `rightIsWordBoundary` (whitespace counts as a separator, as in
+  `WordCharacterClassifier`). The Search view is untouched: ripgrep keeps `\b`, as upstream's ripgrep does.
+- `FindState::word_separators` follows the editor: `FindModel::sync` reads `Editor::word_separators()` (set
+  from `editor.wordSeparators` for every open editor) and re-searches when it changes, so the setting applies to
+  an open widget on the next frame. `editor.wordSeparators` was already wired for word moves and double click;
+  Find is a new consumer.
+- A small `scan` loop replaces `find_iter` / `captures_iter` with `find_at` / `captures_at` and the
+  JavaScript stepping rules (advance one character after an empty match, stop when a match ends at the end of
+  the text). Replace All and the match count use the same path.
+- No new crate.
+
+**Tests.** `crates/vsr-find/tests/upstream_text_model_search.rs` ports 28 of the 42 tests of
+`textModelSearch.test.ts` (each run on LF and CRLF buffers): the simple, case, whole word, `^`, `$`, `.*`,
+`^$` and multiline finds, the multiline anchors, issues #4836, #3623, #27459, #27594, #53415, #74715, #100134, the
+capture-group tests, `\n` matches `\r\n`, `\r` is never found, unicode escapes. Not ported: the
+`findNextMatch` / `findPreviousMatch` halves and the nine tests that only use them (FindModel's navigation
+covers them, `upstream_find_model.rs`), the three `parseSearchRequest` tests (JS `RegExp` flags), the two
+`isMultilineRegexSource` tests (private in `vsr-editor`). Also `model::tests::whole_word_uses_the_editors_word_separators`
+and the E2E `whole_word_follows_editor_word_separators` (`editor_view/find_e2e.rs`).
+
+**Gaps found and not built here.** Select All Occurrences of Find Match (one cursor), the macOS find pasteboard
+(`editor.find.globalFindClipboard`, `search.globalFindClipboard`), `editor.find.addExtraSpaceOnTop` (view zone),
+look-around and back-references in regular expressions (Rust `regex`; ADR-0023), the widget's resize sash and the
+options-only widget when closed.
+
 ## ADR-0155 — Code lens: the provider query, the debounce and resolve (step 1 of ADR-0108); layout, click and fonts not done (2026-11-26)
 
 Step 3 of the navigation providers (ADR-0108 plan). This records what is in: the model and the worker query,

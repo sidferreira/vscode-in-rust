@@ -389,7 +389,7 @@ impl EditorView {
         cx: &mut Context<T>,
     ) -> impl IntoElement {
         self.cfg = settings.clone();
-        self.find.sync(editor, settings.find);
+        self.find.sync(editor, settings.find, &settings.word_separators);
         let find_widget = self.find.element(theme, cx);
         let cfg = settings.clone();
         let focus = self.focus_handle(cx);

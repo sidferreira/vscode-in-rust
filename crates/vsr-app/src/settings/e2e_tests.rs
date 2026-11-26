@@ -249,3 +249,248 @@ fn search_filters_the_toc_to_matching_groups_and_esc_restores_it(cx: &mut TestAp
     cx.run_until_parked();
     assert_eq!(view.read_with(cx, |v, _| v.visible_toc()), full);
 }
+
+// ---- search filters, filter menu, header buttons, advanced settings ---------------------------
+
+fn open_settings(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> Entity<SettingsView> {
+    cx.simulate_keystrokes("cmd-,");
+    cx.run_until_parked();
+    view_of(wb, cx)
+}
+
+fn set_user(cx: &mut VisualTestContext, key: &str, value: serde_json::Value) {
+    cx.update(|_, cx| crate::config::AppConfig::set_value(cx, key, Some(value)).unwrap());
+}
+
+/// Run a search in the open view (the same path as typing in the box).
+fn search(view: &Entity<SettingsView>, cx: &mut VisualTestContext, text: &str) {
+    view.update_in(cx, |v, window, cx| v.set_search_text(text, window, cx));
+    cx.run_until_parked();
+}
+
+fn keys(view: &Entity<SettingsView>, cx: &mut VisualTestContext) -> Vec<String> {
+    view.read_with(cx, |v, _| v.visible_keys())
+}
+
+/// The first registry setting that carries the `advanced` tag, and a word of its key that is not
+/// the whole key.
+fn advanced_setting() -> (String, String) {
+    fn collect(nodes: &[TocNode], out: &mut Vec<String>) {
+        for n in nodes {
+            out.extend(n.settings.iter().cloned());
+            collect(&n.children, out);
+        }
+    }
+    let reg = SettingsRegistry::load_default();
+    let (mut plain, mut all) = (Vec::new(), Vec::new());
+    collect(reg.toc_for(false), &mut plain);
+    collect(reg.toc_for(true), &mut all);
+    let key = all
+        .into_iter()
+        .find(|k| !plain.contains(k) && reg.get(k).unwrap().extension_id.is_none() && k.contains('.'))
+        .expect("an advanced core setting in the second TOC");
+    let tail = key.rsplit('.').next().unwrap().to_string();
+    (key, tail)
+}
+
+#[gpui_kit::test]
+fn modified_filter_lists_only_changed_settings_and_rows_show_the_indicator(cx: &mut TestAppContext) {
+    let (wb, cx, _settings) = workbench(cx, "modified");
+    set_user(cx, "editor.tabSize", serde_json::json!(2));
+    set_user(cx, "editor.minimap.enabled", serde_json::json!(false));
+    let view = open_settings(&wb, cx);
+
+    search(&view, cx, "@modified");
+    let mut found = keys(&view, cx);
+    found.sort();
+    assert_eq!(found, ["editor.minimap.enabled", "editor.tabSize"]);
+    assert_eq!(view.read_with(cx, |v, _| v.result_count()), 2);
+    assert!(cx.debug_bounds("modified:search:editor.tabSize").is_some(), "modified rows draw the left bar");
+
+    // Combined with text: only modified settings that match the words.
+    search(&view, cx, "tab size @modified");
+    assert_eq!(keys(&view, cx), ["editor.tabSize"]);
+
+    // An unmodified setting has no indicator.
+    search(&view, cx, "@id:editor.lineNumbers");
+    assert!(cx.debug_bounds("modified:search:editor.lineNumbers").is_none());
+}
+
+#[gpui_kit::test]
+fn id_filter_takes_lists_and_wildcards(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "id-filter");
+    let view = open_settings(&wb, cx);
+    search(&view, cx, "@id:editor.tabSize,editor.fontSize");
+    let mut found = keys(&view, cx);
+    found.sort();
+    assert_eq!(found, ["editor.fontSize", "editor.tabSize"]);
+    search(&view, cx, "@id:editor.minimap.*");
+    let found = keys(&view, cx);
+    assert!(found.len() > 3 && found.iter().all(|k| k.starts_with("editor.minimap.")), "{found:?}");
+    search(&view, cx, "@id:editor.tabSiz");
+    assert!(keys(&view, cx).is_empty(), "ids match exactly");
+}
+
+#[gpui_kit::test]
+fn ext_filter_lists_that_extensions_settings(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "ext-filter");
+    let reg = SettingsRegistry::load_default();
+    let ext_id = reg
+        .keys()
+        .filter_map(|k| reg.get(k))
+        .find(|s| s.extension_id.is_some() && !s.tags.iter().any(|t| t == "advanced"))
+        .and_then(|s| s.extension_id.clone())
+        .unwrap();
+    let view = open_settings(&wb, cx);
+    search(&view, cx, &format!("@ext:{}", ext_id.to_uppercase()));
+    let found = keys(&view, cx);
+    assert!(!found.is_empty());
+    assert!(found.iter().all(|k| reg.get(k).unwrap().extension_id.as_deref() == Some(ext_id.as_str())), "{found:?}");
+    // Core settings are never listed.
+    assert!(!found.iter().any(|k| k == "editor.fontSize"));
+}
+
+#[gpui_kit::test]
+fn filter_menu_toggles_filters_in_the_search_box(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "filter-menu");
+    set_user(cx, "editor.tabSize", serde_json::json!(2));
+    let view = open_settings(&wb, cx);
+    let button = cx.debug_bounds("settings-filter").expect("filter button is rendered");
+    cx.simulate_click(button.center(), Default::default());
+    cx.run_until_parked();
+    let modified = cx.debug_bounds("filter-modified").expect("menu lists Modified");
+    cx.simulate_click(modified.center(), Default::default());
+    cx.run_until_parked();
+    assert_eq!(view.read_with(cx, |v, _| v.query().to_string()), "@modified");
+    assert_eq!(keys(&view, cx), ["editor.tabSize"]);
+
+    // Preview then Experimental replace each other; Modified stays.
+    for (item, expected) in [("filter-preview", "@modified @tag:preview"), ("filter-experimental", "@modified @tag:experimental")] {
+        let b = cx.debug_bounds("settings-filter").unwrap();
+        cx.simulate_click(b.center(), Default::default());
+        cx.run_until_parked();
+        let i = cx.debug_bounds(item).unwrap();
+        cx.simulate_click(i.center(), Default::default());
+        cx.run_until_parked();
+        assert_eq!(view.read_with(cx, |v, _| v.query().to_string()), expected);
+    }
+
+    // Picking Modified again removes it.
+    let b = cx.debug_bounds("settings-filter").unwrap();
+    cx.simulate_click(b.center(), Default::default());
+    cx.run_until_parked();
+    let i = cx.debug_bounds("filter-modified").unwrap();
+    cx.simulate_click(i.center(), Default::default());
+    cx.run_until_parked();
+    assert_eq!(view.read_with(cx, |v, _| v.query().to_string()), "@tag:experimental");
+
+    // "Setting ID..." leaves the caret after `@id:` for the user to type the key.
+    let b = cx.debug_bounds("settings-filter").unwrap();
+    cx.simulate_click(b.center(), Default::default());
+    cx.run_until_parked();
+    let i = cx.debug_bounds("filter-id").unwrap();
+    cx.simulate_click(i.center(), Default::default());
+    cx.run_until_parked();
+    assert_eq!(view.read_with(cx, |v, _| v.query().to_string()), "@tag:experimental @id:");
+}
+
+#[gpui_kit::test]
+fn more_actions_copies_setting_id_and_json(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "copy-json");
+    set_user(cx, "editor.tabSize", serde_json::json!(2));
+    let view = open_settings(&wb, cx);
+    search(&view, cx, "@id:editor.tabSize,editor.wordWrap");
+    for (key, expected) in [("editor.tabSize", "\"editor.tabSize\": 2"), ("editor.wordWrap", "\"editor.wordWrap\": \"off\"")] {
+        let gear: &'static str = Box::leak(format!("more-actions:search:{key}").into_boxed_str());
+        let b = cx.debug_bounds(gear).expect("gear is rendered");
+        cx.simulate_click(b.center(), Default::default());
+        cx.run_until_parked();
+        let item: &'static str = Box::leak(format!("copy-json:search:{key}").into_boxed_str());
+        let i = cx.debug_bounds(item).expect("menu lists Copy Setting as JSON");
+        cx.simulate_click(i.center(), Default::default());
+        cx.run_until_parked();
+        assert_eq!(cx.read_from_clipboard().and_then(|c| c.text()).as_deref(), Some(expected));
+    }
+    // Copy Setting ID still works.
+    let gear = cx.debug_bounds("more-actions:search:editor.tabSize").unwrap();
+    cx.simulate_click(gear.center(), Default::default());
+    cx.run_until_parked();
+    let id = cx.debug_bounds("copy-id:search:editor.tabSize").unwrap();
+    cx.simulate_click(id.center(), Default::default());
+    assert_eq!(cx.read_from_clipboard().and_then(|c| c.text()).as_deref(), Some("editor.tabSize"));
+}
+
+#[gpui_kit::test]
+fn header_open_settings_json_button_opens_the_file(cx: &mut TestAppContext) {
+    let (wb, cx, settings) = workbench(cx, "header-json");
+    open_settings(&wb, cx);
+    let b = cx.debug_bounds("open-settings-json").expect("the header has an Open Settings (JSON) button");
+    cx.simulate_click(b.center(), Default::default());
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.editors.open.iter().any(|e| e.path == settings)), "settings.json is opened as a tab");
+}
+
+#[gpui_kit::test]
+fn workspace_tab_explains_that_only_user_settings_exist(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "scopes");
+    open_settings(&wb, cx);
+    assert!(cx.debug_bounds("scope-tab:User").is_some());
+    let ws = cx.debug_bounds("scope-tab:Workspace").expect("the Workspace tab is shown");
+    assert!(cx.debug_bounds("settings-workspace-note").is_none());
+    cx.simulate_click(ws.center(), Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("settings-workspace-note").is_some());
+    let user = cx.debug_bounds("scope-tab:User").unwrap();
+    cx.simulate_click(user.center(), Default::default());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("settings-workspace-note").is_none());
+}
+
+#[gpui_kit::test]
+fn advanced_settings_are_hidden_until_asked_for(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "advanced");
+    let (key, tail) = advanced_setting();
+    let view = open_settings(&wb, cx);
+    assert!(!keys(&view, cx).contains(&key), "the grouped list has no advanced settings by default");
+
+    search(&view, cx, &tail);
+    assert!(!keys(&view, cx).contains(&key), "search leaves advanced settings out");
+    // `@tag:advanced` shows them, and so does naming the setting by id.
+    search(&view, cx, &format!("{tail} @tag:advanced"));
+    assert!(keys(&view, cx).contains(&key));
+    search(&view, cx, &format!("@id:{key}"));
+    assert_eq!(keys(&view, cx), [key.clone()]);
+    // The filter menu's Advanced entry adds the tag.
+    search(&view, cx, "");
+    let b = cx.debug_bounds("settings-filter").unwrap();
+    cx.simulate_click(b.center(), Default::default());
+    cx.run_until_parked();
+    let i = cx.debug_bounds("filter-advanced").unwrap();
+    cx.simulate_click(i.center(), Default::default());
+    cx.run_until_parked();
+    assert_eq!(view.read_with(cx, |v, _| v.query().to_string()), "@tag:advanced");
+    assert!(keys(&view, cx).contains(&key));
+}
+
+#[gpui_kit::test]
+fn always_show_advanced_settings_adds_them_to_the_toc_and_search(cx: &mut TestAppContext) {
+    let (wb, cx, _s) = workbench(cx, "always-advanced");
+    let (key, tail) = advanced_setting();
+    let view = open_settings(&wb, cx);
+    let before = keys(&view, cx).len();
+    assert!(!keys(&view, cx).contains(&key));
+
+    set_user(cx, "workbench.settings.alwaysShowAdvancedSettings", serde_json::json!(true));
+    cx.run_until_parked();
+    let after = keys(&view, cx);
+    assert!(after.len() > before && after.contains(&key), "the second TOC is used");
+    search(&view, cx, &tail);
+    assert!(keys(&view, cx).contains(&key));
+    assert!(view.read_with(cx, |v, _| !v.visible_toc().is_empty()));
+
+    // Turning it off goes back to the default TOC.
+    search(&view, cx, "");
+    cx.update(|_, cx| crate::config::AppConfig::set_value(cx, "workbench.settings.alwaysShowAdvancedSettings", None).unwrap());
+    cx.run_until_parked();
+    assert!(!keys(&view, cx).contains(&key));
+}

@@ -54,6 +54,7 @@ pub const SCREEN_NORMAL: char = '\u{EB4D}';
 pub const ADD: char = '\u{EA60}';
 pub const TRASH: char = '\u{EA81}';
 pub const GO_TO_FILE: char = '\u{EA94}';
+pub const FILTER: char = '\u{EAF1}';
 
 /// Register the codicon TTF with gpui's text system.
 pub fn install(cx: &App) {

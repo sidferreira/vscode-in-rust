@@ -20,16 +20,16 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 
 | source | count | attributed to a node |
 |---|---|---|
-| settings: wired | 330 | n/a (done) |
+| settings: wired | 331 | n/a (done) |
 | settings: blocked | 325 | 325 of 325 (by reason) |
 | settings: exthost | 421 | 421 of 421 (by built-in extension) |
-| settings: todo | 428 | 252 of 428 matched by a node's todo_globs |
+| settings: todo | 427 | 252 of 427 matched by a node's todo_globs |
 | settings: n/a | 558 | not dependency-blocked (policy: product, Windows, deprecated) |
 | smoke scenarios: ready | 73 | not blocked |
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 107 | every ADR cited by a node exists (latest ADR-0160) |
+| ADR headings in DECISIONS.md | 108 | every ADR cited by a node exists (latest ADR-0160) |
 | upstream/ports.toml entries | 59 | not nodes (file ports, not features): partial 56, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.
@@ -484,7 +484,7 @@ Top 12 of 85 rankable nodes (score = unblocked dep settings + scenarios + 10 x e
 - Orphan nodes (not done, no edges, nothing attributed): none.
 - Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, builtin-lsp-css-html-json, child-process-main, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, scrollbar-content-height, settings-editor.
 - Blocked settings with no node: 0. Exthost settings with no node: 0. Blocked smoke rows that name a feature with no node: 0.
-- Todo settings matched by no node's `todo_globs`: 176. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
+- Todo settings matched by no node's `todo_globs`: 175. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
 - DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is "needs sash grippers (the drawn handle in the middle of a sash)" has a second `comment` and `match` pair after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show settings (29) therefore land on the sash reason. They need document symbols. The graph maps that reason to `document-symbols` with a note.
 - Known gap in `scripts/progress-report`: it reads only the first status table of each scenario file. `search.md` has a second table (rows 8-11), so its scenario total is 170, not 174.
 

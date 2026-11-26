@@ -230,34 +230,47 @@ fn folds_follow_edits_above_them(cx: &mut TestAppContext) {
     assert_eq!(hidden(&wb, cx), [(7, 9)], "still folded after a line was added above");
 }
 
-#[gpui::test]
-fn folding_a_10k_line_file_stays_responsive(cx: &mut TestAppContext) {
+/// Types at the end of a 10,000-line file with one region folded, then folds and unfolds all 2,500
+/// regions. Returns the time per key and the time of fold all (ADR-0125). The deterministic
+/// assertions (the fold surviving the edits, the region count) run here as well.
+fn fold_big_file(cx: &mut TestAppContext) -> (std::time::Duration, std::time::Duration) {
     let text: String = (1..=2_500).map(|i| format!("fn f{i}() {{\n    let a = {i};\n    let b = a;\n}}\n")).collect();
     let (wb, cx, _) = workbench(cx, "perf", "{}", &[("big.rs", &text)]);
     assert_eq!(counts(&wb, cx).0, 10_001);
     cx.simulate_keystrokes("alt-cmd-[");
     assert_eq!(hidden(&wb, cx).len(), 1);
-    // Best of three batches of typing at the end with one region collapsed (the view-line projection
-    // and the folding regions are rebuilt on each edit).
+    // Typing at the end with one region collapsed (the view-line projection and the folding
+    // regions are rebuilt on each edit).
     cx.simulate_keystrokes("cmd-down");
-    let mut per_key = std::time::Duration::MAX;
-    for _ in 0..3 {
+    let per_key = super::perf_e2e::best_of(3, || {
         let start = std::time::Instant::now();
         for _ in 0..7 {
             cx.simulate_input("ab");
             cx.simulate_keystrokes("enter");
         }
-        per_key = per_key.min(start.elapsed() / 21);
-    }
-    eprintln!("10k-line file with a fold: {per_key:?} per key, best of 3 (debug build, incl. layout and paint)");
+        start.elapsed() / 21
+    });
     assert_eq!(hidden(&wb, cx).len(), 1, "the fold survived the edits");
-    assert!(per_key < std::time::Duration::from_millis(100), "{per_key:?} per key");
     // Fold all and unfold all on 2,500 regions.
     let start = std::time::Instant::now();
     cx.simulate_keystrokes("cmd-k cmd-0");
     let fold_all = start.elapsed();
     assert_eq!(hidden(&wb, cx).len(), 2_500);
     cx.simulate_keystrokes("cmd-k cmd-j");
+    (per_key, fold_all)
+}
+
+#[gpui::test]
+fn folding_a_10k_line_file_stays_responsive(cx: &mut TestAppContext) {
+    let (per_key, fold_all) = fold_big_file(cx);
+    eprintln!("10k-line file with a fold: {per_key:?} per key, best of 3 (debug build, incl. layout and paint)");
     eprintln!("fold all of 2,500 regions: {fold_all:?}");
+}
+
+#[gpui::test]
+#[ignore = "wall-clock budget (ADR-0125): cargo test -p vsr-app perf_ -- --ignored --test-threads=1"]
+fn perf_folding_a_10k_line_file_stays_responsive(cx: &mut TestAppContext) {
+    let (per_key, fold_all) = fold_big_file(cx);
+    assert!(per_key < super::perf_e2e::KEY_BUDGET, "{per_key:?} per key");
     assert!(fold_all < std::time::Duration::from_secs(2), "{fold_all:?}");
 }

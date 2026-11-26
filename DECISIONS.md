@@ -3253,6 +3253,37 @@ Not done: a second `rode` starts a second process and window instead of handing 
 instance (upstream's single-instance IPC), and there is no `-n`/`-r`/`-g file:line:col`/`--diff`. A missing
 file is not created as a new file the way `code new.txt` does.
 
+## ADR-0125 — Timing tests: the budget runs on demand, the workload runs by default (2026-11-26)
+
+Four headless tests on a 10,000-line file assert a wall-clock budget per key (`editor_view/e2e.rs`,
+`wrap_e2e.rs`, `folding_e2e.rs`, `minimap/e2e.rs`): 100 ms, 150 ms with word wrap, and 2 s for fold all.
+They failed in the default `cargo test -p vsr-app` run. Measured on the same debug build: 198 to 370 ms
+per key in the parallel run (load average above 100), and 188 to 199 ms with `--test-threads=1` at the
+same load. Serially on a quiet machine (load about 20) all four pass.
+
+**Decision.** Each test is split in two. The default test runs the workload and its deterministic
+assertions (the line counts, the carets, the folds surviving edits, the text, the drawn minimap lines)
+and prints the timing. The budget moves to an `#[ignore]`d `perf_` sibling that shares the same body
+(`editor_view/perf_e2e.rs`). `docs/testing.md` ("Timing tests") gives the command:
+`cargo test -p vsr-app perf_ -- --ignored --test-threads=1`.
+
+**Alternatives rejected.**
+- *Median of several runs.* The tests already took the best of three, and it still missed by 2x. A
+  median is never below the minimum, so it cannot pass where the minimum fails.
+- *A budget scaled for debug builds or for load.* There is no unloaded baseline to scale from on a shared
+  machine (the load moved from 115 to 20 within minutes), so any number is a guess.
+- *Raising the budgets.* Would hide regressions of the O(n^2) kind this guard exists for, and the load
+  would still exceed a larger number.
+- *Keeping the asserts in the default run.* They fail under parallel load, so they train everyone to
+  ignore a red suite.
+
+**What is lost.** The default run no longer catches a per-key slowdown. The deterministic assertions still
+catch functional regressions at this size. A follow-up could compare the per-key cost of the 10,000-line
+file with a small file measured in the same test (a ratio is load-tolerant), so an O(n) per-key
+regression still fails by default. Not built now.
+
+**Crates.** No new crates. The helper is a few lines of std (`Duration`, `min`).
+
 ## ADR-0130 — Outline follow-ups: evict closed documents, parse diagnostics once per change, fuzzy filter on type (2026-11-26)
 
 Closes the three follow-ups of ADR-0086, ADR-0092 and ADR-0094 (issue #22).

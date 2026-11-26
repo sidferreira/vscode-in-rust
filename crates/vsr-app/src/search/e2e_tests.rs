@@ -489,3 +489,37 @@ fn replace_keeps_crlf_and_handles_multibyte_text(cx: &mut TestAppContext) {
     let bytes = fs::read(dir.join("w.txt")).unwrap();
     assert_eq!(String::from_utf8(bytes).unwrap(), "h\u{e9}llo \u{3C9}\r\n\u{1F600} \u{3C9} \u{65E5}\r\nend\r\n");
 }
+
+#[gpui_kit::test]
+fn escape_in_the_search_view_keeps_the_finished_results_and_the_query(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start(cx, "escape");
+    cx.simulate_keystrokes("cmd-shift-f");
+    let v = view(&wb, cx);
+    cx.simulate_input("alpha");
+    settle(cx);
+    assert_eq!(summary(&v, cx).as_deref(), Some("4 results in 2 files"));
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert_eq!(summary(&v, cx).as_deref(), Some("4 results in 2 files"), "Escape does not clear finished results");
+    assert_eq!(v.read_with(cx, |v, cx| v.query_text(cx)), "alpha", "nor the query");
+}
+
+#[gpui_kit::test]
+fn alt_cmd_c_toggles_match_case_only_with_the_search_view_focused(cx: &mut TestAppContext) {
+    let (wb, cx, dir) = start(cx, "keys-scope");
+    cx.simulate_keystrokes("cmd-shift-f");
+    let v = view(&wb, cx);
+    cx.simulate_input("alpha");
+    settle(cx);
+    assert_eq!(summary(&v, cx).as_deref(), Some("4 results in 2 files"));
+    // Focus the editor on a.txt: alt-cmd-c there must not reach the search view's Match Case.
+    wb.update(cx, |wb, cx| {
+        wb.open(&dir.join("a.txt"));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    cx.simulate_keystrokes("alt-cmd-c");
+    cx.run_until_parked();
+    settle(cx);
+    assert_eq!(summary(&v, cx).as_deref(), Some("4 results in 2 files"), "Match Case is still off");
+}

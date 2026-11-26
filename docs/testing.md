@@ -211,3 +211,20 @@ on this setup: no window, no GPU, whole run under 1 s.
   `cx.executor().advance_clock(..)` + `run_until_parked()` (see `config/e2e.rs`, `ticks`).
 - `#[test]` inside a module that does `use gpui_kit::*` resolves to gpui's `test` macro; use
   `#[core::prelude::v1::test]` there.
+
+## Timing tests (ADR-0125)
+
+Tests that measure wall-clock time (the 10,000-line editing, minimap, folding and word-wrap tests in
+`crates/vsr-app/src/editor_view/`) are split in two:
+
+- The default test (`editing_a_10k_line_file_stays_responsive`, ...) runs the workload and its
+  deterministic assertions (line counts, carets, folds, text) and only prints the timing.
+- The `perf_` sibling is `#[ignore]`d and asserts the budget (100 ms per key, 150 ms with word wrap,
+  2 s for fold all). Run it serially on a quiet machine:
+
+```sh
+cargo test -p vsr-app perf_ -- --ignored --test-threads=1
+```
+
+Budgets fail under parallel load (a load average above 100 gave 190 to 370 ms per key), so they are
+not part of `cargo test --workspace`. Shared helpers: `editor_view/perf_e2e.rs`.

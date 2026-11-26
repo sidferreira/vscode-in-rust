@@ -10,15 +10,15 @@ it cannot be observed headless (the reason is in the scenario).
 
 | # | scenario | setting(s) | status | test |
 |---|---|---|---|---|
-| 1 | Down, Right, Left move the selection over the visible rows and expand and collapse folders | | ready | `arrow_keys_move_the_selection_and_expand_and_collapse_folders` |
-| 2 | Delete asks first; the file is only moved to the Trash after Move to Trash | explorer.confirmDelete | ready | `delete_asks_first_and_then_moves_the_file_to_the_trash` |
+| 1 | Down, Right, Left move the selection over the visible rows and expand and collapse folders | | ready | `arrow_keys_move_the_selection_and_expand_and_collapse_folders`, `up_and_down_move_the_selection_by_one_row`, `space_opens_the_selected_file_and_toggles_the_selected_folder`, `space_toggles_the_selected_folder` |
+| 2 | Delete asks first; the file is only moved to the Trash after Move to Trash | explorer.confirmDelete | ready | `delete_asks_first_and_then_moves_the_file_to_the_trash`, `cmd_backspace_asks_and_trashes_and_cmd_alt_backspace_deletes_permanently` |
 | 3 | Escape cancels a pending delete and keeps the file | explorer.confirmDelete | ready | `escape_cancels_the_delete_and_keeps_the_file` |
 | 4 | with confirmDelete off, Delete deletes at once | explorer.confirmDelete | ready | `confirm_delete_false_deletes_at_once` |
 | 5 | Delete Permanently never goes to the Trash | | ready | `delete_permanently_never_goes_to_the_trash` |
 | 6 | with files.enableTrash off, Delete is permanent and asks the stronger question | files.enableTrash | ready | `with_files_enable_trash_off_delete_is_permanent_and_asks_the_stronger_question` |
 | 7 | New File from the command: name it, Enter creates it in the selected folder and opens it | | ready | `new_file_from_the_command_takes_a_name_and_opens_the_file` |
 | 8 | an existing name shows the upstream message under the box; Enter does not commit; nothing is created | | ready | `an_invalid_name_shows_the_message_and_creates_nothing` |
-| 9 | Enter on a selected file opens the name box; Escape closes it and keeps the file | | ready | `enter_starts_rename_and_the_name_commits_on_enter` |
+| 9 | Enter on a selected file opens the name box; Escape closes it and keeps the file | | ready | `enter_starts_rename_and_the_name_commits_on_enter`, `enter_renames_the_selection_and_the_delete_keys_are_off_while_the_name_box_is_open` |
 | 10 | Rename commits the typed name and moves the file | | ready | `rename_commits_the_typed_name_and_moves_the_file` |
 | 11 | Rename selects the name without its last extension (folders: all) | | ready | `rename_selects_the_name_without_the_last_extension` |
 | 12 | Rename moves the open editor to the new path | | ready | `rename_moves_the_open_tab_to_the_new_path` (explorer/e2e.rs) |

@@ -459,7 +459,7 @@ fn advanced_settings_are_hidden_until_asked_for(cx: &mut TestAppContext) {
     search(&view, cx, &format!("{tail} @tag:advanced"));
     assert!(keys(&view, cx).contains(&key));
     search(&view, cx, &format!("@id:{key}"));
-    assert_eq!(keys(&view, cx), [key.clone()]);
+    assert_eq!(keys(&view, cx), std::slice::from_ref(&key));
     // The filter menu's Advanced entry adds the tag.
     search(&view, cx, "");
     let b = cx.debug_bounds("settings-filter").unwrap();

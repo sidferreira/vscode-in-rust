@@ -13,6 +13,13 @@ How we test vscode-rust, and how upstream VS Code's tests get ported. Read this 
 or porting a test. Background: `docs/research/e2e-and-visual-testing.md` (gpui test APIs, visual
 regression options), `UPSTREAM.md` (sync workflow), `DECISIONS.md`.
 
+## CI (ADR-0165)
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every PR, on Linux: all crates except `vsr-app`
+(tests + clippy), the script tests, `upstream-sync check` and `test-port status`. The `vsr-app` tests
+(headless E2E) run on a macOS runner from "Run workflow". UI snapshots and real-host extension tests are
+not in CI: run them locally before merging.
+
 ## The three tiers
 
 | tier | what it proves | where | how it runs |

@@ -1,0 +1,87 @@
+# CI for rscode (ADR-0165). Pull requests run the fast checks on Linux: every crate except the
+# gpui app (`vsr-app`), the script tests and the upstream checks. The app's headless E2E tests run on
+# a macOS runner on demand ("Run workflow"). UI snapshots and real-host extension tests stay local
+# (docs/testing.md): they need the Metal renderer, installed fonts and a 3 GB Code-OSS host build.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      app_tests:
+        description: "Also run the vsr-app tests (headless E2E) on macOS"
+        type: boolean
+        default: true
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The pinned upstream commit (upstream/ports.toml `pinned`) the port checks compare against.
+  UPSTREAM_SHA: 50e1350fc78df67b11049b903d96b530f28d26a5
+
+jobs:
+  checks:
+    name: Unit tests and checks (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upstream reference clone (pinned commit, read only)
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/vscode
+          ref: ${{ env.UPSTREAM_SHA }}
+          path: vscode-original
+          fetch-depth: 1
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Unit tests (every crate except the gpui app)
+        run: cargo test --workspace --exclude vsr-app --locked
+
+      - name: Clippy (every crate except the gpui app)
+        run: cargo clippy --workspace --exclude vsr-app --all-targets --locked
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Script tests
+        run: python3 -I -m unittest discover -s scripts/tests
+
+      - name: Upstream sync check
+        run: python3 -I scripts/upstream-sync --clone "$GITHUB_WORKSPACE/vscode-original" check
+
+      - name: Ported test references (no orphans)
+        run: python3 -I scripts/test-port --clone "$GITHUB_WORKSPACE/vscode-original" status
+
+  app:
+    name: App tests (macOS, on demand)
+    if: github.event_name == 'workflow_dispatch' && inputs.app_tests
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: vsr-app tests (unit + headless E2E; snapshots stay #[ignore])
+        run: cargo test -p vsr-app --locked
+
+      - name: Clippy (vsr-app)
+        run: cargo clippy -p vsr-app --all-targets --locked

@@ -4060,3 +4060,22 @@ now enables its `test-support` feature for `MetalHeadlessRenderer`.
 Policy note: `docs/testing.md` keeps baselines of the old tier (c) outside git until the user approves
 committing images. The references of this tier were generated but are left untracked for the user's
 decision; they total about 4 MB (about 330 KB each).
+
+## ADR-0165 — CI on GitHub: Linux checks on every PR, the app on demand (2026-11-26)
+
+The user asked to run the checks in GitHub, in the PRs, keeping unit tests there and running the E2E and
+screenshot tiers later. `.github/workflows/ci.yml`:
+
+- **Every PR and push to main, `ubuntu-latest`:** `cargo test` and `cargo clippy` for the whole workspace
+  except `vsr-app` (the only crate that depends on gpui; the 17 others are plain Rust), the script unit tests,
+  `upstream-sync check` and `test-port status` against `microsoft/vscode` at the pinned commit (shallow
+  checkout). Real-host extension tests skip there (no `RSCODE_CODE_OSS`). Running the core crates on Linux
+  also keeps them portable.
+- **On demand ("Run workflow"), `macos-14`:** `cargo test -p vsr-app` (unit + headless TestAppContext E2E)
+  and its clippy.
+- **Local only:** the offscreen UI snapshots (Metal renderer, installed fonts; `#[ignore]`) and the real-host
+  extension tests (a 3 GB Code-OSS host build). Run them before merging (docs/testing.md).
+
+Cargo fetches from crates.io in CI (the corporate proxy is a local `~/.cargo/config.toml` setting, not in the
+repo; `Cargo.lock` records crates.io sources). Clippy warnings don't fail the job yet: existing warnings would
+make every run red; tightening to `-D warnings` is a follow-up once they are fixed.

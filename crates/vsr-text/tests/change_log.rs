@@ -83,3 +83,22 @@ fn offsets_count_utf16_units_not_chars() {
     b.edit(Range::new(at(1, 3), at(1, 4)), "b");
     assert_eq!(b.take_changes(), vec![TextChange { offset: 2, removed: 1, inserted: 1 }]);
 }
+
+#[test]
+fn raw_offset_inserts_and_deletes_are_recorded_too() {
+    let mut b = buffer("a\u{1F600}bc");
+    b.track_changes(true);
+    b.insert_at_offset(3, "XY");
+    b.delete_at_offset(0, 1);
+    // An offset inside the surrogate pair snaps to before it; the change reports the snapped offset.
+    b.insert_at_offset(1, "!");
+    b.delete_at_offset(5, 0);
+    assert_eq!(
+        b.take_changes(),
+        vec![
+            TextChange { offset: 3, removed: 0, inserted: 2 },
+            TextChange { offset: 0, removed: 1, inserted: 0 },
+            TextChange { offset: 0, removed: 0, inserted: 1 },
+        ]
+    );
+}

@@ -219,6 +219,8 @@ impl Workbench {
                 self.suggest_cancel(cx);
                 return;
             }
+            // The buffer stores each break as its own EOL: the plan's offsets are taken in it.
+            let plan = plan.with_eol(e.editor.buffer().eol().as_str());
             let (_, start) = e.editor.apply_completion_at((main, plan.text), plan.selection, &additional);
             self.editor_view.edited(&self.editors.open[i], window);
             // The snippet's tab stops follow (ADR-0120); a plain text ends a session it landed in.

@@ -276,12 +276,17 @@ impl TextBuffer {
     /// lone `\r` and `\n` breaks. The text is stored as given: like the piece tree, this
     /// does not normalize line endings (`TextModel` does that before it calls the piece
     /// tree, and `edit` does it for `normalize_eol` buffers). The buffer's EOL is kept.
-    /// An offset past the end appends; an offset inside a surrogate pair snaps to before it.
+    /// An offset past the end appends; an offset inside a surrogate pair snaps to before it. Recorded in
+    /// the change log when tracking (the snapped offset, the units of `text`).
     pub fn insert_at_offset(&mut self, offset: usize, text: &str) {
         let mut raw = self.value();
         let at = utf16_to_byte_floor(&raw, offset);
+        let change = TextChange { offset: utf16_len(&raw[..at]), removed: 0, inserted: utf16_len(text) };
         raw.insert_str(at, text);
         self.lines = split_lines(&raw);
+        if let Some(log) = self.changes.as_mut() {
+            log.push(change);
+        }
     }
 
     /// Delete `len` UTF-16 units from `offset`, mirroring `PieceTreeBase.delete`. Like
@@ -295,7 +300,11 @@ impl TextBuffer {
         let start = utf16_to_byte_floor(&raw, offset);
         let end = utf16_to_byte_floor(&raw, offset.saturating_add(len));
         if start < end {
+            let change = TextChange { offset: utf16_len(&raw[..start]), removed: utf16_len(&raw[start..end]), inserted: 0 };
             raw.replace_range(start..end, "");
+            if let Some(log) = self.changes.as_mut() {
+                log.push(change);
+            }
         }
         self.lines = split_lines(&raw);
     }

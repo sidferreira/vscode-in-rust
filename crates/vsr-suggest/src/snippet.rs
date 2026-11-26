@@ -26,6 +26,9 @@ pub struct Tabstop {
     pub index: u32,
     /// `(start, end)` UTF-16 offsets; the first is the placeholder, the rest are mirrors.
     pub ranges: Vec<(usize, usize)>,
+    /// Which of `ranges` is the placeholder: the one written `${n:text}` / `${n|a,b|}`, else the first
+    /// (`$1 ${1:x}` has its placeholder second).
+    pub primary: usize,
 }
 
 /// A snippet's text with nothing in it that needs expanding (a plain completion): the whole text,
@@ -86,6 +89,8 @@ struct Parser<'a> {
     stops: Vec<(u32, usize, usize)>,
     /// The text of each placeholder seen so far: a later `$n` or `${n}` mirrors it.
     texts: std::collections::HashMap<u32, String>,
+    /// Positions in `stops` written with a default (`${n:..}`, `${n|..|}`): the placeholders.
+    defaults: Vec<usize>,
 }
 
 /// Expands `snippet`.
@@ -100,26 +105,28 @@ pub fn expand(snippet: &str) -> Expanded {
         let end = p.units;
         p.stops.push((0, end, end));
     }
-    // The first tab stop by index (not zero), then `$0`, then the end.
-    let selection_stop = p
-        .stops
-        .iter()
-        .filter(|s| s.0 != 0)
-        .min_by_key(|s| s.0)
-        .or_else(|| p.stops.iter().find(|s| s.0 == 0));
-    let selection = selection_stop.map_or((p.units, p.units), |s| (s.1, s.2));
     let mut indices: Vec<u32> = p.stops.iter().map(|s| s.0).collect();
     indices.sort_unstable();
     indices.dedup();
     indices.retain(|i| *i != 0);
     indices.push(0);
-    let stops = indices
+    let stops: Vec<Tabstop> = indices
         .into_iter()
-        .map(|index| Tabstop {
-            index,
-            ranges: p.stops.iter().filter(|s| s.0 == index).map(|s| (s.1, s.2)).collect(),
+        .map(|index| {
+            let at: Vec<usize> = (0..p.stops.len()).filter(|&i| p.stops[i].0 == index).collect();
+            Tabstop {
+                index,
+                ranges: at.iter().map(|&i| (p.stops[i].1, p.stops[i].2)).collect(),
+                primary: at.iter().position(|i| p.defaults.contains(i)).unwrap_or(0),
+            }
         })
         .collect();
+    // The first tab stop by index (not zero), then `$0`, then the end.
+    let selection = stops
+        .iter()
+        .find(|t| t.index != 0)
+        .or_else(|| stops.first())
+        .map_or((p.units, p.units), |t| t.ranges[t.primary]);
     Expanded {
         text: p.out,
         selection,
@@ -135,6 +142,7 @@ fn run(chars: &[char], texts: std::collections::HashMap<u32, String>) -> Parser<
         units: 0,
         stops: Vec::new(),
         texts,
+        defaults: Vec::new(),
     };
     p.seq(false);
     p
@@ -242,9 +250,11 @@ impl Parser<'_> {
                         let start = self.units;
                         let start_byte = self.out.len();
                         let mirror = self.texts.get(&n).cloned();
+                        let mut has_default = false;
                         match self.peek() {
                             Some(':') => {
                                 self.i += 1;
+                                has_default = true;
                                 self.seq(true);
                             }
                             Some('}') if mirror.is_some() => {
@@ -252,6 +262,7 @@ impl Parser<'_> {
                             }
                             Some('|') => {
                                 self.i += 1;
+                                has_default = true;
                                 let mut first = true;
                                 let mut done = false;
                                 while let Some(c) = self.peek() {
@@ -280,6 +291,9 @@ impl Parser<'_> {
                             _ => {}
                         }
                         self.texts.entry(n).or_insert_with(|| self.out[start_byte..].to_string());
+                        if has_default {
+                            self.defaults.push(self.stops.len());
+                        }
                         self.stops.push((n, start, self.units));
                         self.close();
                     }
@@ -387,10 +401,14 @@ mod tests {
         let e = expand("$1 ${1:x}");
         assert_eq!(e.text, "x x");
         assert_eq!(e.stops[0].ranges, vec![(0, 1), (2, 3)], "ranges are in source order: the mirror first");
+        assert_eq!(e.stops[0].primary, 1, "the placeholder is the one with the default");
+        assert_eq!(e.selection, (2, 3), "and it is what gets selected");
+        let nested = expand("${1:a${2:b}} $1");
+        assert_eq!(nested.stops[0].primary, 0);
     }
 
     #[test]
     fn a_plain_text_has_only_the_final_stop_at_its_end() {
-        assert_eq!(expand("hi"), Expanded { text: "hi".into(), selection: (2, 2), stops: vec![Tabstop { index: 0, ranges: vec![(2, 2)] }] });
+        assert_eq!(expand("hi"), Expanded { text: "hi".into(), selection: (2, 2), stops: vec![Tabstop { index: 0, ranges: vec![(2, 2)], primary: 0 }] });
     }
 }

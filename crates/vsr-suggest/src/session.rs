@@ -17,12 +17,26 @@ pub struct Group {
     pub index: u32,
     /// `(start, end)` UTF-16 offsets in the document, in source order.
     pub ranges: Vec<(usize, usize)>,
+    /// Which of `ranges` is the placeholder (the one with the default text; the first otherwise).
+    pub primary: usize,
 }
 
 impl Group {
-    /// The placeholder's range (the first occurrence).
+    /// The placeholder's range.
     pub fn primary(&self) -> (usize, usize) {
-        self.ranges[0]
+        self.ranges[self.primary]
+    }
+}
+
+impl Group {
+    /// The occurrence an edit of `[offset, offset + removed)` is typed into: one whose range holds the
+    /// whole edit, the placeholder first, then source order. `None` when no occurrence holds it.
+    pub fn typed_in(&self, offset: usize, removed: usize) -> Option<usize> {
+        let holds = |i: usize| self.ranges[i].0 <= offset && offset + removed <= self.ranges[i].1;
+        if holds(self.primary) {
+            return Some(self.primary);
+        }
+        (0..self.ranges.len()).find(|&i| holds(i))
     }
 }
 
@@ -46,6 +60,7 @@ impl SnippetSession {
             .map(|t| Group {
                 index: t.index,
                 ranges: t.ranges.iter().map(|&(s, e)| (base + s, base + e)).collect(),
+                primary: t.primary,
             })
             .collect();
         groups.sort_by_key(|g| if g.index == 0 { u32::MAX } else { g.index });
@@ -130,18 +145,27 @@ impl SnippetSession {
     }
 
     /// Follows one edit: the text in `[offset, offset + removed)` became `inserted` units long.
-    /// Stops in the current group grow at their edges as they are typed into (their start stays, their
-    /// end moves); other stops at the same boundary are pushed (their start moves right, their end
-    /// stays), as upstream's decorations do.
+    /// Only the occurrence of the current group being typed in (see [`Group::typed_in`]) grows at its
+    /// edges (its start stays, its end moves); every other occurrence, mirrors of the current group
+    /// included, is pushed by the usual rules: one before the typed occurrence keeps its end at the
+    /// edit, one after has its start pushed right (upstream's decorations: only the occurrence the
+    /// caret is in grows).
     pub fn apply_change(&mut self, offset: usize, removed: usize, inserted: usize) {
         let current = self.current;
         for (gi, g) in self.groups.iter_mut().enumerate() {
-            let side = match gi.cmp(&current) {
-                std::cmp::Ordering::Less => Side::Before,
-                std::cmp::Ordering::Equal => Side::Active,
-                std::cmp::Ordering::Greater => Side::After,
-            };
-            for r in g.ranges.iter_mut() {
+            let typed = if gi == current { g.typed_in(offset, removed) } else { None };
+            let ordering = gi.cmp(&current);
+            let old = g.ranges.clone();
+            for (ri, r) in g.ranges.iter_mut().enumerate() {
+                let side = match (ordering, typed) {
+                    (std::cmp::Ordering::Less, _) => Side::Before,
+                    (std::cmp::Ordering::Greater, _) => Side::After,
+                    (_, Some(t)) if t == ri => Side::Active,
+                    (_, Some(t)) if (old[ri], ri) < (old[t], t) => Side::Before,
+                    (_, Some(_)) => Side::After,
+                    // Nothing of the group is being typed in: the edit is outside it.
+                    (_, None) => Side::After,
+                };
                 r.0 = map_start(r.0, offset, removed, inserted, side);
                 r.1 = map_end(r.1, offset, removed, inserted, side);
                 if r.1 < r.0 {
@@ -156,7 +180,10 @@ impl SnippetSession {
     /// Empty when `pos` is in no stop. The caller applies them as one undo step and reports them
     /// through [`SnippetSession::apply_change`] like any other edit.
     pub fn mirror_edits(&self, pos: usize, text_of: impl Fn(usize, usize) -> String) -> Vec<(usize, usize, String)> {
-        let Some((gi, ri)) = self.group_at(pos) else {
+        // The current group first: at the boundary of two of its occurrences the caret belongs to the
+        // placeholder (or the first that holds it), not to the shorter neighbour.
+        let in_current = self.groups[self.current].typed_in(pos, 0).map(|ri| (self.current, ri));
+        let Some((gi, ri)) = in_current.or_else(|| self.group_at(pos)) else {
             return Vec::new();
         };
         let g = &self.groups[gi];
@@ -291,6 +318,50 @@ mod tests {
         s.apply_change(0, 1, 5);
         let edits = s.mirror_edits(2, |a, b| doc.chars().skip(a).take(b - a).collect());
         assert_eq!(edits, vec![(8, 9, "hello".to_string())]);
+    }
+
+    #[test]
+    fn a_mirror_after_the_typed_occurrence_is_pushed_not_grown() {
+        // `${1:a}$1` -> "aa": placeholder (0,1), mirror (1,2). Type "x" at 1 (the placeholder's end).
+        let (mut s, text) = session("${1:a}$1");
+        assert_eq!(text, "aa");
+        s.apply_change(1, 0, 1);
+        assert_eq!(s.groups()[0].ranges, vec![(0, 2), (2, 3)]);
+        let doc = "axa";
+        let edits = s.mirror_edits(1, |a, b| doc[a..b].to_string());
+        assert_eq!(edits, vec![(2, 3, "ax".to_string())], "the mirror becomes ax, giving axax");
+    }
+
+    #[test]
+    fn the_caret_between_two_occurrences_rewrites_the_mirror_not_the_typed_one() {
+        let (mut s, _) = session("${1:a}$1");
+        s.apply_change(1, 0, 1);
+        let doc = "axa";
+        // The caret sits at 2, the end of the typed occurrence and the start of the mirror.
+        let edits = s.mirror_edits(2, |a, b| doc[a..b].to_string());
+        assert_eq!(edits, vec![(2, 3, "ax".to_string())]);
+    }
+
+    #[test]
+    fn a_mirror_before_the_typed_occurrence_stays_put() {
+        // `$1${1:a}` -> "aa": mirror (0,1), placeholder (1,2) (the primary).
+        let (s, _) = session("$1${1:a}");
+        assert_eq!(s.current().primary(), (1, 2));
+        // Typing at the placeholder's end, and at its start (touching the mirror's end).
+        let mut at_end = s.clone();
+        at_end.apply_change(2, 0, 1);
+        assert_eq!(at_end.groups()[0].ranges, vec![(0, 1), (1, 3)]);
+        let mut at_start = s;
+        at_start.apply_change(1, 0, 1);
+        assert_eq!(at_start.groups()[0].ranges, vec![(0, 1), (1, 3)], "the mirror's end does not move");
+    }
+
+    #[test]
+    fn an_empty_mirror_at_the_edit_point_goes_to_the_side_it_is_on() {
+        // `$1${1:a}$1`: empty-ish mirrors: (0,1) "a", (1,2) placeholder, (2,3) "a".
+        let (mut s, _) = session("$1${1:a}$1");
+        s.apply_change(2, 0, 2);
+        assert_eq!(s.groups()[0].ranges, vec![(0, 1), (1, 4), (4, 5)]);
     }
 
     #[test]

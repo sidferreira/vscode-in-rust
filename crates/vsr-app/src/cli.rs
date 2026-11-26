@@ -49,9 +49,22 @@ where
         if arg.as_os_str().to_string_lossy().starts_with('-') {
             continue;
         }
-        let (arg, position) = match arg.to_str().and_then(parse_goto).filter(|_| goto) {
-            Some((path, position)) => (PathBuf::from(path), position),
-            None => (arg, None),
+        // An argument that exists as it is wins (`report:2024`); only then is `:line[:column]` read.
+        let literal = cwd.join(&arg);
+        let (arg, position) = if !goto || literal.exists() {
+            (arg, None)
+        } else {
+            match arg.to_str().map(parse_goto) {
+                Some(Ok(Some((path, position)))) => (PathBuf::from(path), position),
+                // `main.rs:12x` for an existing `main.rs` is a mistyped position: report it. When the
+                // part before the suffix is not a file, the argument is a plain name such as
+                // `log:2024-01-05.txt` and opens as given.
+                Some(Err(prefix)) if cwd.join(&prefix).is_file() => {
+                    missing.push(literal);
+                    continue;
+                }
+                _ => (arg, None),
+            }
         };
         let path = absolute(&cwd.join(arg));
         if path.is_dir() {
@@ -73,25 +86,42 @@ where
 }
 
 /// `-g` syntax (upstream `parseLineAndColumnAware`): the path and the optional `(line, column)`.
-/// Numeric segments after the path are the line and the column (the column is 1 when only a line
-/// is given); a colon between other segments is part of the path. `None` when nothing is left.
-fn parse_goto(text: &str) -> Option<(String, Option<(usize, usize)>)> {
-    let (mut path, mut line, mut column): (Option<String>, Option<usize>, Option<usize>) = (None, None, None);
-    for segment in text.split(':') {
-        match segment.parse::<usize>() {
-            Ok(n) if line.is_none() => line = Some(n),
-            Ok(n) if column.is_none() => column = Some(n),
-            Ok(_) => {}
-            Err(_) => {
-                path = Some(match path {
-                    Some(p) => format!("{p}:{segment}"),
-                    None => segment.to_string(),
-                });
-            }
-        }
+/// Only trailing all-digit segments are a position: `:line` (the column is 1) or `:line:column`; a
+/// line or column of 0 is clamped to 1. A colon elsewhere is part of the path. `Ok(None)` when no
+/// path is left (`:3`). `Err(prefix)` when the segment after the path looks like a number but is not
+/// one (`:12x`, `:-3`), with the path in front of it: the caller reports the argument when that path
+/// is an existing file (a mistyped position) and otherwise opens the argument as a plain name.
+fn parse_goto(text: &str) -> Result<Option<(String, Option<(usize, usize)>)>, String> {
+    let is_number = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    // A segment that starts like a number (`12x`, `-3`, `+4`) but is not all digits.
+    let is_malformed = |s: &str| {
+        let digits = s.strip_prefix(['-', '+']).unwrap_or(s);
+        digits.as_bytes().first().is_some_and(u8::is_ascii_digit) && !is_number(s)
+    };
+    let mut segments: Vec<&str> = text.split(':').collect();
+    let mut numbers = Vec::new();
+    while numbers.len() < 2 && segments.len() > 1 && segments.last().is_some_and(|s| is_number(s)) {
+        numbers.push(segments.pop().unwrap_or_default().parse::<usize>().unwrap_or(usize::MAX));
     }
-    let position = line.map(|l| (l, column.unwrap_or(1)));
-    Some((path.filter(|p| !p.is_empty())?, position))
+    if segments.len() > 1 && segments.last().is_some_and(|s| is_malformed(s)) {
+        // The path in front: drop a `:line` before the bad segment too (`f.rs:3:4x` → `f.rs`).
+        let mut path = segments[..segments.len() - 1].to_vec();
+        if path.len() > 1 && path.last().is_some_and(|s| is_number(s)) {
+            path.pop();
+        }
+        return Err(path.join(":"));
+    }
+    let path = segments.join(":");
+    if path.is_empty() {
+        return Ok(None);
+    }
+    numbers.reverse();
+    let position = match numbers.as_slice() {
+        [line] => Some((*line.max(&1), 1)),
+        [line, column] => Some((*line.max(&1), *column.max(&1))),
+        _ => None,
+    };
+    Ok(Some((path, position)))
 }
 
 /// `canonicalize` when the path exists (resolves `..` and symlinks). A path that does not exist
@@ -168,11 +198,61 @@ mod tests {
 
     #[test]
     fn parse_goto_follows_upstream_parse_line_and_column_aware() {
-        assert_eq!(parse_goto("f.rs:3:4"), Some(("f.rs".to_string(), Some((3, 4)))));
-        assert_eq!(parse_goto("f.rs"), Some(("f.rs".to_string(), None)));
-        assert_eq!(parse_goto("f.rs:9"), Some(("f.rs".to_string(), Some((9, 1)))));
-        assert_eq!(parse_goto("a:b:2"), Some(("a:b".to_string(), Some((2, 1)))));
-        assert_eq!(parse_goto(":3"), None);
+        assert_eq!(parse_goto("f.rs:3:4"), Ok(Some(("f.rs".to_string(), Some((3, 4))))));
+        assert_eq!(parse_goto("f.rs"), Ok(Some(("f.rs".to_string(), None))));
+        assert_eq!(parse_goto("f.rs:9"), Ok(Some(("f.rs".to_string(), Some((9, 1))))));
+        assert_eq!(parse_goto("a:b:2"), Ok(Some(("a:b".to_string(), Some((2, 1))))));
+        assert_eq!(parse_goto(":3"), Ok(None));
+        assert_eq!(parse_goto("f.rs:12x"), Err("f.rs".to_string()));
+    }
+
+    #[test]
+    fn goto_uses_an_existing_file_as_it_is_even_when_it_ends_in_a_number() {
+        let cwd = tmp("goto-literal");
+        fs::write(cwd.join("report:2024"), "x\n").unwrap();
+        fs::write(cwd.join("report"), "x\n").unwrap();
+        let a = parse(["-g", "report:2024"], &cwd);
+        assert_eq!(a.files, vec![file(cwd.join("report:2024"), false)]);
+    }
+
+    #[test]
+    fn goto_with_a_malformed_suffix_reports_the_argument_and_creates_nothing() {
+        let cwd = tmp("goto-bad");
+        fs::create_dir_all(cwd.join("src")).unwrap();
+        fs::write(cwd.join("src/main.rs"), "x\n").unwrap();
+        fs::write(cwd.join("f.rs"), "x\n").unwrap();
+        for arg in ["src/main.rs:12x", "f.rs:-3", "f.rs:3:4x", "f.rs:3x:4"] {
+            let a = parse(["-g", arg], &cwd);
+            assert!(a.files.is_empty(), "{arg} opens nothing");
+            assert_eq!(a.missing, vec![cwd.join(arg)], "{arg} is reported as given");
+        }
+    }
+
+    #[test]
+    fn goto_opens_a_new_name_with_a_colon_and_digits_when_no_file_is_in_front() {
+        // Review finding: `log:2024-01-05.txt` is a plain new name, not a mistyped position.
+        let cwd = tmp("goto-dated");
+        for arg in ["log:2024-01-05.txt", "meeting:10am.md"] {
+            let a = parse(["-g", arg], &cwd);
+            assert_eq!(a.files, vec![file(cwd.join(arg), true)], "{arg}");
+            assert!(a.missing.is_empty(), "{arg}");
+        }
+    }
+
+    #[test]
+    fn goto_keeps_a_name_with_colons_and_no_number_at_the_end() {
+        let cwd = tmp("goto-colons");
+        let a = parse(["-g", "a:1:b.txt"], &cwd);
+        assert_eq!(a.files, vec![file(cwd.join("a:1:b.txt"), true)]);
+        assert_eq!(parse_goto("a:1:b.txt"), Ok(Some(("a:1:b.txt".to_string(), None))));
+    }
+
+    #[test]
+    fn goto_line_or_column_zero_is_clamped_to_1() {
+        let cwd = tmp("goto-zero");
+        fs::write(cwd.join("f.rs"), "x\n").unwrap();
+        assert_eq!(parse(["-g", "f.rs:0"], &cwd).files, vec![at(cwd.join("f.rs"), false, 1, 1)]);
+        assert_eq!(parse(["-g", "f.rs:5:0"], &cwd).files, vec![at(cwd.join("f.rs"), false, 5, 1)]);
     }
 
     #[test]

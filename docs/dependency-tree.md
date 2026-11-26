@@ -20,16 +20,16 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 
 | source | count | attributed to a node |
 |---|---|---|
-| settings: wired | 298 | n/a (done) |
-| settings: blocked | 315 | 315 of 315 (by reason) |
-| settings: exthost | 426 | 426 of 426 (by built-in extension) |
-| settings: todo | 465 | 275 of 465 matched by a node's todo_globs |
+| settings: wired | 307 | n/a (done) |
+| settings: blocked | 325 | 325 of 325 (by reason) |
+| settings: exthost | 421 | 421 of 421 (by built-in extension) |
+| settings: todo | 451 | 275 of 451 matched by a node's todo_globs |
 | settings: n/a | 558 | not dependency-blocked (policy: product, Windows, deprecated) |
 | smoke scenarios: ready | 73 | not blocked |
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 94 | every ADR cited by a node exists (latest ADR-0135) |
+| ADR headings in DECISIONS.md | 103 | every ADR cited by a node exists (latest ADR-0160) |
 | upstream/ports.toml entries | 58 | not nodes (file ports, not features): partial 55, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.
@@ -70,9 +70,11 @@ flowchart LR
   n_workspace_fs_api["workspace.fs and file system provider API (ext host) (done)"]:::done
   n_text_decorations["TextEditorDecorationType (after and before text, gutter) (done)"]:::done
   n_diagnostics_model["Diagnostics store (problems reported by language features) (done)"]:::done
+  n_ext_output_channels["Output channels (MainThreadOutputService) and the Output panel (todo)"]:::todo
+  n_ext_insert_snippet["TextEditor.insertSnippet (MainThreadTextEditors.$tryInsertSnippet) (todo)"]:::todo
   n_file_participants["File participants (create, rename, delete hooks from the ext host) (todo)"]:::todo
   n_lang_providers_main["Language provider registry on the main side (LanguageFeatures shapes) (done)"]:::done
-  n_lsp_client["LSP client over stdio (vscode-languageclient) (todo)"]:::todo
+  n_lsp_client["LSP client over stdio (vscode-languageclient) (done)"]:::done
   n_completion_suggest["Completion provider and suggest widget (todo)"]:::todo
   n_navigation_providers["Definition, hover, code lens and inlay hint providers (todo)"]:::todo
   n_refactor_code_actions["Peek, rename, code actions and linked editing (todo)"]:::todo
@@ -91,7 +93,7 @@ flowchart LR
   n_ext_ts_features(["TypeScript and JavaScript features (tsserver) (todo)"]):::todo
   n_ext_xml(["XML (lemminx, LSP and native binary) (todo)"]):::todo
   n_ext_kotlin(["Kotlin (LSP, runtime server download, DAP) (todo)"]):::todo
-  n_builtin_lsp_css_html_json(["Built-in CSS, HTML and JSON language features (todo)"]):::todo
+  n_builtin_lsp_css_html_json(["Built-in CSS, HTML and JSON language features (done)"]):::done
   n_ext_emmet(["Emmet (built-in) (todo)"]):::todo
   n_ext_php(["PHP language features (built-in) (todo)"]):::todo
   n_ext_merge_conflict(["Merge conflict (CodeLens and decorations, built-in) (todo)"]):::todo
@@ -182,6 +184,10 @@ flowchart LR
   n_chat_agents{{"AI chat, agents, copilot and AI search (blocked-external)"}}:::external
   n_remote_development{{"Remote development (dev containers, WSL) (blocked-external)"}}:::external
   n_cross_version_migration{{"Cross-version state migration (needs a stable VS Code install) (blocked-external)"}}:::external
+  n_keyboard_shortcuts_editor["Keyboard Shortcuts editor (default keybindings view) (todo)"]:::todo
+  n_default_settings_view["Read-only default settings beside settings.json (split JSON view) (todo)"]:::todo
+  n_list_horizontal_scrolling["Horizontal scrolling in trees and lists (todo)"]:::todo
+  n_unicode_highlight["Unicode highlight pass (invisible, ambiguous and non-ASCII characters) (todo)"]:::todo
   n_ext_host_p0 --> n_ext_host_p1
   n_editor_scrollbar --> n_scrollbar_content_height
   n_editor_scrollbar --> n_overview_ruler_glyph_margin
@@ -189,6 +195,8 @@ flowchart LR
   n_ext_host_p1 --> n_workspace_fs_api
   n_ext_host_p1 --> n_text_decorations
   n_ext_host_p1 --> n_diagnostics_model
+  n_ext_host_p1 --> n_ext_output_channels
+  n_ext_host_p1 --> n_ext_insert_snippet
   n_workspace_fs_api --> n_file_participants
   n_ext_host_p1 --> n_lang_providers_main
   n_workspace_fs_api --> n_lsp_client
@@ -287,26 +295,27 @@ flowchart LR
   n_native_window_chrome --> n_multi_window
   n_multi_window --> n_window_without_folder
   n_multi_window --> n_user_profiles
+  n_workspace_trust --> n_unicode_highlight
 ```
 
 ## What to build next
 
 | # | node | title | effort | dep settings unblocked (+not yet) | todo settings unblocked (+not yet) | scenarios unblocked (+not yet) | extensions unblocked (+not yet) | directly needed by |
 |---|---|---|---|---|---|---|---|---|
-| 1 | lsp-client | LSP client over stdio (vscode-languageclient) | L (source) | 132 (+0) | 0 (+0) | 0 (+0) | 3 (+1) | builtin-lsp-css-html-json, ext-kotlin, ext-oxc, ext-xml, folding-providers |
-| 2 | ext-ts-features | TypeScript and JavaScript features (tsserver) | M (source) | 90 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 3 | custom-editors | Custom editors (editor types per file) | L (guess) | 70 (+0) | 22 (+0) | 7 (+0) | 0 (+0) | diff-editor, non-text-editors, notebook-editor |
-| 4 | completion-suggest | Completion provider and suggest widget | M (guess) | 32 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 1 | ext-ts-features | TypeScript and JavaScript features (tsserver) | M (source) | 90 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 2 | custom-editors | Custom editors (editor types per file) | L (guess) | 70 (+0) | 22 (+0) | 7 (+0) | 0 (+0) | diff-editor, non-text-editors, notebook-editor |
+| 3 | completion-suggest | Completion provider and suggest widget | M (guess) | 32 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 4 | debugger-dap | Debugger: debug adapter protocol and debug views | XL (guess) | 12 (+0) | 34 (+0) | 0 (+0) | 1 (+0) | ext-kotlin |
 | 5 | navigation-providers | Definition, hover, code lens and inlay hint providers | M (guess) | 18 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 6 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | M (guess) | 17 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 7 | debugger-dap | Debugger: debug adapter protocol and debug views | XL (guess) | 12 (+0) | 34 (+0) | 0 (+0) | 0 (+1) | ext-kotlin |
-| 8 | ext-emmet | Emmet (built-in) | M (guess) | 12 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 9 | native-window-chrome | Native title bar, full screen and first-mouse click | L (guess) | 11 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | multi-window |
-| 10 | editor-groups | Editor splits and editor groups | L (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 11 | refactor-code-actions | Peek, rename, code actions and linked editing | M (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 12 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
+| 6 | ext-emmet | Emmet (built-in) | M (guess) | 12 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 7 | native-window-chrome | Native title bar, full screen and first-mouse click | L (guess) | 11 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | multi-window |
+| 8 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | M (guess) | 11 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 9 | editor-groups | Editor splits and editor groups | L (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 10 | refactor-code-actions | Peek, rename, code actions and linked editing | M (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 11 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
+| 12 | formatting-providers | Formatting providers (format on save, paste, type; default formatter) | S (guess) | 8 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 
-Top 12 of 78 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
+Top 12 of 85 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
 
 ### Waiting on in-progress work
 
@@ -323,9 +332,9 @@ None.
 | bracket-pair-model | Bracket pair model (guides and colourisation over the whole buffer) | todo | feature | L (guess) | language-config | 5 (+0) | 5 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | breadcrumbs | Breadcrumbs: path bar and dropdown (ADR-0047) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | browser-view | Browser view (built-in browser) | todo | feature | L (guess) | webview-service | 1 (+0) | 1 (+0) | 0 (+0) | 7 | 7 (+0) | 0 (+0) |
-| builtin-lsp-css-html-json | Built-in CSS, HTML and JSON language features | todo | extension | M (guess) | lsp-client | 130 (+0) | 130 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| builtin-lsp-css-html-json | Built-in CSS, HTML and JSON language features | done | extension | M (guess) | lsp-client | 125 (+0) | 125 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | cargo-proxy-token | Cargo proxy token in the agent shell | blocked-external | feature | - | - | 0 (+0) | 55 (+0) | 13 (+131) | 0 | 7 (+56) | 1 (+4) |
-| chat-agents | AI chat, agents, copilot and AI search | blocked-external | feature | - | - | 3 (+0) | 3 (+0) | 0 (+0) | 22 | 22 (+0) | 0 (+1) |
+| chat-agents | AI chat, agents, copilot and AI search | blocked-external | feature | - | - | 4 (+0) | 4 (+0) | 0 (+0) | 22 | 22 (+0) | 0 (+1) |
 | child-process-main | Shell environment for the extension host (PATH for spawned servers) | done | feature | S (guess) | ext-host-p1 | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | code-folding | Code folding and sticky scroll (ADR-0042) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | color-decorators | Colour decorators (document colour provider) | todo | feature | S (guess) | lang-providers-main | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -338,7 +347,8 @@ None.
 | copy-breadcrumbs-path | Copy Breadcrumbs Path command | todo | feature | S (guess) | document-symbols | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | cross-version-migration | Cross-version state migration (needs a stable VS Code install) | blocked-external | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | custom-editors | Custom editors (editor types per file) | todo | feature | L (guess) | - | 1 (+0) | 70 (+22) | 0 (+0) | 0 | 7 (+0) | 0 (+0) |
-| debugger-dap | Debugger: debug adapter protocol and debug views | todo | feature | XL (guess) | ext-host-p1 | 12 (+34) | 12 (+34) | 0 (+0) | 0 | 0 (+0) | 0 (+1) |
+| debugger-dap | Debugger: debug adapter protocol and debug views | todo | feature | XL (guess) | ext-host-p1 | 12 (+34) | 12 (+34) | 0 (+0) | 0 | 0 (+0) | 1 (+0) |
+| default-settings-view | Read-only default settings beside settings.json (split JSON view) | todo | feature | M (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | diagnostics-model | Diagnostics store (problems reported by language features) | done | feature | S (guess) | ext-host-p1 | 1 (+0) | 1 (+5) | 0 (+0) | 0 | 3 (+0) | 1 (+0) |
 | diagnostics-view | Problems view (diagnostics list) | todo | feature | M (guess) | diagnostics-model | 0 (+5) | 0 (+5) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | diff-editor | Diff editor (side by side and inline) | todo | feature | XL (guess) | custom-editors | 1 (+22) | 1 (+22) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -361,8 +371,10 @@ None.
 | ext-gitlens | GitLens | todo | extension | XL (source) | ext-host-p1, webview-service, tree-views, integrated-terminal, tasks-runner, git-scm | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-host-p0 | Extension host P0: Node handshake (ADR-0060, ADR-0061) | done | feature | - | - | 0 (+0) | 336 (+56) | 159 (+31) | 0 | 11 (+1) | 9 (+4) |
 | ext-host-p1 | Extension host P1: main-thread shapes for ErrorLens | done | feature | M (source) | ext-host-p0 | 0 (+0) | 336 (+56) | 159 (+31) | 5 | 11 (+1) | 9 (+4) |
+| ext-insert-snippet | TextEditor.insertSnippet (MainThreadTextEditors.$tryInsertSnippet) | todo | feature | S (guess) | ext-host-p1 | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-kotlin | Kotlin (LSP, runtime server download, DAP) | todo | extension | L (source) | lsp-client, lang-providers-main, debugger-dap | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-merge-conflict | Merge conflict (CodeLens and decorations, built-in) | todo | extension | S (guess) | lang-providers-main, text-decorations | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| ext-output-channels | Output channels (MainThreadOutputService) and the Output panel | todo | feature | M (guess) | ext-host-p1 | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-oxc | oxc (LSP over stdio) | todo | extension | L (source) | lsp-client, lang-providers-main, workspace-fs-api | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-php | PHP language features (built-in) | todo | extension | M (guess) | lang-providers-main | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | ext-pr-github | GitHub Pull Requests | todo | extension | XXL (source) | ext-host-p1, webview-service, tree-views, git-scm, uri-handler, auth-providers, comments-api, proposed-api-gating, workspace-fs-api, lm-tools | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -383,15 +395,17 @@ None.
 | hot-exit-undo | Undo history saved with the hot exit backup | todo | feature | S (guess) | session-restore | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | hover-delay | Hover widgets with a configurable delay | todo | feature | S (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | integrated-terminal | Integrated terminal (pty, shell integration, terminal editors) | blocked-external | feature | L (guess) | cargo-proxy-token, bottom-panel | 0 (+119) | 13 (+131) | 0 (+0) | 52 | 56 (+0) | 1 (+2) |
-| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 321 (+0) | 54 (+0) | 4 | 4 (+0) | 7 (+2) |
+| keyboard-shortcuts-editor | Keyboard Shortcuts editor (default keybindings view) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| lang-providers-main | Language provider registry on the main side (LanguageFeatures shapes) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 316 (+0) | 54 (+0) | 4 | 4 (+0) | 7 (+2) |
 | language-config | Language configuration: typing rules, comments, indentation (ADR-0046) | done | feature | - | - | 0 (+0) | 7 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | language-detection | Language detection for untitled and unknown files | todo | feature | M (guess) | untitled-editors | 4 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | large-file-mode | Large file mode (features off for very big files) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | link-detection | Link detection and Cmd+click | todo | feature | M (guess) | link-opener | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | link-opener | External browser and URI openers | todo | feature | M (guess) | - | 3 (+0) | 6 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+2) |
+| list-horizontal-scrolling | Horizontal scrolling in trees and lists | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | lm-tools | Language model tools (lm.registerTool) | todo | feature | M (guess) | chat-agents | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+1) |
 | localization | Localization (NLS) | todo | feature | L (guess) | - | 0 (+0) | 0 (+0) | 0 (+0) | 1 | 1 (+0) | 0 (+0) |
-| lsp-client | LSP client over stdio (vscode-languageclient) | todo | feature | L (source) | workspace-fs-api, lang-providers-main | 0 (+0) | 132 (+0) | 0 (+0) | 0 | 0 (+0) | 3 (+1) |
+| lsp-client | LSP client over stdio (vscode-languageclient) | done | feature | L (source) | workspace-fs-api, lang-providers-main | 0 (+0) | 127 (+0) | 0 (+0) | 0 | 0 (+0) | 3 (+1) |
 | macos-pasteboards | macOS find pasteboard and rich clipboard (HTML flavour) | todo | feature | S (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | markdown-features | Markdown language features, preview and Mermaid (built-in) | todo | extension | L (guess) | webview-service, lang-providers-main | 54 (+0) | 54 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | modal-dialogs | Modal confirm dialogs | todo | feature | S (guess) | - | 2 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -432,13 +446,14 @@ None.
 | soft-tab-cursor | Atomic soft tab cursor moves | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | symlink-watching | Watching symlinked folders | todo | feature | S (guess) | file-watcher-explorer | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | syntax-highlighting | TextMate syntax highlighting (ADR-0038) | done | feature | - | - | 0 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | todo | feature | M (guess) | - | 17 (+0) | 17 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | todo | feature | M (guess) | - | 11 (+0) | 11 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | tasks-runner | Tasks (tasks.json, task runner, output in the terminal) | todo | feature | L (guess) | integrated-terminal | 0 (+12) | 13 (+12) | 0 (+0) | 4 | 4 (+0) | 1 (+1) |
 | text-decorations | TextEditorDecorationType (after and before text, gutter) | done | feature | M (guess) | ext-host-p1 | 0 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 2 (+1) |
 | text-encodings | Text encodings other than UTF-8 | todo | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | theme-service | Theme service, colour themes from JSON (ADR-0037) | done | feature | - | - | 0 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | title-bar-controls | Title bar navigation and layout controls | todo | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | tree-views | Tree views from extensions (createTreeView) and References view | todo | feature | M (guess) | ext-host-p1, view-containers | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+2) |
+| unicode-highlight | Unicode highlight pass (invisible, ambiguous and non-ASCII characters) | todo | feature | L (guess) | workspace-trust | 7 (+0) | 7 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | unicode-word-segmentation | Unicode word segmentation (UAX #29 / ICU) | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | untitled-editors | Untitled editors (new files) | done | feature | M (guess) | - | 0 (+0) | 10 (+0) | 9 (+0) | 0 | 0 (+0) | 0 (+0) |
 | unusual-line-terminators | Unusual line terminator prompts | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -449,16 +464,16 @@ None.
 | webview-service | Webview service (embedded web view, wry or WKWebView) | todo | feature | XL (guess) | cargo-proxy-token | 0 (+0) | 55 (+0) | 0 (+0) | 0 | 7 (+0) | 1 (+3) |
 | window-without-folder | Windows without a folder | todo | feature | S (guess) | multi-window | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | word-wrap | Word wrap as a view-line projection (ADR-0036) | done | feature | - | - | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| workspace-fs-api | workspace.fs and file system provider API (ext host) | done | feature | M (guess) | ext-host-p1 | 1 (+0) | 134 (+0) | 0 (+0) | 0 | 0 (+0) | 3 (+2) |
+| workspace-fs-api | workspace.fs and file system provider API (ext host) | done | feature | M (guess) | ext-host-p1 | 1 (+0) | 129 (+0) | 0 (+0) | 0 | 0 (+0) | 3 (+2) |
 | workspace-symbols | Workspace symbols (symbol provider) | todo | feature | S (guess) | lang-providers-main | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| workspace-trust | Workspace trust | todo | feature | M (guess) | - | 0 (+7) | 0 (+7) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| workspace-trust | Workspace trust | todo | feature | M (guess) | - | 0 (+7) | 7 (+7) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | wrap-escaped-line-feeds | Wrapping at literal escaped line feeds | todo | feature | S (guess) | word-wrap | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | zen-mode | Zen mode | todo | feature | S (guess) | - | 0 (+8) | 0 (+8) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 
 ## External blockers
 
 - **cargo-proxy-token**: User action: export CARGO_REGISTRIES_REPOSERVER_TOKEN into the agent's shell, or allow sourcing ~/.local/share/ws-cli/rc/reposerver/env.sh (HANDOFF item 1). Without it no new crate can be fetched. Through its dependents it holds back: 68 dep settings, 131 todo settings, 63 scenarios.
-- **chat-agents**: Product decision: AI chat and agents are not in scope (318 settings are n/a in upstream/settings.toml). Needs a user decision before any of it is built. Through its dependents it holds back: 3 dep settings, 0 todo settings, 22 scenarios.
+- **chat-agents**: Product decision: AI chat and agents are not in scope (318 settings are n/a in upstream/settings.toml). Needs a user decision before any of it is built. Through its dependents it holds back: 4 dep settings, 0 todo settings, 22 scenarios.
 - **cross-version-migration**: Environment: the scenarios need a stable VS Code install on the machine, which the repo does not provide. Through its dependents it holds back: 0 dep settings, 0 todo settings, 3 scenarios.
 - **integrated-terminal**: Cargo proxy token (HANDOFF item 1). ADR-0045 reserves alacritty_terminal and portable-pty, both new crates. The user chose to defer the terminal (ROADMAP 2). Through its dependents it holds back: 13 dep settings, 131 todo settings, 56 scenarios.
 - **remote-development**: Product decision: ADR-0019 scopes rscode to macOS desktop. Remote development is out of scope unless the user changes it. Through its dependents it holds back: 1 dep settings, 0 todo settings, 4 scenarios.
@@ -467,9 +482,9 @@ None.
 
 - Cycles in the needs graph: none.
 - Orphan nodes (not done, no edges, nothing attributed): none.
-- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, child-process-main, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, scrollbar-content-height, settings-editor.
+- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, builtin-lsp-css-html-json, child-process-main, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, scrollbar-content-height, settings-editor.
 - Blocked settings with no node: 0. Exthost settings with no node: 0. Blocked smoke rows that name a feature with no node: 0.
-- Todo settings matched by no node's `todo_globs`: 190. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
+- Todo settings matched by no node's `todo_globs`: 176. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
 - DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is "needs sash grippers (the drawn handle in the middle of a sash)" has a second `comment` and `match` pair after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show settings (29) therefore land on the sash reason. They need document symbols. The graph maps that reason to `document-symbols` with a note.
 - Known gap in `scripts/progress-report`: it reads only the first status table of each scenario file. `search.md` has a second table (rows 8-11), so its scenario total is 170, not 174.
 

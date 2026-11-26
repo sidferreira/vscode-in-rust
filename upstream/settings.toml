@@ -713,12 +713,6 @@ match = ["search.globalFindClipboard"]
 
 [[rule]]
 status = "blocked"
-reason = "needs the Search tree view (folders as a hierarchy)"
-comment = "search.defaultViewMode: tree groups the results by folder. rscode has the list view only (search/model.rs); list is the default and is what rscode shows."
-match = ["search.defaultViewMode"]
-
-[[rule]]
-status = "blocked"
 reason = "needs actionbar placement by row width (search.actionsPosition auto)"
 comment = "search.actionsPosition: right (the default) is what rscode draws. auto puts the actions right after the content on a wide view, which needs the responsive row layout of the Search view."
 match = ["search.actionsPosition"]

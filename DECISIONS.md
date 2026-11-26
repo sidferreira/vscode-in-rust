@@ -3751,6 +3751,90 @@ value is edited); no Workspace/Folder scopes; no per-extension `@ext:` suggestio
 `advanced_settings_are_hidden_until_asked_for`, `always_show_advanced_settings_adds_them_to_the_toc_and_search`.
 Wired: `workbench.settings.alwaysShowAdvancedSettings`.
 
+## ADR-0146 — Editor Find: Match Whole Word follows `editor.wordSeparators`, JS-style empty matches, the `textModelSearch` tests (2026-11-26)
+
+**Context.** Gap review of the Find widget against `src/vs/editor/contrib/find/browser/` and
+`textModelSearch.ts` (see the list at the end). Most of the feature list was already there: Find in
+Selection, `autoFindInSelection`, Preserve Case, `$1` / `\u` in the replace string, the four
+`seedSearchStringFromSelection` modes, `loop`, find and replace history, "3 of 12", Replace All as one
+undo step. What differed from upstream in behaviour, not in missing UI:
+
+- **Whole Word** used `\b` (ADR-0027). Upstream does not: it runs the search without a word boundary and
+  then keeps a match only when `isValidMatch` passes, which classifies characters with
+  `editor.wordSeparators`. So a changed setting (a space only, or `-` removed) made the two disagree, as did
+  non-Latin text and searches that start or end in a separator (`listen(`).
+- **Empty matches.** The Rust `regex` iterators skip an empty match that directly follows a non-empty one;
+  a JavaScript global `RegExp` finds it, so `\d*` on `10.243` gave `10, 243` here and `10, "", 243` upstream
+  (issue #74715). Upstream's `Searcher` also stops when a match reaches the end of the line (so `.*` gives one
+  match per line, not two).
+
+**Decisions.**
+- `vsr_find::search::Compiled` no longer builds `\b`: `SearchParams::whole_word` plus
+  `word_separators: Option<String>` (`None` is `USUAL_WORD_SEPARATORS`) make `find_matches` filter with a port
+  of `isValidMatch` / `leftIsWordBoundary` / `rightIsWordBoundary` (whitespace counts as a separator, as in
+  `WordCharacterClassifier`). The Search view is untouched: ripgrep keeps `\b`, as upstream's ripgrep does.
+- `FindState::word_separators` follows the editor: `FindModel::sync` reads `Editor::word_separators()` (set
+  from `editor.wordSeparators` for every open editor) and re-searches when it changes, so the setting applies to
+  an open widget on the next frame. `editor.wordSeparators` was already wired for word moves and double click;
+  Find is a new consumer.
+- A small `scan` loop replaces `find_iter` / `captures_iter` with `find_at` / `captures_at` and the
+  JavaScript stepping rules (advance one character after an empty match, stop when a match ends at the end of
+  the text). Replace All and the match count use the same path.
+- No new crate.
+
+**Tests.** `crates/vsr-find/tests/upstream_text_model_search.rs` ports 28 of the 42 tests of
+`textModelSearch.test.ts` (each run on LF and CRLF buffers): the simple, case, whole word, `^`, `$`, `.*`,
+`^$` and multiline finds, the multiline anchors, issues #4836, #3623, #27459, #27594, #53415, #74715, #100134, the
+capture-group tests, `\n` matches `\r\n`, `\r` is never found, unicode escapes. Not ported: the
+`findNextMatch` / `findPreviousMatch` halves and the nine tests that only use them (FindModel's navigation
+covers them, `upstream_find_model.rs`), the three `parseSearchRequest` tests (JS `RegExp` flags), the two
+`isMultilineRegexSource` tests (private in `vsr-editor`). Also `model::tests::whole_word_uses_the_editors_word_separators`
+and the E2E `whole_word_follows_editor_word_separators` (`editor_view/find_e2e.rs`).
+
+**Gaps found and not built here.** Select All Occurrences of Find Match (one cursor), the macOS find pasteboard
+(`editor.find.globalFindClipboard`, `search.globalFindClipboard`), `editor.find.addExtraSpaceOnTop` (view zone),
+look-around and back-references in regular expressions (Rust `regex`; ADR-0023), the widget's resize sash and the
+options-only widget when closed.
+
+## ADR-0147 — Search view: View as Tree / View as List and `search.defaultViewMode` (2026-11-26)
+
+**Context.** Gap review of the Search view against `searchView.ts`, `searchActionsTopBar.ts` and
+`searchResultsView.ts`. Already there (ADR-0023, 0029, 0044): include / exclude globs (with "use exclude settings
+and ignore files"), Replace in files with confirmation, per-file and per-match replace, collapse / expand all,
+search on type with its debounce, smart case, follow symlinks, ignore files, `maxResults` ("results in N files"),
+sort order, line numbers, seeding, opening a match in the editor. Missing: the tree layout (`search.defaultViewMode`
+was blocked on it), the search editor and "Open in editor" (`search.mode`, `search.searchEditor.*`), Replace Preview
+(`search.useReplacePreview`: needs a diff editor), search in open editors / changed files, context lines (only in the
+search editor: `search.searchEditor.defaultNumberOfContextLines`), `search.actionsPosition: auto` (responsive rows),
+`search.decorations.*` (SCM and problems services), `search.quickAccess.preserveInput` / `includeSymbols`.
+
+**Decisions.**
+- **Tree rows are pure model** (`search/model.rs`): `Results::tree_layout()` builds `TreeLayout { rows, folders,
+  file_depth }` from the sorted files. `Row::Folder(i)` indexes `folders`. A folder that holds only one folder and
+  no file is compressed with it into one row labelled `a/b/c` (upstream's `WorkbenchCompressibleAsyncDataTree`).
+  Folders come before the files of the same folder, in the order the sorted files reach them (so
+  `search.sortOrder` still decides the order); upstream's default comparer sorts the folder matches by path.
+- **Folding is keyed by the folder's relative path** (`Results::collapsed_dirs`), not by index, because files
+  stream in and the list re-sorts while a search runs. Collapse All / Expand All fold or unfold every folder (and
+  file), and in tree mode "is anything expanded" looks at the shown folders.
+- **Folder rows** show the folder icon, the label, the match count badge and the hover actions Replace All and
+  Dismiss (over every file under the folder, as `FolderMatchRenderer`). Files in the tree drop the folder text
+  that the list shows after the name; rows indent by 8 px per level.
+- **Toggle.** A title bar button, `View as Tree` / `View as List`, with upstream's icons (the action that is shown
+  while in list mode has `searchShowAsList`, `list-flat`; the one shown in tree mode has `list-tree`): codepoints
+  `0xEB84` and `0xEB86`. Disabled look (opacity 0.4) without results, as the precondition `HasSearchResults`.
+- **`search.defaultViewMode`** is read when the view is created, restored view state wins (`viewletState.view?.treeLayout
+  ?? default`), as upstream does (`searchView.ts:342`). The layout is saved in the session state (`SearchState::tree_layout`,
+  `Option<bool>`, serde default `None`). A later change of the setting does not flip an open view.
+- No new crate. No change to `main.rs`.
+
+**Tests.** `search/model.rs`: `tree_groups_files_under_compressed_folders_folders_first`,
+`folded_folders_hide_their_rows_and_collapse_all_folds_every_folder`, `dismissing_several_files_removes_them_all`.
+`search/e2e_tests.rs`: `view_as_tree_groups_files_under_folders_and_folders_fold`,
+`dismissing_a_folder_removes_its_files`, `default_view_mode_setting_picks_the_first_layout`.
+`config/settings.rs`: `default_view_mode_is_read`. Upstream has no unit test for the layout (`searchResult.test.ts`
+tests the model tree, which we do not mirror), so nothing is ported.
+
 ## ADR-0155 — Code lens: the provider query, the debounce and resolve (step 1 of ADR-0108); layout, click and fonts not done (2026-11-26)
 
 Step 3 of the navigation providers (ADR-0108 plan). This records what is in: the model and the worker query,

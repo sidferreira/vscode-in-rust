@@ -405,6 +405,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "search.sortOrder",
             "search.seedOnFocus",
             "search.seedWithNearestWord",
+            "search.defaultViewMode",
         ],
     ),
     (
@@ -492,13 +493,14 @@ pub fn coverage_markdown(registry: &vsr_settings::SettingsRegistry) -> String {
     out.push_str("- `editor.lineNumbers: interval` shows a number on every 10th line and on the caret line.\n");
     out.push_str("- `files.exclude` merges with the default (object settings deep-merge, as `mergeContents`) and supports `true`/`false` and `when` with `$(basename)`; patterns are matched against the path relative to the opened folder.\n");
     out.push_str("- `workbench.activityBar.location: top` and `bottom` show the view icons as a horizontal strip in the side bar (no title bar integration).\n");
-    out.push_str("- Find widget: regular expressions use Rust `regex` syntax (no look-around or backreferences, as in the Search view); Whole Word uses `\\b` rather than `editor.wordSeparators`; there is one cursor, so no \"Select All Occurrences of Find Match\". `editor.find.addExtraSpaceOnTop` is not implemented (see `upstream/settings.toml`).\n");
+    out.push_str("- Find widget: regular expressions use Rust `regex` syntax (no look-around or backreferences, as in the Search view); Whole Word follows `editor.wordSeparators` (ADR-0146); there is one cursor, so no \"Select All Occurrences of Find Match\". `editor.find.addExtraSpaceOnTop` is not implemented (see `upstream/settings.toml`).\n");
     out.push_str("- `editor.detectIndentation` is not implemented: `editor.tabSize` and `editor.insertSpaces` always apply.\n");
     out.push_str("- Search reads `files.exclude` too (it is listed under Explorer). Entries of `search.exclude` and `files.exclude` whose value is an object (`when` clauses) are ignored by the search.\n");
     out.push_str("- `workbench.editor.enablePreviewFromCodeNavigation` is read by the Outline's click (ADR-0092), the only code navigation rscode has so far; go to definition is not implemented.\n");
     out.push_str("- `search.sortOrder` orders the files of the current results and places the files of later searches by the same order. `modified` reads each file's modification time when it is found.\n");
     out.push_str("- `search.seedOnFocus` and `search.seedWithNearestWord` apply when the Search view is focused with Find in Files (Shift+Cmd+F). Other ways of showing the view do not seed the query.\n");
     out.push_str("- `search.ripgrep.maxThreads` sets the walker threads of a search (0 is automatic).\n");
+    out.push_str("- `search.defaultViewMode` is the layout a new Search view starts with (list or tree), read when the view is created as upstream does; View as Tree / View as List in the title bar changes it for the session and it is restored with the session. In the tree, a folder that holds only one folder is one compressed row (ADR-0147).\n");
     out.push_str("- `explorer.excludeGitIgnore` reads the `.gitignore` files from the workspace root down to each listed folder. A change to a `.gitignore` shows when its folder is listed again (there is no watch on `.gitignore` files yet). The global gitignore and `.git/info/exclude` are not read.\n");
     out.push_str("- `explorer.copyPathSeparator` and `explorer.copyRelativePathSeparator` apply to Copy Path (Alt+Cmd+C) and Copy Relative Path (Shift+Alt+Cmd+C), which copy the selected entry or else the active editor's file. The Explorer has no context menu yet, so the two are Command Palette entries and keys.\n");
     out.push_str("- Editor groups: rscode has one group. `limit.*` counts the whole group, `revealIfOpen` and `focusRecentEditorAfterClose` apply to that group's tabs. `limit.perEditorGroup` is not read.\n");

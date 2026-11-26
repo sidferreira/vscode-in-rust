@@ -1296,14 +1296,13 @@ reasons = [
 note = "Inferred: the search editor is an untitled text editor."
 
 [[node]]
-id = "search-tree-view"
-title = "Search tree view and action bar placement"
+id = "search-action-bar-placement"
+title = "Search action bar placement"
 status = "todo"
-effort = "M"
+effort = "S"
 effort_source = "guess"
 needs = []
 reasons = [
-  "needs the Search tree view (folders as a hierarchy)",
   "needs actionbar placement by row width (search.actionsPosition auto)",
 ]
 

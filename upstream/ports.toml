@@ -303,6 +303,7 @@ upstream = [
   "src/vs/editor/contrib/find/browser/replaceAllCommand.ts",
   "src/vs/editor/contrib/find/test/browser/findModel.test.ts",
   "src/vs/editor/contrib/find/test/browser/replacePattern.test.ts",
+  "src/vs/editor/test/common/model/textModelSearch.test.ts",
   "src/vs/editor/common/commands/replaceCommand.ts",
   "src/vs/base/common/search.ts",
 ]
@@ -313,11 +314,12 @@ rust = [
   "crates/vsr-find/src/search.rs",
   "crates/vsr-find/tests/upstream_find_model.rs",
   "crates/vsr-find/tests/upstream_replace_pattern.rs",
+  "crates/vsr-find/tests/upstream_text_model_search.rs",
   "crates/vsr-editor/src/replace_ops.rs",
   "crates/vsr-editor/tests/replace_ops.rs",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "UI-free find/replace model (ADR-0027): matches over a TextBuffer, N of M, next/prev with wrap, replace one/all as one undo step, replace patterns ($1, \\u, preserve case), find scopes. Query semantics shared with vsr-search (Rust regex: no look-around). 43 upstream tests ported (all 8 of replacePattern.test.ts, 35 of findModel.test.ts). Not ported from findModel.test.ts: decorations ('removes its decorations'), the 2 selectAllMatches tests (one cursor), and the 6 look-ahead replace tests (no look-around in Rust regex). Matches are a sorted Vec recomputed per editor version instead of decorations."
+notes = "UI-free find/replace model (ADR-0027): matches over a TextBuffer, N of M, next/prev with wrap, replace one/all as one undo step, replace patterns ($1, \\u, preserve case), find scopes. Query semantics shared with vsr-search (Rust regex: no look-around). 71 upstream tests ported (all 8 of replacePattern.test.ts, 35 of findModel.test.ts, 28 of textModelSearch.test.ts: ADR-0146). Whole Word is wordSeparators + isValidMatch (ADR-0146), empty matches follow JS RegExp stepping. Not ported from findModel.test.ts: decorations ('removes its decorations'), the 2 selectAllMatches tests (one cursor), and the 6 look-ahead replace tests (no look-around in Rust regex). Matches are a sorted Vec recomputed per editor version instead of decorations."
 
 [[port]]
 id = "editor-find-widget"
@@ -423,7 +425,7 @@ upstream = [
 ]
 rust = ["crates/vsr-app/src/search_view.rs", "crates/vsr-app/src/search/model.rs"]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "Search view on gpui (ADR-0023): query box with toggles, files to include/exclude, streaming virtualised list view, collapse/clear/refresh actions. Replace (ADR-0029): replace input, Preserve Case, Replace All with an inline confirm bar, inline replacement preview, per-match / per-file Replace. Not ported: search editor, tree layout, open-editors/changed-files scope, history, keyboard navigation of results (so no Shift+Cmd+1 on a focused row), context menus, Replace in Files (Shift+Cmd+H), multi-line replace input, file icon theme. search/e2e_tests.rs is ours."
+notes = "Search view on gpui (ADR-0023): query box with toggles, files to include/exclude, streaming virtualised list view, collapse/clear/refresh actions. Replace (ADR-0029): replace input, Preserve Case, Replace All with an inline confirm bar, inline replacement preview, per-match / per-file Replace. Tree layout (ADR-0147): View as Tree / List, compressed folders, folder fold / Replace All / Dismiss, search.defaultViewMode. Not ported: search editor, open-editors/changed-files scope, history, keyboard navigation of results (so no Shift+Cmd+1 on a focused row), context menus, Replace in Files (Shift+Cmd+H), multi-line replace input, file icon theme. search/e2e_tests.rs is ours."
 
 [[port]]
 id = "search-replace"

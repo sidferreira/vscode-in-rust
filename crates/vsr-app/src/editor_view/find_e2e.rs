@@ -521,3 +521,18 @@ fn the_widget_is_laid_out_at_the_top_right_of_the_editor(cx: &mut TestAppContext
     assert!(two_rows > one_row + 20.0, "{one_row} -> {two_rows}");
     drop(wb);
 }
+
+// editor.wordSeparators: Match Whole Word follows the setting (upstream's isValidMatch).
+#[gpui_kit::test]
+fn whole_word_follows_editor_word_separators(cx: &mut TestAppContext) {
+    let (wb, cx) = start(cx, "wholeword", "foo-bar foo\nfoo_x foo\n");
+    caret_to(&wb, cx, 1, 1);
+    cx.simulate_keystrokes("cmd-f");
+    cx.simulate_input("foo");
+    cx.simulate_keystrokes("alt-cmd-w");
+    assert_eq!(highlighted_matches(&wb, cx), 3, "'-' separates, '_' does not");
+    set_setting(cx, "editor.wordSeparators", json!(" "));
+    cx.simulate_keystrokes("cmd-f"); // the widget re-syncs on the next frame
+    cx.run_until_parked();
+    assert_eq!(highlighted_matches(&wb, cx), 2, "with only a space as separator 'foo-bar' is one word");
+}

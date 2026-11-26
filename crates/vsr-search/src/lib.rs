@@ -22,4 +22,4 @@ pub use engine::{
 pub use patterns::split_pattern_input;
 pub use preview::{PreviewOptions, SearchRange, TextSearchMatch};
 pub use query::TextSearchQuery;
-pub use settings::{CollapseResults, ResultSortOrder, SearchSettings};
+pub use settings::{CollapseResults, ResultSortOrder, SearchSettings, ViewMode};

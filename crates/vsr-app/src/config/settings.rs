@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use vsr_editor::EditorOptions;
 use vsr_search::SearchSettings;
-use vsr_search::settings::{CollapseResults, ExcludeMap, ResultSortOrder};
+use vsr_search::settings::{CollapseResults, ExcludeMap, ResultSortOrder, ViewMode};
 use vsr_settings::Configuration;
 use vsr_text::DefaultEol;
 
@@ -1100,6 +1100,10 @@ pub fn search_settings(c: &Configuration) -> SearchSettings {
             Some("countAscending") => ResultSortOrder::CountAscending,
             _ => ResultSortOrder::Default,
         },
+        default_view_mode: match c.get_str("search.defaultViewMode") {
+            Some("tree") => ViewMode::Tree,
+            _ => ViewMode::List,
+        },
         seed_on_focus: c.get_bool("search.seedOnFocus").unwrap_or(d.seed_on_focus),
         seed_with_nearest_word: c.get_bool("search.seedWithNearestWord").unwrap_or(d.seed_with_nearest_word),
     }
@@ -1424,6 +1428,13 @@ mod search_tests {
         assert_eq!(s.collapse_results, CollapseResults::AlwaysCollapse);
         let bad = search_settings(&config(r#"{ "search.collapseResults": "sideways" }"#));
         assert_eq!(bad.collapse_results, CollapseResults::AlwaysExpand);
+    }
+
+    #[test]
+    fn default_view_mode_is_read() {
+        assert_eq!(search_settings(&config("{}")).default_view_mode, ViewMode::List);
+        assert_eq!(search_settings(&config(r#"{ "search.defaultViewMode": "tree" }"#)).default_view_mode, ViewMode::Tree);
+        assert_eq!(search_settings(&config(r#"{ "search.defaultViewMode": "grid" }"#)).default_view_mode, ViewMode::List);
     }
 
     #[test]

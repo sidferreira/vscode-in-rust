@@ -3103,7 +3103,7 @@ methods seen on the way in: `MainThreadWindow.$getInitialState`, `MainThreadTerm
 `MainThreadLogger.$registerLogger`. The spdlog native binding is missing (ADR-0060): the host logs it and
 carries on.
 
-Not done (the open gap, recorded here rather than guessed): diagnostics for a JSON syntax error do
+Not done at the time (resolved by ADR-0102: the probe never showed an editor, so the pull client never asked): diagnostics for a JSON syntax error do
 not reach `MainThreadDiagnostics` (the store is empty after 15 s), so the end-to-end check
 (diagnostics, then completion with a schema) is not yet green. The next step is to find out
 whether the client sent `didOpen` to the server and whether the server's `initialize` completed. The
@@ -3119,6 +3119,35 @@ at startup: a second `.json` file opened after activation also gets no markers; 
 server may publish diagnostics that the host never receives, or the server never validates. The
 next check is the server's own `publishDiagnostics` on the wire (a tap on the host's stdio),
 not more main-thread shapes.
+
+## ADR-0102 — The JSON language server works end to end: diagnostics are pulled, and only for visible documents (2026-11-26)
+
+Context: ADR-0101 left `json-language-features` with no markers and no completions in the real host.
+
+Wire tap (a Node `--require` preload through `NODE_OPTIONS`, wrapping `process.send` and the `message`
+event on the host's side and in the server child; scratch only, not committed). The IPC traffic
+showed: `initialize` completes, `initialized`, `textDocument/didOpen` (with the text) and
+`workspace/didChangeConfiguration` (`json.validate.enable: true`) all reach the server. The server
+declares `diagnosticProvider` and never sends `publishDiagnostics`: JSON diagnostics are *pull*
+(`textDocument/diagnostic`). `vscode-languageclient` pulls only for documents it considers visible
+(`VisibleDocumentsImpl`: tab groups plus `window.visibleTextEditors`). The probe only opened a
+document and never showed an editor, so the client never asked and the store stayed empty. Nothing was
+missing on the server or in a main-thread `$method`.
+
+Decision:
+
+- No host change was needed: the app already calls `show_editor` for an open document (worker.rs).
+  `tests/json_real_host.rs` now shows the editor. With it: `{ "name" "x" }` yields the marker
+  "Colon expected" (severity 8, source json), a `$schema` file next to the document yields `red` and
+  `green` completions for an enum, and `json.validate.enable: false` yields no marker.
+- The unhandled main-thread methods listed in ADR-0101 (`MainThreadWindow.$getInitialState`, Storage,
+  Logger, Telemetry, ...) were not needed by this flow and stay unhandled (the host logs and carries
+  on). Left for when an extension depends on their results.
+- A document that has no editor gets no JSON diagnostics. That matches VS Code (closed tabs are not
+  validated by pull clients).
+- `lsp-client` is marked done in docs/dependencies.toml.
+- No new crates: the LSP client is the extension's own Node `vscode-languageclient`, so there was
+  nothing to hand-roll or fetch.
 
 ## ADR-0108 — Go to Definition, Declaration, Type Definition and Implementation (2026-11-10)
 

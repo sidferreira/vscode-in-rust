@@ -29,7 +29,7 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 93 | every ADR cited by a node exists (latest ADR-0110) |
+| ADR headings in DECISIONS.md | 94 | every ADR cited by a node exists (latest ADR-0110) |
 | upstream/ports.toml entries | 58 | not nodes (file ports, not features): partial 55, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.
@@ -72,7 +72,7 @@ flowchart LR
   n_diagnostics_model["Diagnostics store (problems reported by language features) (done)"]:::done
   n_file_participants["File participants (create, rename, delete hooks from the ext host) (todo)"]:::todo
   n_lang_providers_main["Language provider registry on the main side (LanguageFeatures shapes) (done)"]:::done
-  n_lsp_client["LSP client over stdio (vscode-languageclient) (todo)"]:::todo
+  n_lsp_client["LSP client over stdio (vscode-languageclient) (done)"]:::done
   n_completion_suggest["Completion provider and suggest widget (todo)"]:::todo
   n_navigation_providers["Definition, hover, code lens and inlay hint providers (todo)"]:::todo
   n_refactor_code_actions["Peek, rename, code actions and linked editing (todo)"]:::todo
@@ -293,20 +293,20 @@ flowchart LR
 
 | # | node | title | effort | dep settings unblocked (+not yet) | todo settings unblocked (+not yet) | scenarios unblocked (+not yet) | extensions unblocked (+not yet) | directly needed by |
 |---|---|---|---|---|---|---|---|---|
-| 1 | lsp-client | LSP client over stdio (vscode-languageclient) | L (source) | 132 (+0) | 0 (+0) | 0 (+0) | 3 (+1) | builtin-lsp-css-html-json, ext-kotlin, ext-oxc, ext-xml, folding-providers |
+| 1 | builtin-lsp-css-html-json | Built-in CSS, HTML and JSON language features | M (guess) | 130 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 2 | ext-ts-features | TypeScript and JavaScript features (tsserver) | M (source) | 90 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 3 | custom-editors | Custom editors (editor types per file) | L (guess) | 70 (+0) | 22 (+0) | 7 (+0) | 0 (+0) | diff-editor, non-text-editors, notebook-editor |
 | 4 | completion-suggest | Completion provider and suggest widget | M (guess) | 32 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 5 | navigation-providers | Definition, hover, code lens and inlay hint providers | M (guess) | 19 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 6 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | M (guess) | 17 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
-| 7 | debugger-dap | Debugger: debug adapter protocol and debug views | XL (guess) | 12 (+0) | 34 (+0) | 0 (+0) | 0 (+1) | ext-kotlin |
+| 5 | debugger-dap | Debugger: debug adapter protocol and debug views | XL (guess) | 12 (+0) | 34 (+0) | 0 (+0) | 1 (+0) | ext-kotlin |
+| 6 | navigation-providers | Definition, hover, code lens and inlay hint providers | M (guess) | 19 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
+| 7 | tab-strip-presentation | Tab strip presentation (scrollbars, wrapping, pinned tabs, actions) | M (guess) | 17 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 8 | ext-emmet | Emmet (built-in) | M (guess) | 12 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 9 | native-window-chrome | Native title bar, full screen and first-mouse click | L (guess) | 11 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | multi-window |
 | 10 | editor-groups | Editor splits and editor groups | L (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 11 | refactor-code-actions | Peek, rename, code actions and linked editing | M (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 12 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
 
-Top 12 of 79 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
+Top 12 of 82 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
 
 ### Waiting on in-progress work
 
@@ -338,7 +338,7 @@ None.
 | copy-breadcrumbs-path | Copy Breadcrumbs Path command | todo | feature | S (guess) | document-symbols | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | cross-version-migration | Cross-version state migration (needs a stable VS Code install) | blocked-external | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | custom-editors | Custom editors (editor types per file) | todo | feature | L (guess) | - | 1 (+0) | 70 (+22) | 0 (+0) | 0 | 7 (+0) | 0 (+0) |
-| debugger-dap | Debugger: debug adapter protocol and debug views | todo | feature | XL (guess) | ext-host-p1 | 12 (+34) | 12 (+34) | 0 (+0) | 0 | 0 (+0) | 0 (+1) |
+| debugger-dap | Debugger: debug adapter protocol and debug views | todo | feature | XL (guess) | ext-host-p1 | 12 (+34) | 12 (+34) | 0 (+0) | 0 | 0 (+0) | 1 (+0) |
 | diagnostics-model | Diagnostics store (problems reported by language features) | done | feature | S (guess) | ext-host-p1 | 1 (+0) | 1 (+5) | 0 (+0) | 0 | 3 (+0) | 1 (+0) |
 | diagnostics-view | Problems view (diagnostics list) | todo | feature | M (guess) | diagnostics-model | 0 (+5) | 0 (+5) | 0 (+0) | 3 | 3 (+0) | 0 (+0) |
 | diff-editor | Diff editor (side by side and inline) | todo | feature | XL (guess) | custom-editors | 1 (+22) | 1 (+22) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -391,7 +391,7 @@ None.
 | link-opener | External browser and URI openers | todo | feature | M (guess) | - | 3 (+0) | 6 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+2) |
 | lm-tools | Language model tools (lm.registerTool) | todo | feature | M (guess) | chat-agents | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+1) |
 | localization | Localization (NLS) | todo | feature | L (guess) | - | 0 (+0) | 0 (+0) | 0 (+0) | 1 | 1 (+0) | 0 (+0) |
-| lsp-client | LSP client over stdio (vscode-languageclient) | todo | feature | L (source) | workspace-fs-api, lang-providers-main | 0 (+0) | 132 (+0) | 0 (+0) | 0 | 0 (+0) | 3 (+1) |
+| lsp-client | LSP client over stdio (vscode-languageclient) | done | feature | L (source) | workspace-fs-api, lang-providers-main | 0 (+0) | 132 (+0) | 0 (+0) | 0 | 0 (+0) | 3 (+1) |
 | macos-pasteboards | macOS find pasteboard and rich clipboard (HTML flavour) | todo | feature | S (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | markdown-features | Markdown language features, preview and Mermaid (built-in) | todo | extension | L (guess) | webview-service, lang-providers-main | 54 (+0) | 54 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | modal-dialogs | Modal confirm dialogs | todo | feature | S (guess) | - | 2 (+0) | 4 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |

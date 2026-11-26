@@ -288,7 +288,7 @@ note = "Roadmap P2 'LanguageFeatures shapes' (completion, hover, code action, co
 [[node]]
 id = "lsp-client"
 title = "LSP client over stdio (vscode-languageclient)"
-status = "todo"
+status = "done"
 effort = "L"
 effort_source = "extensions-compat §4 (P2)"
 needs = ["workspace-fs-api", "lang-providers-main"]

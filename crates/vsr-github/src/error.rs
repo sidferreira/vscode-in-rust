@@ -22,6 +22,10 @@ pub enum GhError {
     Failed { command: String, code: Option<i32>, message: String },
     /// Its output was not what the models expect.
     Parse { command: String, message: String },
+    /// The output was longer than the capture limit (the rest was dropped).
+    OutputTooLarge { command: String },
+    /// `RSCODE_GH` is set but not usable (it must be an absolute path); carries the message.
+    GhOverrideInvalid(String),
     /// The process could not be started for another reason.
     Io(String),
 }
@@ -37,6 +41,8 @@ impl GhError {
             GhError::NotGitHubRepo(_) => "Could not find this repository on GitHub (not a GitHub repository, or no access)".into(),
             GhError::Failed { message, .. } => message.clone(),
             GhError::Parse { command, .. } => format!("Unexpected output from `{command}`"),
+            GhError::OutputTooLarge { .. } => "gh returned more than 16 MB; narrow the query".into(),
+            GhError::GhOverrideInvalid(m) => m.clone(),
             GhError::Io(m) => m.clone(),
         }
     }
@@ -55,6 +61,8 @@ impl fmt::Display for GhError {
                 None => write!(f, "`{command}` was killed: {message}"),
             },
             GhError::Parse { command, message } => write!(f, "cannot read the output of `{command}`: {message}"),
+            GhError::OutputTooLarge { command } => write!(f, "`{command}` returned more than 16 MB; narrow the query"),
+            GhError::GhOverrideInvalid(m) => write!(f, "{m}"),
             GhError::Io(m) => write!(f, "{m}"),
         }
     }
@@ -67,6 +75,7 @@ impl From<SpawnError> for GhError {
         match e {
             SpawnError::NotFound => GhError::GhMissing,
             SpawnError::Timeout => GhError::Timeout { command: String::new() },
+            SpawnError::BadOverride(m) => GhError::GhOverrideInvalid(m),
             SpawnError::Io(m) => GhError::Io(m),
         }
     }

@@ -6,7 +6,8 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::io::Read;
-use std::process::{Command, Stdio};
+use std::os::unix::process::CommandExt;
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -24,15 +25,17 @@ pub struct Output {
     pub code: Option<i32>,
     pub stdout: String,
     pub stderr: String,
+    /// More than the capture limit was written to stdout or stderr and the rest was dropped.
+    pub truncated: bool,
 }
 
 impl Output {
     pub fn ok(stdout: impl Into<String>) -> Self {
-        Self { success: true, code: Some(0), stdout: stdout.into(), stderr: String::new() }
+        Self { success: true, code: Some(0), stdout: stdout.into(), stderr: String::new(), truncated: false }
     }
 
     pub fn fail(code: i32, stderr: impl Into<String>) -> Self {
-        Self { success: false, code: Some(code), stdout: String::new(), stderr: stderr.into() }
+        Self { success: false, code: Some(code), stdout: String::new(), stderr: stderr.into(), truncated: false }
     }
 }
 
@@ -41,6 +44,8 @@ impl Output {
 pub enum SpawnError {
     /// There is no such program.
     NotFound,
+    /// `RSCODE_GH` is set to something unusable; carries the message.
+    BadOverride(String),
     /// It ran past its time limit and was killed.
     Timeout,
     Io(String),
@@ -68,6 +73,8 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 pub const LONG_TIMEOUT: Duration = Duration::from_secs(600);
 /// How much of each of stdout and stderr is kept; the rest is read and dropped.
 pub const MAX_CAPTURE: usize = 16 * 1024 * 1024;
+/// How long a detached call (`gh pr view --web`) may keep running before it is killed.
+pub const DETACHED_LIMIT: Duration = Duration::from_secs(30);
 
 /// Finds `name` on `path`, then in `fallbacks`. Only absolute `PATH` entries count (an empty or
 /// relative entry means the current directory, where a repository could plant its own program),
@@ -88,17 +95,22 @@ fn locate_in(name: &str, path: Option<OsString>, fallbacks: &[PathBuf]) -> Optio
 }
 
 /// Finds `gh`: the `RSCODE_GH` override (taken as is when absolute, even when it does not exist, so
-/// a wrong override is an error rather than a silent fallback; a relative one is ignored), else the
-/// first `gh` file in an absolute `path` entry, else the fallback locations.
-pub fn locate_gh_in(env_override: Option<OsString>, path: Option<OsString>, fallbacks: &[PathBuf]) -> Option<PathBuf> {
-    if let Some(p) = env_override.filter(|p| !p.is_empty()).map(PathBuf::from).filter(|p| p.is_absolute()) {
-        return Some(p);
+/// a wrong override is an error rather than a silent fallback; a relative one is an error too, as
+/// it would depend on the current directory), else the first `gh` file in an absolute `path`
+/// entry, else the fallback locations.
+pub fn locate_gh_in(env_override: Option<OsString>, path: Option<OsString>, fallbacks: &[PathBuf]) -> Result<Option<PathBuf>, String> {
+    if let Some(p) = env_override.filter(|p| !p.is_empty()).map(PathBuf::from) {
+        return if p.is_absolute() {
+            Ok(Some(p))
+        } else {
+            Err(format!("RSCODE_GH must be an absolute path (it is {:?})", p.display().to_string()))
+        };
     }
-    locate_in("gh", path, fallbacks)
+    Ok(locate_in("gh", path, fallbacks))
 }
 
 /// [`locate_gh_in`] with the process environment and the standard fallbacks.
-pub fn locate_gh() -> Option<PathBuf> {
+pub fn locate_gh() -> Result<Option<PathBuf>, String> {
     let fallbacks: Vec<PathBuf> = FALLBACK_GH_PATHS.iter().map(PathBuf::from).collect();
     locate_gh_in(std::env::var_os("RSCODE_GH"), std::env::var_os("PATH"), &fallbacks)
 }
@@ -120,8 +132,11 @@ pub fn locate_git() -> Option<PathBuf> {
 pub struct SystemRunner {
     gh: Option<PathBuf>,
     git: Option<PathBuf>,
+    /// Why `gh` cannot be used although it was configured (a relative `RSCODE_GH`).
+    gh_error: Option<String>,
     timeout: Duration,
     long_timeout: Duration,
+    detached_limit: Duration,
     max_capture: usize,
 }
 
@@ -132,12 +147,27 @@ impl SystemRunner {
     }
 
     pub fn with_tools(gh: Option<PathBuf>, git: Option<PathBuf>) -> Self {
-        Self { gh, git, timeout: DEFAULT_TIMEOUT, long_timeout: LONG_TIMEOUT, max_capture: MAX_CAPTURE }
+        Self { gh, git, gh_error: None, timeout: DEFAULT_TIMEOUT, long_timeout: LONG_TIMEOUT, detached_limit: DETACHED_LIMIT, max_capture: MAX_CAPTURE }
     }
 
     /// Looks `gh` and `git` up.
     pub fn locate() -> Self {
-        Self::new(locate_gh())
+        match locate_gh() {
+            Ok(gh) => Self::new(gh),
+            Err(message) => Self::new(None).with_gh_error(message),
+        }
+    }
+
+    /// Makes every `gh` call fail with this message (an unusable `RSCODE_GH`).
+    pub fn with_gh_error(mut self, message: String) -> Self {
+        self.gh_error = Some(message);
+        self
+    }
+
+    /// Overrides how long a detached call may run before it is killed.
+    pub fn with_detached_limit(mut self, limit: Duration) -> Self {
+        self.detached_limit = limit;
+        self
     }
 
     /// Whether a `gh` was found.
@@ -154,6 +184,9 @@ impl SystemRunner {
     }
 
     fn program(&self, tool: Tool) -> Result<&Path, SpawnError> {
+        if let (Tool::Gh, Some(message)) = (tool, &self.gh_error) {
+            return Err(SpawnError::BadOverride(message.clone()));
+        }
         let found = match tool {
             Tool::Gh => self.gh.as_deref(),
             Tool::Git => self.git.as_deref(),
@@ -171,7 +204,9 @@ impl SystemRunner {
             .env("GH_NO_UPDATE_NOTIFIER", "1")
             .env("GH_PAGER", "cat")
             .env("NO_COLOR", "1")
-            .env("GIT_TERMINAL_PROMPT", "0");
+            .env("GIT_TERMINAL_PROMPT", "0")
+            // Its own process group, so a timeout can stop the grandchildren too (`gh pr checkout` runs git).
+            .process_group(0);
         Ok(cmd)
     }
 
@@ -189,22 +224,26 @@ fn spawn_failure(e: std::io::Error) -> SpawnError {
 }
 
 /// Reads `r` to the end, keeping at most `cap` bytes and dropping the rest (so the child never
-/// blocks on a full pipe).
-fn read_capped(mut r: impl Read, cap: usize) -> Vec<u8> {
+/// blocks on a full pipe). The flag says whether anything was dropped.
+fn read_capped(mut r: impl Read, cap: usize) -> (Vec<u8>, bool) {
     let mut kept = Vec::new();
+    let mut truncated = false;
     let mut buf = [0u8; 16 * 1024];
     loop {
         match r.read(&mut buf) {
-            Ok(0) | Err(_) => return kept,
+            Ok(0) | Err(_) => return (kept, truncated),
             Ok(n) => {
                 let room = cap.saturating_sub(kept.len());
+                truncated |= n > room;
                 kept.extend_from_slice(&buf[..n.min(room)]);
             }
         }
     }
 }
 
-fn reader(pipe: Option<impl Read + Send + 'static>, cap: usize) -> mpsc::Receiver<Vec<u8>> {
+type Captured = (Vec<u8>, bool);
+
+fn reader(pipe: Option<impl Read + Send + 'static>, cap: usize) -> mpsc::Receiver<Captured> {
     let (tx, rx) = mpsc::channel();
     match pipe {
         Some(p) => {
@@ -213,10 +252,29 @@ fn reader(pipe: Option<impl Read + Send + 'static>, cap: usize) -> mpsc::Receive
             });
         }
         None => {
-            let _ = tx.send(Vec::new());
+            let _ = tx.send((Vec::new(), false));
         }
     }
     rx
+}
+
+/// How long the process group gets to exit after SIGTERM before SIGKILL.
+const KILL_GRACE: Duration = Duration::from_millis(300);
+
+/// Stops the child and everything it started: SIGTERM to its process group, SIGKILL after a short
+/// grace, then reaps the child. The readers end by themselves once the group is gone and the pipes
+/// close.
+fn kill_group(child: &mut Child) {
+    let pgid = child.id() as libc::pid_t;
+    // SAFETY: killpg only sends a signal; the group was created by this child (process_group(0)).
+    unsafe { libc::killpg(pgid, libc::SIGTERM) };
+    let until = Instant::now() + KILL_GRACE;
+    while Instant::now() < until && !matches!(child.try_wait(), Ok(Some(_))) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // A grandchild may outlive the child that was reaped above: the group id stays valid while any member lives.
+    unsafe { libc::killpg(pgid, libc::SIGKILL) };
+    let _ = child.wait();
 }
 
 /// How long to wait for the pipes to close once the child has exited (a grandchild may hold them).
@@ -232,20 +290,24 @@ impl GhRunner for SystemRunner {
             match child.try_wait() {
                 Ok(Some(status)) => break status,
                 Ok(None) if Instant::now() >= deadline => {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    kill_group(&mut child);
                     return Err(SpawnError::Timeout);
                 }
                 Ok(None) => std::thread::sleep(Duration::from_millis(5)),
-                Err(e) => return Err(SpawnError::Io(e.to_string())),
+                Err(e) => {
+                    kill_group(&mut child);
+                    return Err(SpawnError::Io(e.to_string()));
+                }
             }
         };
-        let take = |rx: mpsc::Receiver<Vec<u8>>| rx.recv_timeout(PIPE_GRACE).unwrap_or_default();
+        let take = |rx: mpsc::Receiver<Captured>| rx.recv_timeout(PIPE_GRACE).unwrap_or_default();
+        let ((stdout, out_cut), (stderr, err_cut)) = (take(out_rx), take(err_rx));
         Ok(Output {
             success: status.success(),
             code: status.code(),
-            stdout: String::from_utf8_lossy(&take(out_rx)).into_owned(),
-            stderr: String::from_utf8_lossy(&take(err_rx)).into_owned(),
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            truncated: out_cut || err_cut,
         })
     }
 
@@ -258,17 +320,29 @@ impl GhRunner for SystemRunner {
             match child.try_wait() {
                 Ok(Some(status)) if status.success() => return Ok(()),
                 Ok(Some(status)) => {
-                    let text = String::from_utf8_lossy(&stderr.recv_timeout(PIPE_GRACE).unwrap_or_default()).trim().to_string();
+                    let text = String::from_utf8_lossy(&stderr.recv_timeout(PIPE_GRACE).unwrap_or_default().0).trim().to_string();
                     return Err(SpawnError::Io(if text.is_empty() { format!("{tool:?} exited with {:?}", status.code()) } else { text }));
                 }
                 Ok(None) if Instant::now() < grace => std::thread::sleep(Duration::from_millis(5)),
                 Ok(None) => break,
-                Err(e) => return Err(SpawnError::Io(e.to_string())),
+                Err(e) => {
+                    kill_group(&mut child);
+                    return Err(SpawnError::Io(e.to_string()));
+                }
             }
         }
-        // Still running: let it go, and reap it when it ends.
+        // Still running: let it go, reap it when it ends, and stop it (and what it started) when it
+        // runs past the limit.
+        let deadline = Instant::now() + self.detached_limit;
         std::thread::spawn(move || {
-            let _ = child.wait();
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => return,
+                    Ok(None) if Instant::now() >= deadline => return kill_group(&mut child),
+                    Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                    Err(_) => return kill_group(&mut child),
+                }
+            }
         });
         Ok(())
     }
@@ -287,7 +361,7 @@ mod tests {
 
     #[test]
     fn the_env_override_wins_even_when_it_does_not_exist() {
-        let found = locate_gh_in(Some("/nope/gh".into()), Some("/usr/bin".into()), &[]);
+        let found = locate_gh_in(Some("/nope/gh".into()), Some("/usr/bin".into()), &[]).unwrap();
         assert_eq!(found, Some(PathBuf::from("/nope/gh")));
     }
 
@@ -295,7 +369,7 @@ mod tests {
     fn an_empty_override_is_ignored() {
         let dir = scratch("empty-override");
         std::fs::write(dir.join("gh"), "").unwrap();
-        let found = locate_gh_in(Some("".into()), Some(dir.clone().into_os_string()), &[]);
+        let found = locate_gh_in(Some("".into()), Some(dir.clone().into_os_string()), &[]).unwrap();
         assert_eq!(found, Some(dir.join("gh")));
     }
 
@@ -304,20 +378,20 @@ mod tests {
         let (a, b) = (scratch("path-a"), scratch("path-b"));
         std::fs::write(b.join("gh"), "").unwrap();
         let path = std::env::join_paths([&a, &b]).unwrap();
-        assert_eq!(locate_gh_in(None, Some(path), &[]), Some(b.join("gh")));
+        assert_eq!(locate_gh_in(None, Some(path), &[]).unwrap(), Some(b.join("gh")));
     }
 
     #[test]
     fn the_fallbacks_are_used_when_path_has_no_gh() {
         let (empty, fallback) = (scratch("fb-empty"), scratch("fb"));
         std::fs::write(fallback.join("gh"), "").unwrap();
-        let found = locate_gh_in(None, Some(empty.into_os_string()), &[PathBuf::from("/nope/gh"), fallback.join("gh")]);
+        let found = locate_gh_in(None, Some(empty.into_os_string()), &[PathBuf::from("/nope/gh"), fallback.join("gh")]).unwrap();
         assert_eq!(found, Some(fallback.join("gh")));
     }
 
     #[test]
     fn nothing_found_is_none() {
-        assert_eq!(locate_gh_in(None, None, &[PathBuf::from("/nope/gh")]), None);
+        assert_eq!(locate_gh_in(None, None, &[PathBuf::from("/nope/gh")]).unwrap(), None);
     }
 
     #[test]
@@ -329,18 +403,36 @@ mod tests {
         let relative = format!("{}{}", "../".repeat(40), repo.strip_prefix("/").unwrap().display());
         assert!(Path::new(&relative).join("gh").is_file(), "the relative path reaches the planted gh");
         for path in [relative.as_str(), ".", "", "bin"] {
-            assert_eq!(locate_gh_in(None, Some(path.into()), &[]), None, "gh on {path:?}");
+            assert_eq!(locate_gh_in(None, Some(path.into()), &[]).unwrap(), None, "gh on {path:?}");
             assert_eq!(locate_git_in(Some(path.into()), &[]), None, "git on {path:?}");
         }
         let abs = scratch("absolute");
         std::fs::write(abs.join("gh"), "").unwrap();
         let path = std::env::join_paths([PathBuf::from("."), PathBuf::new(), abs.clone()]).unwrap();
-        assert_eq!(locate_gh_in(None, Some(path), &[]), Some(abs.join("gh")));
+        assert_eq!(locate_gh_in(None, Some(path), &[]).unwrap(), Some(abs.join("gh")));
     }
 
     #[test]
-    fn a_relative_override_is_ignored() {
-        assert_eq!(locate_gh_in(Some("./gh".into()), None, &[]), None);
+    fn a_relative_override_is_an_error_naming_rscode_gh() {
+        let err = locate_gh_in(Some("./gh".into()), None, &[]).unwrap_err();
+        assert!(err.contains("RSCODE_GH") && err.contains("absolute"), "{err}");
+        // Not a silent fallback to a gh that is on PATH.
+        let dir = scratch("relative-override");
+        std::fs::write(dir.join("gh"), "").unwrap();
+        assert!(locate_gh_in(Some("gh".into()), Some(dir.into_os_string()), &[]).is_err());
+    }
+
+    #[test]
+    fn a_runner_with_a_bad_override_reports_it_instead_of_running() {
+        let err = locate_gh_in(Some("./gh".into()), None, &[]).unwrap_err();
+        let r = SystemRunner::with_tools(None, None).with_gh_error(err.clone());
+        assert_eq!(r.run(Tool::Gh, &[], Path::new("/")), Err(SpawnError::BadOverride(err)));
+    }
+
+    #[test]
+    fn read_capped_says_when_it_dropped_bytes() {
+        assert_eq!(read_capped(&b"abcdef"[..], 4), (b"abcd".to_vec(), true));
+        assert_eq!(read_capped(&b"abcd"[..], 4), (b"abcd".to_vec(), false));
     }
 
     #[test]

@@ -140,8 +140,11 @@ impl Check {
         match word(&self.conclusion).as_str() {
             "SUCCESS" => CheckOutcome::Passed,
             "FAILURE" | "TIMED_OUT" | "CANCELLED" | "ACTION_REQUIRED" | "STARTUP_FAILURE" => CheckOutcome::Failed,
-            // NEUTRAL, SKIPPED, STALE, and a completed run that reports no conclusion (yet).
-            _ => CheckOutcome::Skipped,
+            "NEUTRAL" | "SKIPPED" | "STALE" => CheckOutcome::Skipped,
+            // A completed run that reports no conclusion (yet).
+            "" => CheckOutcome::Skipped,
+            // A conclusion this code does not know: never shown as success or skipped.
+            _ => CheckOutcome::Failed,
         }
     }
 }

@@ -189,9 +189,11 @@ impl Workbench {
     }
 
     /// The picker is closing for a reason other than the Create flow moving on (quick open took
-    /// its place, Escape): the flow is abandoned.
+    /// its place, Escape, another GitHub picker replaced it): the flow is abandoned, and bumping
+    /// the generation drops whatever it still has in flight (a push, a preparation).
     pub(crate) fn github_picker_closed(&mut self) {
         if !self.github.keep_create {
+            self.github.create_gen += 1;
             self.github.create = None;
         }
     }

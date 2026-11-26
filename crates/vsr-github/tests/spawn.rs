@@ -40,7 +40,7 @@ esac
 fn a_gh_on_path_is_found_spawned_and_given_its_arguments() {
     let dir = scratch("path");
     let gh = fake_gh(&dir);
-    let found = locate_gh_in(None, Some(dir.clone().into_os_string()), &[]).expect("gh on PATH");
+    let found = locate_gh_in(None, Some(dir.clone().into_os_string()), &[]).unwrap().expect("gh on PATH");
     assert_eq!(found, gh);
 
     let work = scratch("work");
@@ -144,4 +144,55 @@ fn git_runs_by_its_absolute_path_not_a_repo_local_git() {
     let out = real.run(Tool::Git, &["--version".into()], &repo).unwrap();
     assert!(out.stdout.starts_with("git version"));
     assert!(!repo.join("ran").exists());
+}
+
+fn alive(pid: &str) -> bool {
+    std::process::Command::new("kill").args(["-0", pid.trim()]).status().unwrap().success()
+}
+
+fn wait_gone(pid: &str) -> bool {
+    for _ in 0..100 {
+        if !alive(pid) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    false
+}
+
+#[test]
+fn a_timeout_kills_the_whole_process_group_not_just_the_child() {
+    use vsr_github::{GhRunner, SpawnError, Tool};
+    let dir = scratch("group");
+    // Like `gh pr checkout` spawning git: a grandchild that keeps the pipes open.
+    let gh = script(&dir, "gh", "echo $$ > \"$(dirname \"$0\")/child\"\nsleep 600 &\necho $! > \"$(dirname \"$0\")/grandchild\"\nwait");
+    let runner = SystemRunner::new(Some(gh)).with_limits(std::time::Duration::from_millis(400), 1024);
+    let started = std::time::Instant::now();
+    assert_eq!(runner.run(Tool::Gh, &[], &dir), Err(SpawnError::Timeout));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    for name in ["child", "grandchild"] {
+        let pid = fs::read_to_string(dir.join(name)).unwrap();
+        assert!(wait_gone(&pid), "{name} {pid} is gone");
+    }
+}
+
+#[test]
+fn spawn_detached_kills_a_gh_that_runs_too_long() {
+    use vsr_github::{GhRunner, Tool};
+    let dir = scratch("detached-long");
+    let gh = script(&dir, "gh", "sleep 600 &\necho $! > \"$(dirname \"$0\")/grandchild\"\nwait");
+    let runner = SystemRunner::new(Some(gh)).with_detached_limit(std::time::Duration::from_millis(2500));
+    runner.spawn_detached(Tool::Gh, &[], &dir).unwrap();
+    let pid = fs::read_to_string(dir.join("grandchild")).unwrap();
+    assert!(alive(&pid), "still running right after the call returns");
+    assert!(wait_gone(&pid), "killed after the detached limit");
+}
+
+#[test]
+fn a_huge_output_is_reported_as_too_large() {
+    let dir = scratch("huge");
+    let gh = script(&dir, "gh", "head -c 200000 /dev/zero | tr '\\0' x");
+    let runner = SystemRunner::new(Some(gh)).with_limits(std::time::Duration::from_secs(30), 1000);
+    let err = Github::new(Arc::new(runner), scratch("huge-work")).repo().unwrap_err();
+    assert!(matches!(err, vsr_github::GhError::OutputTooLarge { .. }), "{err:?}");
 }

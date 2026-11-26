@@ -13,7 +13,8 @@
 #   --uninstall     remove the `rode` link and move rscode.app to the Trash
 #
 # What `rode` gets by default, written to rscode.app/Contents/Resources/rode.env:
-#   RSCODE_CODE_OSS        this repo's ../codeoss-exthost when it is built (extension host on)
+#   RSCODE_CODE_OSS        this repo's ../codeoss-exthost-lsp, else ../codeoss-exthost, when built
+#                          (extension host on)
 #   RSCODE_NODE            Node 24 from mise when installed, else `node` on PATH at install time
 #   RSCODE_EXTENSIONS_DIR  empty: your ~/.vscode/extensions are NOT loaded (issue #31); set it
 #                          in your shell to load them
@@ -83,8 +84,13 @@ mv -f "$app/Contents/Resources/bin/.rode.new" "$app/Contents/Resources/bin/rode"
 
 # Defaults for the launched app.
 code_oss="${RSCODE_CODE_OSS:-}"
-if [[ -z "$code_oss" && -f "$REPO/../codeoss-exthost/out/bootstrap-fork.js" ]]; then
-  code_oss="$(cd "$REPO/../codeoss-exthost" && pwd)"
+if [[ -z "$code_oss" ]]; then
+  for build in "$REPO/../codeoss-exthost-lsp" "$REPO/../codeoss-exthost"; do
+    if [[ -f "$build/out/bootstrap-fork.js" ]]; then
+      code_oss="$(cd "$build" && pwd)"
+      break
+    fi
+  done
 fi
 node="${RSCODE_NODE:-}"
 if [[ -z "$node" ]]; then

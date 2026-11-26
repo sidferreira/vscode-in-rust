@@ -1468,6 +1468,30 @@ would want.
 - `.gitignore` edits are seen when the folder is listed again. There is no watch on `.gitignore`
   files, and the global gitignore and `.git/info/exclude` are not read.
 
+## ADR-0045 — The integrated terminal: `vsr-terminal` on alacritty_terminal and portable-pty (2026-11-26)
+
+Context: ADR-0045 was reserved for the terminal while new crates could not be fetched. They can now, and the user
+prefers maintained crates over hand-rolled code (everything but VS Code-specific behaviour).
+
+Decision:
+- **Crates.** `alacritty_terminal =0.25.1` (the emulator: VT parser `vte`, grid, scrollback, selection, modes;
+  maintained by the Alacritty project, used by Zed and others; 0.26.0 exists but 0.25.1 is the API we know and
+  0.26 gains nothing we need) and `portable-pty =0.9.0` (PTY and child process; from wezterm, the one crate that
+  covers openpty, spawn on the slave, resize and kill on macOS without `unsafe` in our code). Both resolved
+  through the proxy; no version was quarantined. Nothing is hand-rolled except the xterm key encoding
+  (`keys.rs`), because alacritty_terminal has no input side.
+- **Crate `crates/vsr-terminal`** (no UI): `Terminal::spawn(config, on_event)` starts the user's login shell
+  (`$SHELL`, else `/bin/zsh`, with `-l`, as VS Code does on macOS) with `TERM=xterm-256color`, `COLORTERM=truecolor`,
+  `TERM_PROGRAM=vscode` in the workspace folder. A reader thread feeds the output into an `alacritty_terminal::Term`
+  and reports `Output`/`Title`/`Bell`/`Exit` to a callback; the emulator's `PtyWrite` events (cursor position and
+  device attribute queries) are answered on the PTY. `snapshot()` copies the visible grid, cursor, selection and
+  modes for drawing; `resize`, `scroll`, selection and `selection_text`, `paste` (bracketed when the shell asked),
+  `send_key` and `kill` complete it.
+- **Tests** run a real `/bin/sh -c ...` in a PTY, no window: output and colours in the grid, cursor, exit code, cwd,
+  input echo, resize (`stty size`), scrollback and scrolling, selection, kill, title; plus the key encoding.
+- Not yet: shell integration (OSC 633), links, mouse reporting, find in terminal, persistent sessions, `inheritEnv`
+  login-shell resolution (the process environment is inherited as is).
+
 ## ADR-0046 — Typing rules, comments and indentation: language configuration in the editor (2026-11-10)
 
 **Context.** The `editor` settings group had 51 todo settings, most of them the typing rules every

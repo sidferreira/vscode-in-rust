@@ -103,7 +103,6 @@ Deferred: each needs a feature rscode does not have yet. Not actionable; `next` 
 | needs the glyph margin (breakpoints and the code action lightbulb in the margin) | 1 |
 | needs letter spacing in the text system (gpui has none) | 1 |
 | needs ctrl+click (go to definition, multi-cursor) and link detection | 1 |
-| needs the horizontal bar's height in the scroll height (rscode's list measures whole rows) | 1 |
 | needs multi-line selection matches | 1 |
 | needs multi-cursor selection commands (Add Selection To Next Find Match) and selection match modes | 1 |
 | needs scroll animation (a tween of the scroll position across frames) | 1 |
@@ -205,7 +204,7 @@ Deferred: each needs a feature rscode does not have yet. Not actionable; `next` 
 | editor.pasteAs | Text Editor | 3 | 0 | 0 | 3 | 0 | 0 | - |
 | editor.render | Text Editor | 6 | 5 | 0 | 0 | 1 | 0 | - |
 | editor.scroll | Text Editor | 4 | 2 | 0 | 2 | 0 | 0 | - |
-| editor.scrollbar | Text Editor | 6 | 5 | 0 | 1 | 0 | 0 | - |
+| editor.scrollbar | Text Editor | 6 | 6 | 0 | 0 | 0 | 0 | - |
 | editor.selection | Text Editor | 3 | 2 | 0 | 1 | 0 | 0 | - |
 | editor.show | Text Editor | 3 | 1 | 0 | 2 | 0 | 0 | - |
 | editor.stickyScroll | Text Editor | 4 | 4 | 0 | 0 | 0 | 0 | - |

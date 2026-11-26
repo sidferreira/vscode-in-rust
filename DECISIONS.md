@@ -1756,8 +1756,8 @@ one viewport with `editor.scrollbar.scrollByPage`; dragging the slider moves the
 from the text area) and `scrollByPage` are wired. Colours are `scrollbarSlider.background` and `hoverBackground`.
 
 **Not done.**
-- `editor.scrollbar.ignoreHorizontalScrollbarInContentHeight` stays `blocked`: upstream adds the horizontal bar's
-  height to the scroll height, and rscode's list measures whole rows, so that would need a spacer row.
+- `editor.scrollbar.ignoreHorizontalScrollbarInContentHeight` was blocked here (a spacer row was needed); it is wired
+  in ADR-0135.
 - The arrow buttons (arrowSize is 0), the fade after scrolling (`scrollbarVisibilityController`) and
   `scrollbarSlider.activeBackground` (gpui-pre's element has no active state here).
 - `hidden` takes no width, where upstream's layout keeps `verticalScrollbarSize` reserved (`editorOptions.ts`).
@@ -1789,7 +1789,7 @@ vertical scrollbar, at the height of their line in the whole document. The zone 
 
 **Not done.**
 - Marks use document lines. With folding, upstream's view lines would put them elsewhere, so they can sit off their
-  line in a folded document.
+  line in a folded document. Fixed in ADR-0135: the marks follow the view lines.
 - Multi-cursor and bracket-match zones; error and warning zones (rscode has no diagnostics yet); the lane's own
   background colour.
 - With `editor.scrollbar.vertical: hidden` there is no lane, so no ruler. Upstream keeps the reserved column and draws
@@ -3266,6 +3266,32 @@ Tests: `closing_a_document_drops_its_outline_map`, `a_document_still_open_in_ano
 
 Not done: the worker's in-flight job of a closed document runs to its end (its answer is then ignored).
 
+## ADR-0135 — Overview ruler follows the view lines; `ignoreHorizontalScrollbarInContentHeight` as a spacer row (2026-11-26)
+
+**Context.** Issue #23: the overview ruler placed its marks by document line, so with a folded region (ADR-0042)
+or a wrapped line (ADR-0036) the marks sat below the row they belonged to. Issue #24a: the horizontal scrollbar's
+height is part of upstream's scroll height (`viewLayout.ts` `_getContentHeight`) unless `scrollBeyondLastLine`
+or `ignoreHorizontalScrollbarInContentHeight` is on; rscode's list measures whole rows, so ADR-0054 had blocked it.
+
+**Decision.**
+- **Overview ruler.** `overview_ruler::view_line_of` maps a model line to its view line in the wrap/fold projection
+  (`Editor::view_lines`, the same one the rows use), or to the document line when there is no projection. A hidden
+  line maps to the visible line above it, the fold's header. `marks` takes that mapping; the zones, the lane and the
+  content height (already in view rows) are unchanged. Headless test: a folded region, the cursor on the second and
+  third visible rows (`marks_sit_at_their_view_line_when_a_region_is_folded`).
+- **Horizontal bar.** `scrollbar::spacer_rows` gives the scroll range one extra row when the horizontal bar overflows
+  and is not hidden, `ignoreHorizontalScrollbarInContentHeight` is off and `scrollBeyondLastLine` is off (upstream's
+  `else` branch). The bar's height is rounded up to whole rows (`ceil(thickness / line_height)`, so one row at the
+  default 12 px bar). The rows are blank, as the `scrollBeyondLastLine` rows are. The setting is wired in the
+  "Editor scrolling" group, with the three headless tests in `scrollbar_e2e.rs`.
+- **Crates.** None added.
+
+**Not done.**
+- The spacer is a whole row, where upstream adds the exact bar height in pixels: the range can be up to a row longer
+  than upstream's at a bar height that is not a multiple of the line height.
+- The marks of a folded line are placed at its header row; upstream's decorations inside a fold are not drawn
+  separately (the same rule as the rows).
+
 ## ADR-0140 — Activity bar icon click focuses the view (2026-11-26)
 
 **Context.** ADR-0050 left `workbench.activityBar.iconClickBehavior: focus` without keyboard focus: the click
@@ -3319,3 +3345,4 @@ and `explorer.fileNesting.patterns` was read in sorted key order, because `serde
 `explorer/e2e_tree.rs` (`file_nesting_nests_stay_with_their_parent_in_the_sort`),
 `explorer/settings.rs` (`file_nesting_patterns_keep_the_declaration_order`). The 26 trie tests are already
 ported (`upstream/ports.toml`, `explorer-file-nesting`).
+

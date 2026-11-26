@@ -428,6 +428,9 @@ pub struct EditorSettings {
     pub scrollbar_vertical_size: f32,
     pub scrollbar_horizontal_size: f32,
     pub scrollbar_scroll_by_page: bool,
+    /// `editor.scrollbar.ignoreHorizontalScrollbarInContentHeight`: a shown horizontal bar does not add a row
+    /// to the scroll range.
+    pub scrollbar_ignore_horizontal_in_content_height: bool,
     /// `editor.overviewRulerBorder` and `editor.hideCursorInOverviewRuler` (the overview ruler, ADR-0055).
     pub overview_ruler_border: bool,
     pub hide_cursor_in_overview_ruler: bool,
@@ -511,6 +514,7 @@ impl Default for EditorSettings {
             scrollbar_vertical_size: 14.0,
             scrollbar_horizontal_size: 12.0,
             scrollbar_scroll_by_page: false,
+            scrollbar_ignore_horizontal_in_content_height: false,
             overview_ruler_border: true,
             hide_cursor_in_overview_ruler: false,
             word_wrap: WordWrap::Off,
@@ -647,6 +651,9 @@ impl EditorSettings {
             scrollbar_vertical_size: c.get_f64("editor.scrollbar.verticalScrollbarSize").unwrap_or(14.0).round().max(0.0) as f32,
             scrollbar_horizontal_size: c.get_f64("editor.scrollbar.horizontalScrollbarSize").unwrap_or(12.0).round().max(0.0) as f32,
             scrollbar_scroll_by_page: c.get_bool("editor.scrollbar.scrollByPage").unwrap_or(false),
+            scrollbar_ignore_horizontal_in_content_height: c
+                .get_bool("editor.scrollbar.ignoreHorizontalScrollbarInContentHeight")
+                .unwrap_or(false),
             overview_ruler_border: c.get_bool("editor.overviewRulerBorder").unwrap_or(true),
             hide_cursor_in_overview_ruler: c.get_bool("editor.hideCursorInOverviewRuler").unwrap_or(false),
             word_wrap: c.get_enum("editor.wordWrap").unwrap_or(WordWrap::Off),

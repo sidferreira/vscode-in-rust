@@ -233,7 +233,7 @@ rust = [
   "crates/vsr-app/src/config/scrollbar.rs",
 ]
 synced = "50e1350fc78df67b11049b903d96b530f28d26a5"
-notes = "Editor vertical and horizontal scrollbars (ADR-0054): the slider math of scrollbarState.ts (both upstream ScrollbarState tests ported), click on the track (jump, or a page with scrollByPage), drag, visibility auto/visible/hidden, sizes, and scrollbarSlider colours. Not ported: the arrow buttons, the fade after scrolling (scrollbarVisibilityController), the active colour (scrollbarSlider.activeBackground), and ignoreHorizontalScrollbarInContentHeight (the scroll height would need the bar's height as a spacer row). The drag uses gpui window listeners, so it follows the pointer anywhere in the window."
+notes = "Editor vertical and horizontal scrollbars (ADR-0054): the slider math of scrollbarState.ts (both upstream ScrollbarState tests ported), click on the track (jump, or a page with scrollByPage), drag, visibility auto/visible/hidden, sizes, and scrollbarSlider colours. Not ported: the arrow buttons, the fade after scrolling (scrollbarVisibilityController), the active colour (scrollbarSlider.activeBackground). ignoreHorizontalScrollbarInContentHeight is done as one spacer row (ADR-0135). The drag uses gpui window listeners, so it follows the pointer anywhere in the window."
 
 [[port]]
 id = "editor-overview-ruler"

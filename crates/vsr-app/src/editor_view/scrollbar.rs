@@ -12,8 +12,8 @@
 //! slider's centre to the click (or pages with `editor.scrollbar.scrollByPage`); dragging the slider
 //! moves the list by the pointer's distance. Not ported: the arrow buttons (arrowSize is 0), the
 //! fade of the bars after scrolling (`scrollbarVisibilityController` fades only with `auto` and
-//! `mouseover` in upstream), and `ignoreHorizontalScrollbarInContentHeight`, which needs the scroll
-//! height to include the bar's height, while the list measures whole rows.
+//! `mouseover` in upstream). `ignoreHorizontalScrollbarInContentHeight` is done: `spacer_rows` gives
+//! the horizontal bar's height as whole rows at the end of the list, since the list measures rows.
 
 pub mod state;
 #[cfg(test)]
@@ -116,6 +116,23 @@ pub fn inputs(
         by_page: s.by_page,
     };
     (vertical, horizontal)
+}
+
+/// The rows the horizontal bar adds to the editor's scroll range (upstream `viewLayout.ts` `_getContentHeight`):
+/// one bar's height when the bar overflows and is not hidden, unless `scrollBeyondLastLine` (which takes the
+/// other branch) or `ignoreHorizontalScrollbarInContentHeight`. Rows are whole, so the height is rounded up to
+/// rows of `row_height`.
+pub fn spacer_rows(
+    horizontal: &BarInput,
+    ignore: bool,
+    beyond_last_line: bool,
+    row_height: f32,
+) -> usize {
+    let overflows = horizontal.content > horizontal.viewport;
+    if ignore || beyond_last_line || !overflows || horizontal.visibility == ScrollbarVisibility::Hidden || row_height <= 0.0 {
+        return 0;
+    }
+    (horizontal.thickness / row_height).ceil().max(0.0) as usize
 }
 
 /// One bar as the editor sees it this frame.

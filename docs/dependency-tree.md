@@ -29,7 +29,7 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 93 | every ADR cited by a node exists (latest ADR-0110) |
+| ADR headings in DECISIONS.md | 94 | every ADR cited by a node exists (latest ADR-0135) |
 | upstream/ports.toml entries | 58 | not nodes (file ports, not features): partial 55, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.
@@ -62,7 +62,7 @@ flowchart LR
   n_code_folding["Code folding and sticky scroll (ADR-0042) (done)"]:::done
   n_ext_host_p1["Extension host P1: main-thread shapes for ErrorLens (done)"]:::done
   n_editor_scrollbar["Editor scrollbar (vertical and horizontal) (done)"]:::done
-  n_scrollbar_content_height["Horizontal scrollbar height in the editor's scroll height (todo)"]:::todo
+  n_scrollbar_content_height["Horizontal scrollbar height in the editor's scroll height (done)"]:::done
   n_overview_ruler_glyph_margin["Overview ruler (decoration lane beside the vertical scrollbar) (done)"]:::done
   n_glyph_margin["Glyph margin (breakpoints and lightbulb lane) (todo)"]:::todo
   n_sash_grippers["Sash grippers (the drawn handle on a sash) (done)"]:::done
@@ -306,7 +306,7 @@ flowchart LR
 | 11 | refactor-code-actions | Peek, rename, code actions and linked editing | M (guess) | 10 (+0) | 0 (+0) | 0 (+0) | 0 (+0) | - |
 | 12 | file-decorations | File decorations and custom tab labels | M (guess) | 8 (+0) | 0 (+0) | 1 (+0) | 0 (+0) | - |
 
-Top 12 of 79 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
+Top 12 of 78 rankable nodes (score = unblocked dep settings + scenarios + 10 x extensions). Full list: the every-node table below.
 
 ### Waiting on in-progress work
 
@@ -348,7 +348,7 @@ None.
 | editor-find-widget | Editor Find widget (ADR-0027) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-groups | Editor splits and editor groups | todo | feature | L (guess) | - | 10 (+0) | 10 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-multi-cursor | Multi-cursor editing and column selection | todo | feature | L (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| editor-scrollbar | Editor scrollbar (vertical and horizontal) | done | feature | M (guess) | - | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| editor-scrollbar | Editor scrollbar (vertical and horizontal) | done | feature | M (guess) | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-tabs | Editor tabs: preview, MRU, placement, limit (ADR-0033) | done | feature | - | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-view-zones | Editor view zones and top and bottom padding | todo | feature | M (guess) | - | 3 (+0) | 3 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | editor-watermark-tips | Watermark tips for the empty editor | todo | feature | S (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -419,7 +419,7 @@ None.
 | replace-preview | Replace preview | todo | feature | M (guess) | - | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | sash-grippers | Sash grippers (the drawn handle on a sash) | done | feature | S (guess) | - | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | scroll-capture | Scroll capture on the editor surface (wheel zoom, sensitivity, middle click) | todo | feature | S (guess) | - | 5 (+0) | 5 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
-| scrollbar-content-height | Horizontal scrollbar height in the editor's scroll height | todo | feature | S (guess) | editor-scrollbar | 1 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
+| scrollbar-content-height | Horizontal scrollbar height in the editor's scroll height | done | feature | S (guess) | editor-scrollbar | 0 (+0) | 0 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | search-editor | Search editor (results in an editor tab) | todo | feature | L (guess) | untitled-editors | 6 (+0) | 6 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | search-tree-view | Search tree view and action bar placement | todo | feature | M (guess) | - | 2 (+0) | 2 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
 | search-view | Search view and find in files (ADR-0023, ADR-0029) | done | feature | - | - | 0 (+0) | 1 (+0) | 0 (+0) | 0 | 0 (+0) | 0 (+0) |
@@ -467,7 +467,7 @@ None.
 
 - Cycles in the needs graph: none.
 - Orphan nodes (not done, no edges, nothing attributed): none.
-- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, child-process-main, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, settings-editor.
+- Done nodes that nothing depends on yet (foundations, listed for completeness): breadcrumbs, child-process-main, code-folding, editor-find-widget, editor-tabs, outline-view, overview-ruler-glyph-margin, sash-grippers, scrollbar-content-height, settings-editor.
 - Blocked settings with no node: 0. Exthost settings with no node: 0. Blocked smoke rows that name a feature with no node: 0.
 - Todo settings matched by no node's `todo_globs`: 190. The sources give them no dependency; they are plain backlog (for example the accessibility signal and verbosity settings, the editor unicode highlight settings and the testing settings).
 - DATA BUG in `upstream/settings.toml` (not edited here): the rule whose reason is "needs sash grippers (the drawn handle in the middle of a sash)" has a second `comment` and `match` pair after its `match` (lines 888-889, no new `[[rule]]` header). The breadcrumbs symbol and show settings (29) therefore land on the sash reason. They need document symbols. The graph maps that reason to `document-symbols` with a note.

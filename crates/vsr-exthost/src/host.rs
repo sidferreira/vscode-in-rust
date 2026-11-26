@@ -102,13 +102,19 @@ fn on_demand_language(path: &Path) -> &'static str {
     }
 }
 
-/// The text of a file for an on-demand document; `None` when it cannot be read as UTF-8 or is
-/// bigger than [`MAX_ON_DEMAND_BYTES`].
+/// The text of a file for an on-demand document; `None` when it is not a regular file (a FIFO, a
+/// device: their length is 0 and a read may block forever), cannot be read as UTF-8, or is bigger
+/// than [`MAX_ON_DEMAND_BYTES`]. `metadata` follows symlinks, so a link to a regular file still works.
 fn read_on_demand(path: &Path) -> Option<String> {
-    if std::fs::metadata(path).ok()?.len() > MAX_ON_DEMAND_BYTES {
+    use std::io::Read;
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > MAX_ON_DEMAND_BYTES {
         return None;
     }
-    std::fs::read_to_string(path).ok()
+    // Bounded even if the file grows after the check: one byte past the cap is enough to refuse it.
+    let mut text = String::new();
+    std::fs::File::open(path).ok()?.take(MAX_ON_DEMAND_BYTES + 1).read_to_string(&mut text).ok()?;
+    (text.len() as u64 <= MAX_ON_DEMAND_BYTES).then_some(text)
 }
 
 impl ExtensionHost {
@@ -692,6 +698,34 @@ mod tests {
         host.close_document(&files[5], T).unwrap();
         assert!(!host.on_demand.contains(&files[5]));
         assert_eq!(host.main_thread.documents.open.len(), MAX_ON_DEMAND - 1);
+    }
+
+    #[test]
+    fn fifos_and_devices_are_refused_without_blocking() {
+        let dir = scratch("fifo");
+        let fifo = dir.join("pipe.json");
+        assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+        let link = dir.join("pipe-link.json");
+        std::os::unix::fs::symlink(&fifo, &link).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        // A regression would block the read forever, so the reads run on a thread the test can time out on.
+        std::thread::spawn(move || {
+            let got = [read_on_demand(&fifo), read_on_demand(&link), read_on_demand(Path::new("/dev/zero"))];
+            let _ = tx.send(got);
+        });
+        let got = rx.recv_timeout(Duration::from_secs(5)).expect("read_on_demand blocked on a FIFO or device");
+        assert!(got.iter().all(Option::is_none), "{got:?}");
+    }
+
+    #[test]
+    fn a_symlink_to_a_regular_file_is_read() {
+        let dir = scratch("symlink");
+        let target = dir.join("target.json");
+        fs::write(&target, "{}").unwrap();
+        let link = dir.join("link.json");
+        let _ = fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert_eq!(read_on_demand(&link).as_deref(), Some("{}"));
     }
 
     #[test]

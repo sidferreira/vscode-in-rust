@@ -49,9 +49,13 @@ pub fn error_lines(e: &GhError) -> (String, String) {
             "Run `gh auth login`".into(),
             "Sign in to GitHub with the `gh` command in a terminal, then refresh.".into(),
         ),
+        GhError::GitMissing => (
+            "Install Git".into(),
+            "Pull requests need the `git` command. Install it (on macOS: `xcode-select --install`), then refresh.".into(),
+        ),
         GhError::NotGitHubRepo(_) => (
-            "This folder is not a GitHub repository".into(),
-            "Open a folder whose git remote points to GitHub, then refresh.".into(),
+            "Could not find this repository on GitHub".into(),
+            "Open a folder whose git remote points to a GitHub repository you can access, or check your access with `gh auth status`, then refresh.".into(),
         ),
         other => ("Could not load pull requests".into(), other.to_string()),
     }
@@ -340,7 +344,7 @@ impl Workbench {
                     .gap(px(8.))
                     .child(
                         button("github:pr-checkout", "Checkout", true)
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| this.github_checkout(number, cx))),
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| this.github_checkout(number, window, cx))),
                     )
                     .child(
                         button("github:pr-open-web", "Open on GitHub", false)

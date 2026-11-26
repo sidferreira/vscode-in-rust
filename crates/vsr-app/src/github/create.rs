@@ -24,6 +24,8 @@ pub enum CreateStep {
 
 #[derive(Debug, Clone)]
 pub struct CreateFlow {
+    /// The invocation that made this flow ([`super::GithubState`]'s `create_gen` then).
+    pub generation: u64,
     pub info: BranchInfo,
     pub step: CreateStep,
     pub title: String,
@@ -32,7 +34,7 @@ pub struct CreateFlow {
 }
 
 /// Rows of a choice step: label and value.
-fn choices(rows: &[(&str, &str)]) -> Vec<PickItem> {
+pub(super) fn choices(rows: &[(&str, &str)]) -> Vec<PickItem> {
     rows.iter()
         .enumerate()
         .map(|(i, (label, value))| {
@@ -48,33 +50,58 @@ impl Workbench {
     /// ask (push, title, body, base, draft) and run `gh pr create`.
     pub(crate) fn github_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let client = self.github_client();
+        self.github.create_gen += 1;
+        let generation = self.github.create_gen;
+        self.github.create = None;
         self.github.notice = Some(Notice { text: "Preparing a pull request...".into(), error: false });
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     let info = client.branch_info()?;
+                    if info.is_detached() {
+                        return Ok::<_, vsr_github::GhError>((info, String::new()));
+                    }
                     let repo = client.repo()?;
-                    Ok::<_, vsr_github::GhError>((info, repo.default_branch().to_string()))
+                    Ok((info, repo.default_branch().to_string()))
                 })
                 .await;
-            this.update_in(cx, |this, window, cx| match result {
-                Err(e) => {
-                    this.github.notice = Some(Notice { text: format!("Cannot create a pull request: {}", e.headline()), error: true });
-                    cx.notify();
-                }
-                Ok((info, base)) => {
-                    this.github.notice = None;
-                    let step = if info.has_upstream { CreateStep::Title } else { CreateStep::Push };
-                    let title = info.last_commit_subject.clone();
-                    this.github.create = Some(CreateFlow { info, step, title, body: String::new(), base });
-                    this.github_create_ask(window, cx);
-                }
-            })
-            .ok();
+            this.update_in(cx, |this, window, cx| this.github_create_prepared(generation, result, window, cx)).ok();
         })
         .detach();
         cx.notify();
+    }
+
+    /// The branch and the default base arrived for the invocation `generation`; an older one than
+    /// the latest is dropped.
+    pub(super) fn github_create_prepared(
+        &mut self,
+        generation: u64,
+        result: Result<(BranchInfo, String), vsr_github::GhError>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if generation != self.github.create_gen {
+            return;
+        }
+        match result {
+            Err(e) => {
+                self.github.notice = Some(Notice { text: format!("Cannot create a pull request: {}", e.headline()), error: true });
+                cx.notify();
+            }
+            Ok((info, _)) if info.is_detached() => {
+                // Never push or pass `--head HEAD`.
+                self.github.notice = Some(Notice { text: "Cannot create a pull request: Check out a branch before creating a pull request.".into(), error: true });
+                cx.notify();
+            }
+            Ok((info, base)) => {
+                self.github.notice = None;
+                let step = if info.has_upstream { CreateStep::Title } else { CreateStep::Push };
+                let title = info.last_commit_subject.clone();
+                self.github.create = Some(CreateFlow { generation, info, step, title, body: String::new(), base });
+                self.github_create_ask(window, cx);
+            }
+        }
     }
 
     /// Shows the picker of the current step.
@@ -111,6 +138,7 @@ impl Workbench {
                 cx.spawn_in(window, async move |this, cx| {
                     let result = cx.background_executor().spawn(async move { client.push_upstream() }).await;
                     this.update_in(cx, |this, window, cx| match result {
+                        _ if flow.generation != this.github.create_gen => {}
                         Ok(()) => {
                             this.github.notice = None;
                             flow.info.has_upstream = true;
@@ -196,9 +224,9 @@ impl Workbench {
                 }
                 Ok(prs) => {
                     let items: Vec<PickItem> = prs.iter().enumerate().map(|(i, pr)| pr_item(i, pr)).collect();
-                    this.github_pick("Select a pull request to check out".into(), String::new(), Some(items), window, cx, move |this, item, _q, _w, cx| {
+                    this.github_pick("Select a pull request to check out".into(), String::new(), Some(items), window, cx, move |this, item, _q, window, cx| {
                         if let Some(number) = item.and_then(|i| i.value).and_then(|v| v.parse().ok()) {
-                            this.github_checkout(number, cx);
+                            this.github_checkout(number, window, cx);
                         }
                     });
                 }
@@ -208,9 +236,16 @@ impl Workbench {
         .detach();
     }
 
+    /// Closes the picker of a step without ending the flow (the next step, or the answer, follows).
+    fn github_hide_picker(&mut self, restore_focus: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.github.keep_create = true;
+        self.hide_quick_open(restore_focus, window, cx);
+        self.github.keep_create = false;
+    }
+
     /// A Quick Pick: `choices` (filtered by the typed text), or a text step when `None`. `accept`
     /// gets the chosen item and the typed text, with the picker already closed.
-    fn github_pick(
+    pub(super) fn github_pick(
         &mut self,
         placeholder: String,
         initial: String,
@@ -220,7 +255,7 @@ impl Workbench {
         accept: impl Fn(&mut Workbench, Option<PickItem>, String, &mut Window, &mut Context<Workbench>) + 'static,
     ) {
         if self.quick.pick.is_some() {
-            self.hide_quick_open(false, window, cx);
+            self.github_hide_picker(false, window, cx);
         }
         let hint = placeholder.clone();
         let source = move |query: &str, _cx: &mut App| -> PickResult {
@@ -241,7 +276,7 @@ impl Workbench {
         let pick = cx.new(|cx| QuickPick::new(&placeholder, &initial, select_from, close_on_focus_lost, source, window, cx));
         self.quick._sub = Some(cx.subscribe_in(&pick, window, move |this, _, ev: &QuickPickEvent, window, cx| match ev {
             QuickPickEvent::Accept { item, query, .. } => {
-                this.hide_quick_open(true, window, cx);
+                this.github_hide_picker(true, window, cx);
                 accept(this, Some(item.clone()), query.clone(), window, cx);
             }
             QuickPickEvent::Dismiss => {

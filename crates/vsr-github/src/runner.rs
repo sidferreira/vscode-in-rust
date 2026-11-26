@@ -5,7 +5,10 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::io::Read;
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 /// Which program a call runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,33 +41,60 @@ impl Output {
 pub enum SpawnError {
     /// There is no such program.
     NotFound,
+    /// It ran past its time limit and was killed.
+    Timeout,
     Io(String),
 }
 
 /// Runs a tool to completion, blocking. The app calls it off the UI thread; tests inject fakes.
 pub trait GhRunner: Send + Sync {
     fn run(&self, tool: Tool, args: &[String], cwd: &Path) -> Result<Output, SpawnError>;
+
+    /// Starts a tool that outlives the call (`gh pr view --web` hands over to the browser) and
+    /// returns without waiting for it. The default just runs it, which is what fakes want.
+    fn spawn_detached(&self, tool: Tool, args: &[String], cwd: &Path) -> Result<(), SpawnError> {
+        self.run(tool, args, cwd).map(|_| ())
+    }
 }
 
 /// The places `gh` is searched when the GUI was launched with a short `PATH`.
 pub const FALLBACK_GH_PATHS: [&str; 2] = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"];
+/// The same for `git`.
+pub const FALLBACK_GIT_PATHS: [&str; 3] = ["/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git"];
 
-/// Finds `gh`: the `RSCODE_GH` override (taken as is, even when it does not exist, so a wrong
-/// override is an error rather than a silent fallback), else the first `gh` file on `path`, else
-/// the fallback locations.
-pub fn locate_gh_in(env_override: Option<OsString>, path: Option<OsString>, fallbacks: &[PathBuf]) -> Option<PathBuf> {
-    if let Some(p) = env_override.filter(|p| !p.is_empty()) {
-        return Some(PathBuf::from(p));
-    }
+/// How long a call may run before it is killed.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+/// The limit for calls that move data (`gh pr checkout`, `git push`).
+pub const LONG_TIMEOUT: Duration = Duration::from_secs(600);
+/// How much of each of stdout and stderr is kept; the rest is read and dropped.
+pub const MAX_CAPTURE: usize = 16 * 1024 * 1024;
+
+/// Finds `name` on `path`, then in `fallbacks`. Only absolute `PATH` entries count (an empty or
+/// relative entry means the current directory, where a repository could plant its own program),
+/// and the result is always an absolute path.
+fn locate_in(name: &str, path: Option<OsString>, fallbacks: &[PathBuf]) -> Option<PathBuf> {
     if let Some(path) = path {
         for dir in std::env::split_paths(&path) {
-            let candidate = dir.join("gh");
+            if !dir.is_absolute() {
+                continue;
+            }
+            let candidate = dir.join(name);
             if candidate.is_file() {
                 return Some(candidate);
             }
         }
     }
-    fallbacks.iter().find(|p| p.is_file()).cloned()
+    fallbacks.iter().find(|p| p.is_absolute() && p.is_file()).cloned()
+}
+
+/// Finds `gh`: the `RSCODE_GH` override (taken as is when absolute, even when it does not exist, so
+/// a wrong override is an error rather than a silent fallback; a relative one is ignored), else the
+/// first `gh` file in an absolute `path` entry, else the fallback locations.
+pub fn locate_gh_in(env_override: Option<OsString>, path: Option<OsString>, fallbacks: &[PathBuf]) -> Option<PathBuf> {
+    if let Some(p) = env_override.filter(|p| !p.is_empty()).map(PathBuf::from).filter(|p| p.is_absolute()) {
+        return Some(p);
+    }
+    locate_in("gh", path, fallbacks)
 }
 
 /// [`locate_gh_in`] with the process environment and the standard fallbacks.
@@ -73,31 +103,67 @@ pub fn locate_gh() -> Option<PathBuf> {
     locate_gh_in(std::env::var_os("RSCODE_GH"), std::env::var_os("PATH"), &fallbacks)
 }
 
-/// Spawns the real `gh` (at `gh`, or none when it was not found) and `git` (from `PATH`).
+/// Finds `git` in an absolute `path` entry, else the fallback locations.
+pub fn locate_git_in(path: Option<OsString>, fallbacks: &[PathBuf]) -> Option<PathBuf> {
+    locate_in("git", path, fallbacks)
+}
+
+/// [`locate_git_in`] with the process environment and the standard fallbacks.
+pub fn locate_git() -> Option<PathBuf> {
+    let fallbacks: Vec<PathBuf> = FALLBACK_GIT_PATHS.iter().map(PathBuf::from).collect();
+    locate_git_in(std::env::var_os("PATH"), &fallbacks)
+}
+
+/// Spawns the real `gh` and `git`, each by the absolute path it was found at (never by bare name,
+/// so a program in the repository folder cannot run in their place).
 #[derive(Debug, Clone)]
 pub struct SystemRunner {
     gh: Option<PathBuf>,
+    git: Option<PathBuf>,
+    timeout: Duration,
+    long_timeout: Duration,
+    max_capture: usize,
 }
 
 impl SystemRunner {
+    /// `gh` at the given path (or none when it was not found); `git` is looked up with [`locate_git`].
     pub fn new(gh: Option<PathBuf>) -> Self {
-        Self { gh }
+        Self::with_tools(gh, locate_git())
     }
 
-    /// Looks `gh` up with [`locate_gh`].
+    pub fn with_tools(gh: Option<PathBuf>, git: Option<PathBuf>) -> Self {
+        Self { gh, git, timeout: DEFAULT_TIMEOUT, long_timeout: LONG_TIMEOUT, max_capture: MAX_CAPTURE }
+    }
+
+    /// Looks `gh` and `git` up.
     pub fn locate() -> Self {
         Self::new(locate_gh())
     }
-}
 
-impl GhRunner for SystemRunner {
-    fn run(&self, tool: Tool, args: &[String], cwd: &Path) -> Result<Output, SpawnError> {
-        let program = match tool {
-            Tool::Gh => self.gh.clone().ok_or(SpawnError::NotFound)?,
-            Tool::Git => PathBuf::from("git"),
+    /// Whether a `gh` was found.
+    pub fn has_gh(&self) -> bool {
+        self.gh.is_some()
+    }
+
+    /// Overrides the time and size limits.
+    pub fn with_limits(mut self, timeout: Duration, max_capture: usize) -> Self {
+        self.timeout = timeout;
+        self.long_timeout = timeout;
+        self.max_capture = max_capture;
+        self
+    }
+
+    fn program(&self, tool: Tool) -> Result<&Path, SpawnError> {
+        let found = match tool {
+            Tool::Gh => self.gh.as_deref(),
+            Tool::Git => self.git.as_deref(),
         };
-        let out = Command::new(program)
-            .args(args)
+        found.ok_or(SpawnError::NotFound)
+    }
+
+    fn command(&self, tool: Tool, args: &[String], cwd: &Path) -> Result<Command, SpawnError> {
+        let mut cmd = Command::new(self.program(tool)?);
+        cmd.args(args)
             .current_dir(cwd)
             .stdin(Stdio::null())
             // Never wait on a prompt, a pager or colour codes: nobody can answer them.
@@ -105,15 +171,106 @@ impl GhRunner for SystemRunner {
             .env("GH_NO_UPDATE_NOTIFIER", "1")
             .env("GH_PAGER", "cat")
             .env("NO_COLOR", "1")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
-            .map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { SpawnError::NotFound } else { SpawnError::Io(e.to_string()) })?;
+            .env("GIT_TERMINAL_PROMPT", "0");
+        Ok(cmd)
+    }
+
+    fn timeout_for(&self, tool: Tool, args: &[String]) -> Duration {
+        let moves_data = match tool {
+            Tool::Gh => args.starts_with(&["pr".to_string(), "checkout".to_string()]),
+            Tool::Git => args.first().is_some_and(|a| a == "push"),
+        };
+        if moves_data { self.long_timeout } else { self.timeout }
+    }
+}
+
+fn spawn_failure(e: std::io::Error) -> SpawnError {
+    if e.kind() == std::io::ErrorKind::NotFound { SpawnError::NotFound } else { SpawnError::Io(e.to_string()) }
+}
+
+/// Reads `r` to the end, keeping at most `cap` bytes and dropping the rest (so the child never
+/// blocks on a full pipe).
+fn read_capped(mut r: impl Read, cap: usize) -> Vec<u8> {
+    let mut kept = Vec::new();
+    let mut buf = [0u8; 16 * 1024];
+    loop {
+        match r.read(&mut buf) {
+            Ok(0) | Err(_) => return kept,
+            Ok(n) => {
+                let room = cap.saturating_sub(kept.len());
+                kept.extend_from_slice(&buf[..n.min(room)]);
+            }
+        }
+    }
+}
+
+fn reader(pipe: Option<impl Read + Send + 'static>, cap: usize) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel();
+    match pipe {
+        Some(p) => {
+            std::thread::spawn(move || {
+                let _ = tx.send(read_capped(p, cap));
+            });
+        }
+        None => {
+            let _ = tx.send(Vec::new());
+        }
+    }
+    rx
+}
+
+/// How long to wait for the pipes to close once the child has exited (a grandchild may hold them).
+const PIPE_GRACE: Duration = Duration::from_secs(2);
+
+impl GhRunner for SystemRunner {
+    fn run(&self, tool: Tool, args: &[String], cwd: &Path) -> Result<Output, SpawnError> {
+        let mut child = self.command(tool, args, cwd)?.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(spawn_failure)?;
+        let out_rx = reader(child.stdout.take(), self.max_capture);
+        let err_rx = reader(child.stderr.take(), self.max_capture);
+        let deadline = Instant::now() + self.timeout_for(tool, args);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() >= deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(SpawnError::Timeout);
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+                Err(e) => return Err(SpawnError::Io(e.to_string())),
+            }
+        };
+        let take = |rx: mpsc::Receiver<Vec<u8>>| rx.recv_timeout(PIPE_GRACE).unwrap_or_default();
         Ok(Output {
-            success: out.status.success(),
-            code: out.status.code(),
-            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            success: status.success(),
+            code: status.code(),
+            stdout: String::from_utf8_lossy(&take(out_rx)).into_owned(),
+            stderr: String::from_utf8_lossy(&take(err_rx)).into_owned(),
         })
+    }
+
+    fn spawn_detached(&self, tool: Tool, args: &[String], cwd: &Path) -> Result<(), SpawnError> {
+        let mut child = self.command(tool, args, cwd)?.stdout(Stdio::null()).stderr(Stdio::piped()).spawn().map_err(spawn_failure)?;
+        let stderr = reader(child.stderr.take(), 64 * 1024);
+        // A failure to even start (not signed in, no such pull request) shows up at once.
+        let grace = Instant::now() + Duration::from_millis(1500);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) if status.success() => return Ok(()),
+                Ok(Some(status)) => {
+                    let text = String::from_utf8_lossy(&stderr.recv_timeout(PIPE_GRACE).unwrap_or_default()).trim().to_string();
+                    return Err(SpawnError::Io(if text.is_empty() { format!("{tool:?} exited with {:?}", status.code()) } else { text }));
+                }
+                Ok(None) if Instant::now() < grace => std::thread::sleep(Duration::from_millis(5)),
+                Ok(None) => break,
+                Err(e) => return Err(SpawnError::Io(e.to_string())),
+            }
+        }
+        // Still running: let it go, and reap it when it ends.
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
     }
 }
 
@@ -161,6 +318,39 @@ mod tests {
     #[test]
     fn nothing_found_is_none() {
         assert_eq!(locate_gh_in(None, None, &[PathBuf::from("/nope/gh")]), None);
+    }
+
+    #[test]
+    fn relative_and_empty_path_entries_are_skipped() {
+        let repo = scratch("relative");
+        std::fs::write(repo.join("gh"), "").unwrap();
+        std::fs::write(repo.join("git"), "").unwrap();
+        // The same folder as a relative path from wherever the tests run (`..` stops at the root).
+        let relative = format!("{}{}", "../".repeat(40), repo.strip_prefix("/").unwrap().display());
+        assert!(Path::new(&relative).join("gh").is_file(), "the relative path reaches the planted gh");
+        for path in [relative.as_str(), ".", "", "bin"] {
+            assert_eq!(locate_gh_in(None, Some(path.into()), &[]), None, "gh on {path:?}");
+            assert_eq!(locate_git_in(Some(path.into()), &[]), None, "git on {path:?}");
+        }
+        let abs = scratch("absolute");
+        std::fs::write(abs.join("gh"), "").unwrap();
+        let path = std::env::join_paths([PathBuf::from("."), PathBuf::new(), abs.clone()]).unwrap();
+        assert_eq!(locate_gh_in(None, Some(path), &[]), Some(abs.join("gh")));
+    }
+
+    #[test]
+    fn a_relative_override_is_ignored() {
+        assert_eq!(locate_gh_in(Some("./gh".into()), None, &[]), None);
+    }
+
+    #[test]
+    fn git_is_found_on_path_then_in_the_fallbacks() {
+        let (a, b) = (scratch("git-a"), scratch("git-b"));
+        std::fs::write(a.join("git"), "").unwrap();
+        std::fs::write(b.join("git"), "").unwrap();
+        assert_eq!(locate_git_in(Some(a.clone().into_os_string()), &[b.join("git")]), Some(a.join("git")));
+        assert_eq!(locate_git_in(None, &[PathBuf::from("/nope/git"), b.join("git")]), Some(b.join("git")));
+        assert_eq!(locate_git_in(None, &[PathBuf::from("git")]), None, "a bare name is not a location");
     }
 
     #[test]

@@ -78,3 +78,70 @@ fn no_gh_anywhere_is_gh_missing() {
     let github = Github::new(Arc::new(SystemRunner::new(None)), scratch("work3"));
     assert_eq!(github.repo(), Err(vsr_github::GhError::GhMissing));
 }
+
+fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
+    let path = dir.join(name);
+    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+#[test]
+fn a_hung_gh_is_killed_after_the_timeout() {
+    let dir = scratch("hang");
+    let gh = script(&dir, "gh", "echo $$ > \"$(dirname \"$0\")/pid\"\nexec sleep 30");
+    let runner = SystemRunner::new(Some(gh)).with_limits(std::time::Duration::from_millis(300), 1024);
+    let started = std::time::Instant::now();
+    let err = Github::new(Arc::new(runner), scratch("hang-work")).repo().unwrap_err();
+    assert!(matches!(err, vsr_github::GhError::Timeout { ref command } if command == "gh repo view --json nameWithOwner,defaultBranchRef,url"), "{err:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    // The child is gone (`kill -0` fails for a process that does not exist).
+    let pid = fs::read_to_string(dir.join("pid")).unwrap();
+    let alive = std::process::Command::new("kill").args(["-0", pid.trim()]).status().unwrap().success();
+    assert!(!alive, "the hung gh was killed");
+}
+
+#[test]
+fn captured_output_is_capped() {
+    use vsr_github::{GhRunner, Tool};
+    let dir = scratch("cap");
+    let gh = script(&dir, "gh", "head -c 200000 /dev/zero | tr '\\0' x\nhead -c 200000 /dev/zero | tr '\\0' y >&2");
+    let runner = SystemRunner::new(Some(gh)).with_limits(std::time::Duration::from_secs(30), 1000);
+    let out = runner.run(Tool::Gh, &[], &dir).unwrap();
+    assert_eq!((out.stdout.len(), out.stderr.len()), (1000, 1000));
+}
+
+#[test]
+fn spawn_detached_does_not_wait_for_a_long_running_gh() {
+    use vsr_github::{GhRunner, Tool};
+    let dir = scratch("detached");
+    let gh = script(&dir, "gh", "sleep 5");
+    let runner = SystemRunner::new(Some(gh));
+    let started = std::time::Instant::now();
+    runner.spawn_detached(Tool::Gh, &["pr".into(), "view".into(), "1".into(), "--web".into()], &dir).unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(4));
+}
+
+#[test]
+fn spawn_detached_reports_an_immediate_failure() {
+    use vsr_github::{GhRunner, SpawnError, Tool};
+    let dir = scratch("detached-fail");
+    let gh = script(&dir, "gh", "echo 'not signed in' >&2\nexit 4");
+    let err = SystemRunner::new(Some(gh)).spawn_detached(Tool::Gh, &[], &dir).unwrap_err();
+    assert_eq!(err, SpawnError::Io("not signed in".into()));
+}
+
+#[test]
+fn git_runs_by_its_absolute_path_not_a_repo_local_git() {
+    use vsr_github::{GhRunner, SpawnError, Tool};
+    // A `git` planted in the working directory must not run, even with "." on PATH semantics.
+    let repo = scratch("planted");
+    script(&repo, "git", "echo planted > \"$(dirname \"$0\")/ran\"");
+    let runner = SystemRunner::with_tools(None, None);
+    assert_eq!(runner.run(Tool::Git, &["--version".into()], &repo), Err(SpawnError::NotFound));
+    assert!(!repo.join("ran").exists());
+    let real = SystemRunner::with_tools(None, vsr_github::locate_git());
+    let out = real.run(Tool::Git, &["--version".into()], &repo).unwrap();
+    assert!(out.stdout.starts_with("git version"));
+    assert!(!repo.join("ran").exists());
+}

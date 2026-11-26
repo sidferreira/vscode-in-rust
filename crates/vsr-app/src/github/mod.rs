@@ -48,10 +48,14 @@ pub struct PrTab {
     pub body: PrBody,
 }
 
+type Locator = Arc<dyn Fn() -> Arc<dyn GhRunner> + Send + Sync>;
+
 #[derive(Default)]
 pub struct GithubState {
-    /// `None` until first needed: then `gh` is looked up. Tests set a fake before anything runs.
-    runner: Option<Arc<dyn GhRunner>>,
+    /// How a runner is made, each time one is needed: `gh` is looked up again, so one installed
+    /// after a failed load is found on the next refresh. `None` is the real lookup; tests set a fake
+    /// before anything runs.
+    locator: Option<Locator>,
     /// The last load of the view's lists.
     pub load: Option<Result<Snapshot, GhError>>,
     pub loading: bool,
@@ -61,21 +65,36 @@ pub struct GithubState {
     pub pr_active: bool,
     pub notice: Option<Notice>,
     create: Option<create::CreateFlow>,
+    /// Bumped per Create invocation, so an older preparation or push cannot overwrite a newer flow.
+    create_gen: u64,
+    /// Set while the flow itself replaces its picker with the next step (that is not an abandonment).
+    keep_create: bool,
 }
 
 impl GithubState {
     /// Use this runner instead of the real `gh` (tests, embedders).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_runner(&mut self, runner: Arc<dyn GhRunner>) {
-        self.runner = Some(runner);
+        self.locator = Some(Arc::new(move || runner.clone()));
+    }
+
+    /// Use this to make the runner each time one is needed (tests of "gh installed later").
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn set_runner_factory(&mut self, make: Locator) {
+        self.locator = Some(make);
     }
 
     pub fn pr_showing(&self) -> bool {
         self.pr.is_some() && self.pr_active
     }
 
+    /// A client over a freshly located runner (a few `stat`s), never a cached one: a `gh` that
+    /// was missing last time may be installed now.
     fn client(&mut self, root: &std::path::Path) -> Github {
-        let runner = self.runner.get_or_insert_with(|| Arc::new(SystemRunner::locate())).clone();
+        let runner = match &self.locator {
+            Some(make) => make(),
+            None => Arc::new(SystemRunner::locate()),
+        };
         Github::new(runner, root.to_path_buf())
     }
 }
@@ -169,21 +188,78 @@ impl Workbench {
         cx.notify();
     }
 
+    /// The picker is closing for a reason other than the Create flow moving on (quick open took
+    /// its place, Escape): the flow is abandoned.
+    pub(crate) fn github_picker_closed(&mut self) {
+        if !self.github.keep_create {
+            self.github.create = None;
+        }
+    }
+
     pub(crate) fn github_close_pr(&mut self) {
         self.github.pr = None;
         self.github.pr_active = false;
     }
 
-    /// `gh pr checkout N`, then the status bar's branch follows.
-    pub(crate) fn github_checkout(&mut self, number: u64, cx: &mut Context<Self>) {
+    /// `gh pr checkout N`, after asking when something would be lost or surprise the user: an
+    /// editor with unsaved changes, or a dirty git tree. Then the status bar's branch follows and
+    /// open editors whose files changed on disk reload.
+    pub(crate) fn github_checkout(&mut self, number: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let unsaved = self.editors.open.iter().any(|e| e.is_dirty());
         self.github.notice = Some(Notice { text: format!("Checking out #{number}..."), error: false });
         let client = self.github_client();
+        cx.spawn_in(window, async move |this, cx| {
+            // A failed status (no git) is left to the checkout to report.
+            let tree_dirty = cx.background_executor().spawn({
+                let client = client.clone();
+                async move { client.working_tree_dirty().unwrap_or(false) }
+            })
+            .await;
+            this.update_in(cx, |this, window, cx| {
+                if !unsaved && !tree_dirty {
+                    this.github_checkout_run(number, client, cx);
+                    return;
+                }
+                this.github.notice = None;
+                let why = match (unsaved, tree_dirty) {
+                    (true, true) => "There are unsaved editors and uncommitted changes",
+                    (true, false) => "There are unsaved editors",
+                    _ => "There are uncommitted changes",
+                };
+                let items = create::choices(&[("Checkout anyway", "yes"), ("Cancel", "no")]);
+                this.github_pick(format!("{why}. Check out #{number} anyway?"), String::new(), Some(items), window, cx, move |this, item, _q, _w, cx| {
+                    if item.and_then(|i| i.value).as_deref() == Some("yes") {
+                        let client = this.github_client();
+                        this.github_checkout_run(number, client, cx);
+                    } else {
+                        this.github.notice = Some(Notice { text: format!("Checkout of #{number} cancelled."), error: false });
+                        cx.notify();
+                    }
+                });
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn github_checkout_run(&mut self, number: u64, client: Github, cx: &mut Context<Self>) {
+        self.github.notice = Some(Notice { text: format!("Checking out #{number}..."), error: false });
         cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { client.checkout(number) }).await;
+            // The branch is read with the same client, off the UI thread.
+            let result = cx
+                .background_executor()
+                .spawn(async move { client.checkout(number).map(|()| client.current_branch().ok()) })
+                .await;
             this.update(cx, |this, cx| {
                 this.github.notice = Some(match result {
-                    Ok(()) => {
-                        this.branch = crate::git_branch(&this.root);
+                    Ok(branch) => {
+                        if branch.is_some() {
+                            this.branch = branch;
+                        }
+                        // The files changed under the open editors: take the same path the file watcher does.
+                        let open: Vec<std::path::PathBuf> = this.editors.open.iter().map(|e| e.path.clone()).collect();
+                        this.on_disk_changes(open, cx);
                         Notice { text: format!("Checked out #{number}"), error: false }
                     }
                     Err(e) => Notice { text: format!("Checkout of #{number} failed: {}", e.headline()), error: true },

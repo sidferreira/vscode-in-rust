@@ -296,3 +296,135 @@ fn errors_have_readable_text() {
     assert_eq!(GhError::NotSignedIn("x".into()).headline(), "Run `gh auth login`");
     assert!(GhError::NotGitHubRepo("x".into()).headline().contains("not a GitHub repository"));
 }
+
+// ---- review fixes ------------------------------------------------------------------------------
+
+/// `gh auth status` with github.com fine and a second, broken host (real gh layout).
+const MULTI_HOST_BROKEN_OTHER: &str = "github.com
+  ✓ Logged in to github.com account octocat (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: gho_************************************
+ghe.corp.example
+  X Failed to log in to ghe.corp.example account octocat (keyring)
+  - Active account: true
+  - The token in keyring is invalid.
+  - To re-authenticate, run: gh auth login -h ghe.corp.example
+  - To forget about this account, run: gh auth logout -h ghe.corp.example -u octocat
+";
+
+const MULTI_HOST_BROKEN_GITHUB: &str = "ghe.corp.example
+  ✓ Logged in to ghe.corp.example account octocat (keyring)
+  - Active account: true
+github.com
+  X Failed to log in to github.com account octocat (keyring)
+  - Active account: true
+  - The token in keyring is invalid.
+  - To re-authenticate, run: gh auth login -h github.com
+";
+
+#[test]
+fn a_broken_other_host_does_not_tell_a_github_com_user_to_log_in() {
+    let (g, _) = gh(FakeRunner::new().gh_fails(&["auth", "status"], 1, MULTI_HOST_BROKEN_OTHER));
+    match g.auth_status().unwrap_err() {
+        GhError::Failed { message, .. } => assert!(message.contains("ghe.corp.example"), "{message}"),
+        e => panic!("{e:?}"),
+    }
+}
+
+#[test]
+fn the_default_host_with_an_invalid_token_is_not_signed_in() {
+    let (g, _) = gh(FakeRunner::new().gh_fails(&["auth", "status"], 1, MULTI_HOST_BROKEN_GITHUB));
+    assert!(matches!(g.auth_status(), Err(GhError::NotSignedIn(_))));
+}
+
+#[test]
+fn every_host_broken_is_not_signed_in() {
+    let text = "github.com\n  X Failed to log in to github.com account a (keyring)\n  - The token in keyring is invalid.\n  - To re-authenticate, run: gh auth login -h github.com\n";
+    let (g, _) = gh(FakeRunner::new().gh_fails(&["auth", "status"], 1, text));
+    assert!(matches!(g.auth_status(), Err(GhError::NotSignedIn(_))));
+}
+
+#[test]
+fn the_not_logged_in_message_from_other_commands_is_still_not_signed_in() {
+    let text = "To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.";
+    let (g, _) = gh(FakeRunner::new().gh_fails(&["pr", "list"], 4, text));
+    assert!(matches!(g.list_prs(PrFilter::Open), Err(GhError::NotSignedIn(_))));
+}
+
+#[test]
+fn a_snapshot_goes_on_when_only_another_host_is_broken() {
+    let fake = FakeRunner::new()
+        .gh_fails(&["auth", "status"], 1, MULTI_HOST_BROKEN_OTHER)
+        .gh(&["repo", "view"], REPO)
+        .gh(&["pr", "list"], "[]");
+    let (g, _) = gh(fake);
+    assert!(g.snapshot().is_ok());
+}
+
+#[test]
+fn a_check_run_completed_without_a_conclusion_is_not_a_failure() {
+    let c: Check = serde_json::from_str(r#"{"__typename":"CheckRun","name":"x","status":"COMPLETED","conclusion":""}"#).unwrap();
+    assert_eq!(c.outcome(), CheckOutcome::Skipped);
+    let c: Check = serde_json::from_str(r#"{"__typename":"CheckRun","name":"x","status":"COMPLETED"}"#).unwrap();
+    assert_eq!(c.outcome(), CheckOutcome::Skipped);
+}
+
+#[test]
+fn check_conclusions_map_to_failed_or_neutral() {
+    for (conclusion, want) in [
+        ("FAILURE", CheckOutcome::Failed),
+        ("TIMED_OUT", CheckOutcome::Failed),
+        ("CANCELLED", CheckOutcome::Failed),
+        ("ACTION_REQUIRED", CheckOutcome::Failed),
+        ("STARTUP_FAILURE", CheckOutcome::Failed),
+        ("STALE", CheckOutcome::Skipped),
+        ("SKIPPED", CheckOutcome::Skipped),
+        ("NEUTRAL", CheckOutcome::Skipped),
+        ("SUCCESS", CheckOutcome::Passed),
+    ] {
+        let json = format!(r#"{{"name":"x","status":"COMPLETED","conclusion":"{conclusion}"}}"#);
+        let c: Check = serde_json::from_str(&json).unwrap();
+        assert_eq!(c.outcome(), want, "{conclusion}");
+    }
+}
+
+#[test]
+fn a_missing_git_is_not_reported_as_a_missing_gh() {
+    let (g, _) = gh(FakeRunner::new().on(Tool::Git, &[], Err(SpawnError::NotFound)));
+    assert_eq!(g.branch_info(), Err(GhError::GitMissing));
+    assert_eq!(GhError::GitMissing.headline(), "Install Git");
+    assert_ne!(GhError::GitMissing.headline(), GhError::GhMissing.headline());
+}
+
+#[test]
+fn a_repository_that_cannot_be_resolved_may_be_an_access_problem() {
+    let (g, _) = gh(FakeRunner::new().gh_fails(&["repo"], 1, "GraphQL: Could not resolve to a Repository with the name 'a/b'. (repository)"));
+    let e = g.repo().unwrap_err();
+    assert_eq!(e.headline(), "Could not find this repository on GitHub (not a GitHub repository, or no access)");
+}
+
+#[test]
+fn a_timeout_is_its_own_error() {
+    let (g, _) = gh(FakeRunner::new().on(Tool::Gh, &[], Err(SpawnError::Timeout)));
+    assert!(matches!(g.repo(), Err(GhError::Timeout { .. })));
+}
+
+#[test]
+fn the_working_tree_is_dirty_when_status_lists_anything() {
+    let (g, fake) = gh(FakeRunner::new().git(&["status", "--porcelain"], " M src/lib.rs\n"));
+    assert_eq!(g.working_tree_dirty(), Ok(true));
+    assert_eq!(fake.calls(), ["git status --porcelain"]);
+    let (g, _) = gh(FakeRunner::new().git(&["status", "--porcelain"], ""));
+    assert_eq!(g.working_tree_dirty(), Ok(false));
+}
+
+#[test]
+fn a_detached_head_is_reported_by_branch_info() {
+    let fake = FakeRunner::new()
+        .git(&["rev-parse", "--abbrev-ref", "HEAD"], "HEAD\n")
+        .git_fails(&["rev-parse", "--abbrev-ref", "--symbolic-full-name"], 128, "fatal: HEAD does not point to a branch")
+        .git(&["log"], "x\n");
+    let (g, _) = gh(fake);
+    assert!(g.branch_info().unwrap().is_detached());
+}

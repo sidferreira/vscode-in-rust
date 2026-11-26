@@ -3501,6 +3501,25 @@ Decision (`crates/vsr-github`, no gpui; the UI is ADR-0114):
 - **Not used:** the GitHub REST/GraphQL API directly (would need token handling that `gh` already does), and `octocrab`
   (a large dependency for six calls).
 
+Review fixes (same day):
+- **Sign-in is judged per host.** `gh auth status` exits non-zero when *any* configured host is broken and prints
+  `gh auth login -h <host>` for it, so that hint alone no longer means "not signed in". `NotSignedIn` is: no host logged in
+  ("not logged into any GitHub hosts"), the default host (`GH_HOST`, else github.com) has an invalid token, or no host has a
+  good login and gh points at `gh auth login`. A broken *other* host is `Failed` with gh's text, and `snapshot` carries on
+  past that `Failed` (the repository call then says whether the host in use works). Other commands keep the hint matching.
+- **Locating tools.** Only absolute `PATH` entries are searched (an empty or relative entry means the current directory, where a
+  repository could plant a `gh`/`git`), and the runner always spawns the absolute path it found, never a bare name. `git` is
+  found like `gh` (`PATH`, `/usr/bin/git`, `/opt/homebrew/bin/git`, `/usr/local/bin/git`). A relative `RSCODE_GH` is ignored.
+- **Limits.** `SystemRunner::run` polls the child and kills it after 60 s (10 min for `gh pr checkout` and `git push`, which move
+  data), giving `GhError::Timeout`; stdout and stderr are each capped at 16 MB (the rest is read and dropped so the child never
+  blocks). `gh pr view --web` goes through `GhRunner::spawn_detached`: spawn, report a failure within 1.5 s, else let it go.
+  No new crate: `std::process` plus reader threads and a channel.
+- **Messages.** A missing `git` is `GitMissing` ("Install Git"), not `GhMissing`. `NotGitHubRepo` says "Could not find this
+  repository on GitHub (not a GitHub repository, or no access)" because gh's "could not resolve to a repository" also means a
+  wrong owner or no access.
+- **Checks.** A `COMPLETED` run with an empty or missing conclusion is neutral, not failed; only FAILURE, TIMED_OUT, CANCELLED,
+  ACTION_REQUIRED and STARTUP_FAILURE fail; STALE, SKIPPED and NEUTRAL are neutral.
+
 Tests: unit tests with the fake runner and canned JSON in the shape of real gh output for every call and error path;
 `tests/spawn.rs` runs a fake `gh` shell script found on a `PATH` of its own (in a fresh temp folder) to prove spawning,
 the working directory and that a multi-line body arrives as one argument. The real `gh` is never started by a test.
@@ -3531,6 +3550,24 @@ Decision (`crates/vsr-app/src/github/`: `mod.rs` state and actions, `view.rs` dr
   carries a generation so a slow answer does not overwrite a newer one.
 - **Tests.** `TestAppContext` with an injected `FakeRunner` (`Workbench.github.set_runner`): sections, empty, the three error
   states, opening the tab, the buttons, the checkout command, the whole create flow, and that no push happens without a Yes.
+
+Review fixes (same day):
+- **Runner per use.** The runner is made again for every call (`gh` is located with a few `stat`s) instead of being cached, so a
+  `gh` installed after a failed load is found by the next Refresh. Tests give a factory (`set_runner_factory`).
+- **Checkout asks first.** Before `gh pr checkout`, an editor with unsaved changes or a non-empty `git status --porcelain` (read
+  through the runner, off the UI thread) opens a Quick Pick "Checkout anyway" / "Cancel"; Escape and Cancel check nothing out.
+  After a successful checkout the status-bar branch is read through the runner on the background executor (no `git` on the UI
+  thread), and the open editors go through `on_disk_changes`, the path the file watcher takes, so clean ones whose file
+  changed reload (dirty ones keep their text, as ever).
+- **Create flow.** A detached HEAD (`HEAD` from `rev-parse --abbrev-ref`) stops with "Check out a branch before creating a pull
+  request": nothing is pushed and `--head HEAD` is never passed. Each Create invocation bumps a generation; a preparation or push
+  answer from an older one is dropped. Quick Open replacing the step's picker (a GitHub step is not reused as a Quick Open
+  picker) or Escape ends the flow (`github.create` is cleared in `hide_quick_open`, except while the flow itself moves to its
+  next step).
+- **PR tab and "close all" / session restore: no change, finding not reproduced.** There is no close-all-editors command, and
+  session restore never touches `github.pr` (the tab is not restored, it starts `None`). The only other places that clear
+  `pr_active` (close prompt, quit with a conflicting file) do so to show the editor being asked about; the tab stays and its
+  tab-bar entry brings it back, like Settings and Welcome. Clearing `pr` there would lose the tab on a cancelled close.
 
 Left: Markdown for the body, reviews and comments in the tab, file diffs, a status-bar entry for the current branch's pull
 request, several PR tabs, and a periodic refresh.

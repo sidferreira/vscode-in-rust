@@ -158,6 +158,25 @@ impl Editor {
         }
     }
 
+    /// Appends already-applied changes to the last undo step, when that step is the latest change (so
+    /// they undo with it). False, and nothing changes, when the latest change is not that step.
+    pub(crate) fn fold_into_last(&mut self, changes: &[Change], after: Selection) -> bool {
+        let current = self.history.version;
+        let version = self.history.next_version;
+        let Some(step) = self.history.past.last_mut() else {
+            return false;
+        };
+        if step.after_version != current {
+            return false;
+        }
+        step.changes.extend(changes.iter().cloned());
+        step.after = after;
+        step.after_version = version;
+        self.history.next_version += 1;
+        self.history.version = version;
+        true
+    }
+
     /// Records several already-applied changes (in application order) as one undo step.
     pub(crate) fn record_group(&mut self, changes: Vec<Change>, before: Selection, after: Selection) {
         let version = self.history.next_version;

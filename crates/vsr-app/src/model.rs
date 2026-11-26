@@ -89,6 +89,8 @@ pub struct OpenEditor {
     syntax: Option<crate::syntax::SyntaxDoc>,
     /// The `(editor version, line count)` the tokenizer was last synced at.
     syntax_synced: Cell<Option<(u64, usize)>>,
+    /// The snippet session of the last snippet accepted here, while its tab stops are live (ADR-0120).
+    pub snippet: Option<vsr_suggest::session::SnippetSession>,
 }
 
 /// The modification time of `path`, if it exists.
@@ -133,6 +135,7 @@ impl OpenEditor {
             language_explicit: false,
             syntax: None,
             syntax_synced: Cell::new(None),
+            snippet: None,
         }
     }
 

@@ -219,8 +219,10 @@ impl Workbench {
                 self.suggest_cancel(cx);
                 return;
             }
-            e.editor.apply_completion((main, plan.text), plan.selection, &additional);
+            let (_, start) = e.editor.apply_completion_at((main, plan.text), plan.selection, &additional);
             self.editor_view.edited(&self.editors.open[i], window);
+            // The snippet's tab stops follow (ADR-0120); a plain text ends a session it landed in.
+            self.snippet_start(&plan.stops, start);
         }
         self.suggest_cancel(cx);
         if let Some(c) = command {

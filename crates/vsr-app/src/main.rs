@@ -186,6 +186,9 @@ impl EditorHost for Workbench {
         if let keymap::Command::Navigate(nav) = cmd {
             return self.navigation_command(nav, window, cx);
         }
+        if self.snippet_command(cmd, window, cx) {
+            return true;
+        }
         self.suggest_command(cmd, window, cx)
     }
 
@@ -194,6 +197,7 @@ impl EditorHost for Workbench {
     }
 
     fn editor_event(&mut self, event: editor_view::EditorEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.snippet_after_event();
         self.suggest_editor_event(event, cx);
     }
 }

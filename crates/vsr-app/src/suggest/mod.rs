@@ -15,6 +15,7 @@
 
 mod accept;
 pub mod settings;
+mod snippet_session;
 #[cfg(test)]
 mod e2e_tests;
 pub mod widget;
@@ -278,6 +279,7 @@ impl Workbench {
             }
         }
         self.editor_view.suggest_visible = self.suggest.visible;
+        self.editor_view.snippet_tags = self.snippet_tags();
         self.editor_view.suggest_widget = self.suggest_widget_data().map(std::rc::Rc::new);
     }
 

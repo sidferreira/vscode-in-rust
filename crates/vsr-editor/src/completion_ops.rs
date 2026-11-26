@@ -17,6 +17,12 @@ impl Editor {
     /// (a caret when both are equal); undo restores the selection from before and redo this one.
     /// Returns the number of edits that changed anything.
     pub fn apply_completion(&mut self, main: (Range, String), selection: (usize, usize), additional: &[(Range, String)]) -> usize {
+        self.apply_completion_at(main, selection, additional).0
+    }
+
+    /// Like [`Editor::apply_completion`], and also returns the UTF-16 offset the inserted text starts
+    /// at (after the additional edits before it), so a snippet session can place its stops.
+    pub fn apply_completion_at(&mut self, main: (Range, String), selection: (usize, usize), additional: &[(Range, String)]) -> (usize, usize) {
         let buffer = self.buffer();
         let off = |p| buffer.offset_at(buffer.validate_position(p));
         let main_start = off(main.0.start);
@@ -38,6 +44,6 @@ impl Editor {
         if n > 0 {
             self.amend_last_after(selection);
         }
-        n
+        (n, start)
     }
 }

@@ -3798,6 +3798,11 @@ and the E2E `whole_word_follows_editor_word_separators` (`editor_view/find_e2e.r
 look-around and back-references in regular expressions (Rust `regex`; ADR-0023), the widget's resize sash and the
 options-only widget when closed.
 
+**Amendment (2026-11-26).** Multiline Find in Selection checks whole-word against the characters just outside the
+selection (`find_multiline` in `vsr-find/src/search.rs`), as the line-by-line path does, not against the selection
+text alone. The empty-match rule was re-checked against upstream `Searcher.next` (`textModelSearch.ts:518-521`): a
+match that ends at the text end stops the scan there, so `b*` on "ab" gives "", "b" in upstream too.
+
 ## ADR-0147 — Search view: View as Tree / View as List and `search.defaultViewMode` (2026-11-26)
 
 **Context.** Gap review of the Search view against `searchView.ts`, `searchActionsTopBar.ts` and
@@ -3836,6 +3841,11 @@ search editor: `search.searchEditor.defaultNumberOfContextLines`), `search.actio
 `dismissing_a_folder_removes_its_files`, `default_view_mode_setting_picks_the_first_layout`.
 `config/settings.rs`: `default_view_mode_is_read`. Upstream has no unit test for the layout (`searchResult.test.ts`
 tests the model tree, which we do not mirror), so nothing is ported.
+
+**Amendment (2026-11-26).** `Results::clear` also forgets `collapsed_dirs`, so a new search starts unfolded. The
+folder selection is kept by path (`selected_dir` in `search_view.rs`), not by `Row::Folder` index, because indices
+renumber as results stream in. `any_expanded_tree` counts an unfolded root-level file, so Collapse All is offered
+while one is open; this changes the first toggle in the tree e2e test.
 
 ## ADR-0155 — Code lens: the provider query, the debounce and resolve (step 1 of ADR-0108); layout, click and fonts not done (2026-11-26)
 

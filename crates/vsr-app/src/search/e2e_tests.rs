@@ -563,9 +563,10 @@ fn view_as_tree_groups_files_under_folders_and_folders_fold(cx: &mut TestAppCont
     cx.update(|_, app| v.update(app, |v, cx| v.activate(Row::Folder(0), cx)));
     assert_eq!(row_texts(&v, cx), ["src/", "a.txt", ".", "."], "a folded folder hides its rows");
     cx.update(|_, app| v.update(app, |v, cx| v.toggle_collapse_all(cx)));
-    assert_eq!(row_texts(&v, cx).len(), 7, "no folder is unfolded: Expand All");
+    assert_eq!(row_texts(&v, cx), ["src/", "a.txt"], "a root-level file is unfolded: Collapse All folds every folder and file");
     cx.update(|_, app| v.update(app, |v, cx| v.toggle_collapse_all(cx)));
-    assert_eq!(row_texts(&v, cx), ["src/", "a.txt"], "a folder is unfolded: Collapse All folds every folder and file");
+    assert_eq!(row_texts(&v, cx).len(), 7, "nothing is unfolded: Expand All");
+    cx.update(|_, app| v.update(app, |v, cx| v.toggle_collapse_all(cx)));
 
     cx.update(|_, app| v.update(app, |v, cx| v.set_tree_view(false, cx)));
     assert_eq!(row_texts(&v, cx), ["a.txt", "b.rs"], "back to the list, its files still folded by Collapse All");
@@ -582,6 +583,26 @@ fn dismissing_a_folder_removes_its_files(cx: &mut TestAppContext) {
     cx.update(|_, app| v.update(app, |v, cx| v.dismiss(Row::Folder(0), cx)));
     assert_eq!(files(&v, cx), [("a.txt".into(), 2)]);
     assert_eq!(row_texts(&v, cx), ["a.txt", ".", "."]);
+}
+
+#[gpui_kit::test]
+fn folder_selection_follows_the_folder_not_its_row_index(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start_with_settings(cx, "treedefault", r#"{ "search.defaultViewMode": "tree" }"#);
+    cx.simulate_keystrokes("cmd-shift-f");
+    cx.run_until_parked();
+    let v = view(&wb, cx);
+    cx.simulate_input("alpha");
+    settle(cx);
+    // Folder rows are ["docs/", "src/"]: select src by its row index, then fold docs above it
+    // without selecting it, so the rows that src's index points at change.
+    cx.update(|_, app| v.update(app, |v, cx| v.activate(Row::Folder(1), cx)));
+    assert_eq!(v.read_with(cx, |v, _| v.selected_dir.clone()).as_deref(), Some("src"));
+    cx.update(|_, app| v.update(app, |v, cx| {
+        v.results.toggle_dir("docs");
+        v.rebuild_rows();
+        cx.notify();
+    }));
+    assert_eq!(v.read_with(cx, |v, _| v.selected_dir.clone()).as_deref(), Some("src"), "the same folder stays selected");
 }
 
 #[gpui_kit::test]

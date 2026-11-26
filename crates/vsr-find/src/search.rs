@@ -57,12 +57,11 @@ fn is_line_break(c: char) -> bool {
     c == '\r' || c == '\n'
 }
 
-/// Upstream `isValidMatch` (`textModelSearch.ts`): `text[start..end]` is a whole word.
-fn is_valid_match(separators: &str, text: &str, start: usize, end: usize) -> bool {
-    let first = text[start..end].chars().next();
-    let last = text[start..end].chars().next_back();
-    let before = text[..start].chars().next_back();
-    let after = text[end..].chars().next();
+/// Upstream `isValidMatch` (`textModelSearch.ts`): the match `matched` is a whole word, given the
+/// character just `before` it and just `after` it in the buffer (`None` at the start or end of a line).
+fn is_valid_match(separators: &str, before: Option<char>, matched: &str, after: Option<char>) -> bool {
+    let first = matched.chars().next();
+    let last = matched.chars().next_back();
     let left = match before {
         None => true,
         Some(c) => !is_regular(separators, c) || is_line_break(c) || first.is_some_and(|f| !is_regular(separators, f)),
@@ -163,7 +162,9 @@ impl Compiled {
 
     /// Whole word: is `text[start..end]` bounded by separators (always true when it is off).
     fn valid(&self, text: &str, start: usize, end: usize) -> bool {
-        self.word_separators.as_ref().is_none_or(|s| is_valid_match(s, text, start, end))
+        self.word_separators.as_ref().is_none_or(|s| {
+            is_valid_match(s, text[..start].chars().next_back(), &text[start..end], text[end..].chars().next())
+        })
     }
 
     fn push(&self, out: &mut Vec<FindMatch>, range: Range, caps: Option<regex::Captures<'_>>) {
@@ -217,7 +218,9 @@ impl Compiled {
                 return;
             }
             pos = if end >= text.len() {
-                // Upstream's `Searcher`: a match that reaches the end of the text ends the search.
+                // Upstream's `Searcher.next` (textModelSearch.ts:518-521) returns null once the previous
+                // match ends at the text length, so no empty match follows a match that reaches the end:
+                // `b*` on "ab" gives "", "b" (the same as upstream's `_findMatchesInLine`, :255-288).
                 return;
             } else if end > start {
                 end
@@ -234,11 +237,19 @@ impl Compiled {
         // The text of the range, LF joined, and the byte offset where each line starts in it.
         let mut text = String::new();
         let mut starts = Vec::new();
+        // The characters just outside the selection, which whole-word validity looks at.
+        let (mut outer_before, mut outer_after) = (None, None);
         for line in r.start.line..=r.end.line {
             let content = buffer.line_content(line);
             let from_col = if line == r.start.line { r.start.column } else { 1 };
             let to_col = if line == r.end.line { r.end.column } else { buffer.line_max_column(line) };
             let (b0, b1) = (byte_at_column(content, from_col), byte_at_column(content, to_col));
+            if line == r.start.line {
+                outer_before = content[..b0].chars().next_back();
+            }
+            if line == r.end.line {
+                outer_after = content[b1.max(b0)..].chars().next();
+            }
             starts.push(text.len());
             text.push_str(&content[b0..b1.max(b0)]);
             if line != r.end.line {
@@ -253,7 +264,12 @@ impl Compiled {
             Position::new(line, base + utf16_len(line_text) + 1)
         };
         self.scan(&text, capture, |start, end, caps| {
-            if !self.valid(&text, start, end) {
+            let valid = self.word_separators.as_ref().is_none_or(|s| {
+                let before = if start == 0 { outer_before } else { text[..start].chars().next_back() };
+                let after = if end == text.len() { outer_after } else { text[end..].chars().next() };
+                is_valid_match(s, before, &text[start..end], after)
+            });
+            if !valid {
                 return true;
             }
             self.push(out, Range::new(position_of(start), position_of(end)), caps);
@@ -312,6 +328,25 @@ mod tests {
         let mut p = params("a\\nb");
         p.is_regex = true;
         assert_eq!(find("xa\nb\nab", &p), [(1, 2, 2, 2)]);
+    }
+
+    #[test]
+    fn multiline_whole_word_checks_the_buffer_around_the_selection() {
+        // Selection starts at the second "oo" of "xfoo": the word continues before it, so no match.
+        let mut p = params("oo\\n?");
+        p.is_regex = true;
+        p.whole_word = true;
+        let c = compile(&p).unwrap().unwrap();
+        let b = buf("xfoo bar\nfoo");
+        let scope = [Range::new(Position::new(1, 3), Position::new(2, 4))];
+        assert!(c.find_matches(&b, Some(&scope), false, usize::MAX).is_empty());
+        // Selection starts after the space: "bar" is a whole word, so it is found.
+        let mut p = params("bar\\nfoo");
+        p.is_regex = true;
+        p.whole_word = true;
+        let c = compile(&p).unwrap().unwrap();
+        let scope = [Range::new(Position::new(1, 5), Position::new(2, 4))];
+        assert_eq!(c.find_matches(&b, Some(&scope), false, usize::MAX).len(), 1);
     }
 
     #[test]

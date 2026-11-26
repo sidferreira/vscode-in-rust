@@ -102,9 +102,17 @@ pub fn builtin_roots(extensions_dir: &Path, names: &[&str]) -> Vec<PathBuf> {
             let dir = extensions_dir.join(name);
             let manifest: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).ok()?).ok()?;
             let main = manifest.get("main")?.as_str()?;
-            dir.join(main).is_file().then_some(dir)
+            main_exists(&dir, main).then_some(dir)
         })
         .collect()
+}
+
+/// Whether an extension's `main` is built, resolved the way Node's `require` does: real Code-OSS
+/// manifests omit the suffix (`"./client/out/node/jsonClientMain"`), so `main`, `main.js` and
+/// `main/index.js` are tried in that order.
+fn main_exists(dir: &Path, main: &str) -> bool {
+    let base = dir.join(main);
+    base.is_file() || PathBuf::from(format!("{}.js", base.display())).is_file() || base.join("index.js").is_file()
 }
 
 /// What to start from the environment, `None` (silently: extensions are off) without a Code-OSS
@@ -159,6 +167,28 @@ mod builtin_roots_tests {
             fs::create_dir_all(dir.join(main).parent().unwrap()).unwrap();
             fs::write(dir.join(main), "").unwrap();
         }
+    }
+
+    #[test]
+    fn a_main_without_its_js_suffix_counts_as_built_like_the_real_manifests() {
+        // Review finding: Code-OSS manifests say "./client/out/node/jsonClientMain" (no ".js").
+        let root = scratch("suffixless");
+        extension(&root, "json-language-features", "./client/out/node/jsonClientMain", false);
+        let out = root.join("json-language-features/client/out/node");
+        fs::create_dir_all(&out).unwrap();
+        fs::write(out.join("jsonClientMain.js"), "").unwrap();
+        extension(&root, "css-language-features", "./client/out/node/cssClientMain", false);
+        assert_eq!(builtin_roots(&root, BUILTIN_EXTENSIONS), vec![root.join("json-language-features")]);
+    }
+
+    #[test]
+    fn a_main_folder_with_index_js_counts_as_built() {
+        let root = scratch("indexjs");
+        extension(&root, "html-language-features", "./dist", false);
+        let dist = root.join("html-language-features/dist");
+        fs::create_dir_all(&dist).unwrap();
+        fs::write(dist.join("index.js"), "").unwrap();
+        assert_eq!(builtin_roots(&root, &["html-language-features"]), vec![root.join("html-language-features")]);
     }
 
     #[test]

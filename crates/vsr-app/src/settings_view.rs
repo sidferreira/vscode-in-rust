@@ -1414,13 +1414,13 @@ impl Render for SettingsView {
     }
 }
 
-/// JSON value as input text: strings unquoted, integral numbers without ".0".
 /// `"key": value` for Copy Setting as JSON; the key is escaped like any JSON string.
 fn json_member(key: &str, value_json: &str) -> Option<String> {
     let key_json = serde_json::to_string(key).ok()?;
     Some(format!("{key_json}: {value_json}"))
 }
 
+/// JSON value as input text: strings unquoted, integral numbers without ".0".
 fn value_text(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),

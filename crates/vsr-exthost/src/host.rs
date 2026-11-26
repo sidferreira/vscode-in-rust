@@ -108,9 +108,12 @@ fn on_demand_language(path: &Path) -> &'static str {
 fn read_on_demand(path: &Path) -> Option<String> {
     use std::io::Read;
     use std::os::unix::fs::OpenOptionsExt;
-    // Open non-blocking first: a path swapped for a FIFO between a `metadata` check and `open` would
-    // otherwise block in `open` until a writer appears. The type and size are checked on the handle
-    // that is actually read, so nothing can change between the check and the read.
+    // Path check first, so a device node (e.g. a symlink to /dev/cu.*) is never opened: opening a
+    // device can have side effects. Then open non-blocking (a path swapped for a FIFO after the check
+    // must not block `open`) and check the type and size again on the handle that is actually read.
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
     let file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NONBLOCK)

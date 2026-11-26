@@ -35,10 +35,12 @@ impl ParsedQuery {
     }
 }
 
-/// Whether the query names the setting `key` as a whole word (typed as is, any case). A key
-/// inside a longer word, such as `prefix.key.suffix`, does not count.
+/// Whether the query names the setting `key` as a whole word (typed as is, any case), ignoring
+/// quotes and punctuation around it (`"editor.tabSize"`, `(editor.tabSize),`). A key inside a longer
+/// word, such as `prefix.key.suffix`, does not count.
 pub fn names_setting(query: &str, key: &str) -> bool {
-    query.split_whitespace().any(|w| w.eq_ignore_ascii_case(key))
+    let trim = |c: char| !(c.is_alphanumeric() || c == '.' || c == '_' || c == '-');
+    query.split_whitespace().any(|w| w.trim_matches(trim).eq_ignore_ascii_case(key))
 }
 
 pub fn parse(query: &str) -> ParsedQuery {
@@ -194,6 +196,9 @@ mod tests {
         assert!(!names_setting("my.editor.tabSizes", "editor.tabSize"));
         assert!(!names_setting("xeditor.tabSize", "editor.tabSize"));
         assert!(!names_setting("editor.tab", "editor.tabSize"));
+        // Review: punctuation and quotes around the key still name it.
+        assert!(names_setting("\"editor.tabSize\"", "editor.tabSize"));
+        assert!(names_setting("(editor.tabSize),", "editor.tabSize"));
     }
 
     #[test]

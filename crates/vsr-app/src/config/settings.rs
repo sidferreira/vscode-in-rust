@@ -411,6 +411,9 @@ pub struct EditorSettings {
     pub selection_highlight_max_length: usize,
     /// `editor.occurrencesHighlight`.
     pub occurrences_highlight: OccurrencesHighlight,
+    /// `editor.occurrencesHighlightDelay` in milliseconds: the word's occurrences are drawn once the
+    /// caret has stayed put this long (0 = at once), 0..=2000.
+    pub occurrences_highlight_delay: u64,
     /// `editor.roundedSelection`: the selection boxes have 3px corners.
     pub rounded_selection: bool,
     /// `editor.renderLineHighlightOnlyWhenFocus`.
@@ -504,6 +507,7 @@ impl Default for EditorSettings {
             selection_highlight: true,
             selection_highlight_max_length: 200,
             occurrences_highlight: OccurrencesHighlight::SingleFile,
+            occurrences_highlight_delay: 0,
             rounded_selection: true,
             line_highlight_only_when_focus: false,
             font_features: parse_font_ligatures(None),
@@ -641,6 +645,7 @@ impl EditorSettings {
             selection_highlight: c.get_bool("editor.selectionHighlight").unwrap_or(true),
             selection_highlight_max_length: c.get_f64("editor.selectionHighlightMaxLength").unwrap_or(200.0).max(0.0) as usize,
             occurrences_highlight: c.get_enum("editor.occurrencesHighlight").unwrap_or(OccurrencesHighlight::SingleFile),
+            occurrences_highlight_delay: c.get_f64("editor.occurrencesHighlightDelay").unwrap_or(0.0).clamp(0.0, 2000.0) as u64,
             rounded_selection: c.get_bool("editor.roundedSelection").unwrap_or(true),
             line_highlight_only_when_focus: c.get_bool("editor.renderLineHighlightOnlyWhenFocus").unwrap_or(false),
             font_features: parse_font_ligatures(c.get_value("editor.fontLigatures")),
@@ -1030,6 +1035,15 @@ mod tests {
     }
 
     #[test]
+    fn occurrences_highlight_delay_is_read_in_milliseconds_and_clamped() {
+        let of = |user: &str| EditorSettings::from_configuration(&config(user)).occurrences_highlight_delay;
+        assert_eq!(of(""), 0);
+        assert_eq!(of(r#"{"editor.occurrencesHighlightDelay": 250}"#), 250);
+        assert_eq!(of(r#"{"editor.occurrencesHighlightDelay": 9000}"#), 2000, "the schema maximum");
+        assert_eq!(of(r#"{"editor.occurrencesHighlightDelay": -5}"#), 0, "the schema minimum");
+    }
+
+    #[test]
     fn defaults_match_upstream() {
         let e = EditorSettings::from_configuration(&config(""));
         assert_eq!((e.font_size, e.line_height, e.tab_size, e.insert_spaces), (12.0, 18.0, 4, true));
@@ -1045,6 +1059,7 @@ mod tests {
         assert_eq!(e.match_brackets, MatchBrackets::Always);
         assert!(e.selection_highlight && e.selection_highlight_max_length == 200);
         assert_eq!(e.occurrences_highlight, OccurrencesHighlight::SingleFile);
+        assert_eq!(e.occurrences_highlight_delay, 0, "upstream default: highlight at once");
         assert!(e.rounded_selection && !e.line_highlight_only_when_focus && e.scroll_beyond_last_line);
         assert_eq!(e.font_features, [("liga".to_string(), 0), ("calt".to_string(), 0)]);
         assert_eq!((e.word_wrap, e.word_wrap_column, e.wrapping_indent), (WordWrap::Off, 80, WrappingIndentSetting::Same));

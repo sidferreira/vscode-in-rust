@@ -166,6 +166,10 @@ pub struct EditorView {
     scrollbars: scrollbar::Bars,
     /// The bracket pair highlighted at the caret (`editor.matchBrackets`).
     brackets: decorations::BracketCache,
+    /// `editor.occurrencesHighlightDelay`: when the caret's word may be highlighted, and the timer
+    /// that wakes the editor when it may.
+    occurrences_gate: decorations::OccurrenceGate,
+    occurrences_timer: Option<Task<()>>,
     /// Alt+Z (`editor.action.toggleWordWrap`): per-document override of `editor.wordWrap`.
     wrap_override: HashMap<PathBuf, bool>,
     /// Ctrl+Shift+M (`editor.action.toggleTabFocusMode`): the runtime tab focus mode once toggled.
@@ -506,9 +510,10 @@ impl EditorView {
                 if let Some(s) = shape(window, &cfg, " ") {
                     view.measured_char_w.set(f32::from(s.width));
                 }
+                let word_due = occurrences_due(view, e, &cfg, cx);
                 let find = view.find.highlights(e, &theme);
                 let pair = view.brackets.get(&e.path, e.buffer(), e.editor.version(), e.editor.selection().active, cfg.match_brackets);
-                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator, fold_paint, scroll_extra, view.ext_paint.as_deref())
+                rows(e, &theme, &cfg, gutter, range, window, focused && view.caret_visible(), focused, find.as_ref(), pair, wrap_indicator, fold_paint, scroll_extra, view.ext_paint.as_deref(), word_due)
             }),
         )
         .track_scroll(&scroll);
@@ -942,6 +947,35 @@ fn mouse_move<T: EditorHost>(this: &mut T, ev: &MouseMoveEvent, window: &mut Win
 
 /// The pointer moved over the text: the word under it starts its hover delay (ADR-0109). A timer
 /// wakes the editor when the delay ends, so the request goes out without another mouse move.
+/// Whether the word's occurrences are drawn in this frame (`editor.occurrencesHighlightDelay`). When
+/// they are not due yet, a timer wakes the editor at the time they are.
+fn occurrences_due<T: EditorHost>(view: &mut EditorView, e: &OpenEditor, cfg: &EditorSettings, cx: &mut Context<T>) -> bool {
+    // The gate is keyed on the caret's word, as upstream keeps the highlight while the caret stays in it.
+    let sel = e.editor.selection();
+    let span = match e.editor.word_at(sel.active) {
+        Some(w) => (w.start, w.end),
+        None => (sel.range().start, sel.range().end),
+    };
+    let delay = Duration::from_millis(cfg.occurrences_highlight_delay);
+    let now = cx.background_executor().now();
+    match view.occurrences_gate.check(&e.path, e.editor.version(), span, now, delay) {
+        Ok(()) => {
+            view.occurrences_timer = None;
+            true
+        }
+        Err(wait) => {
+            let weak = cx.weak_entity();
+            // A little past the wait, so the frame that follows sees the occurrences due.
+            let wait = wait + Duration::from_millis(5);
+            view.occurrences_timer = Some(cx.spawn(async move |_, cx| {
+                cx.background_executor().timer(wait).await;
+                let _ = weak.update(cx, |_, cx| cx.notify());
+            }));
+            false
+        }
+    }
+}
+
 fn hover_pointer<T: EditorHost>(editors: &Editors, view: &mut EditorView, ev: &MouseMoveEvent, window: &Window, cx: &mut Context<T>) {
     // A drag selects text: no hover while a button is held (upstream hides it on a mouse down).
     if ev.pressed_button.is_some() {
@@ -1235,12 +1269,13 @@ fn selection_on_line(e: &OpenEditor, line: usize) -> Option<(usize, usize, bool)
 
 /// The occurrences to highlight in this paint (`editor.selectionHighlight`,
 /// `editor.occurrencesHighlight`): the selection when it is on one line, else the word at the caret.
-fn occurrence_source(e: &OpenEditor, cfg: &EditorSettings) -> Option<decorations::Occurrences> {
+fn occurrence_source(e: &OpenEditor, cfg: &EditorSettings, word_due: bool) -> Option<decorations::Occurrences> {
     let sel = e.editor.selection();
     let range = sel.range();
     let selection = (cfg.selection_highlight && !sel.is_empty() && range.start.line == range.end.line)
         .then(|| e.editor.selected_text());
-    let word = (sel.is_empty() && cfg.occurrences_highlight != OccurrencesHighlight::Off)
+    // `editor.occurrencesHighlightDelay` applies to the word's occurrences, not to the selection's.
+    let word = (sel.is_empty() && word_due && cfg.occurrences_highlight != OccurrencesHighlight::Off)
         .then(|| e.editor.word_at(sel.active).map(|r| e.buffer().value_in_range(r)))
         .flatten();
     let max = cfg.selection_highlight.then_some(cfg.selection_highlight_max_length);
@@ -1323,6 +1358,7 @@ fn rows(
     fold_paint: folding::Paint,
     scroll_extra: f32,
     ext: Option<&crate::extensions::paint::PathPaint>,
+    word_due: bool,
 ) -> Vec<AnyElement> {
     e.sync_syntax(); // tokens follow the buffer (ADR-0038)
     let buf = e.buffer();
@@ -1342,7 +1378,7 @@ fn rows(
     let hl_shown = focused || !cfg.line_highlight_only_when_focus;
     let hl_content = matches!(hl, LineHighlight::Line | LineHighlight::All) && sel.is_empty() && hl_shown;
     let hl_gutter = matches!(hl, LineHighlight::Gutter | LineHighlight::All) && hl_shown;
-    let occurrences = occurrence_source(e, cfg);
+    let occurrences = occurrence_source(e, cfg, word_due);
     // The active indent guide is found once per paint, not per row (it may scan the block).
     let active_guide = (cfg.guides_indentation && cfg.guides_highlight_active)
         .then(|| decorations::active_indent_guide(buf, caret_line, tab))

@@ -921,6 +921,30 @@ match = ["workbench.settings.showAISearchToggle", "workbench.settings.enableNatu
 
 [[rule]]
 status = "blocked"
+reason = "needs a read-only default settings editor beside settings.json (the split JSON view)"
+comment = "openDefaultSettings and useSplitJSON open the default settings next to settings.json. rscode has no read-only defaults view yet."
+match = ["workbench.settings.openDefaultSettings", "workbench.settings.useSplitJSON"]
+
+[[rule]]
+status = "blocked"
+reason = "needs a Keyboard Shortcuts editor (the default keybindings view)"
+comment = "openDefaultKeybindings opens the default keybindings beside keybindings.json. rscode's keymap is fixed in keymap.rs and has no editor for it."
+match = ["workbench.settings.openDefaultKeybindings"]
+
+[[rule]]
+status = "blocked"
+reason = "needs horizontal scrolling in the trees and lists (the Explorer clips rows at the panel edge)"
+comment = "workbench.list.horizontalScrolling lets wide rows scroll sideways. rscode's trees and lists clip rows (overflow hidden, no horizontal scroll), so the setting has nothing to change yet."
+match = ["workbench.list.horizontalScrolling"]
+
+[[rule]]
+status = "blocked"
+reason = "needs the unicode highlight pass in the editor (decorations, the confusables table and workspace trust)"
+comment = "editor.unicodeHighlight.* marks invisible, ambiguous and non-ASCII characters. rscode has no such pass; ambiguousCharacters and allowedLocales need the confusables table, the untrusted-workspace keys need workspace trust, and includeComments/includeStrings need token scopes from the editor's highlighter."
+match = ["editor.unicodeHighlight.*"]
+
+[[rule]]
+status = "blocked"
 reason = "needs language features (peek, rename, code actions and linked editing through the extension host)"
 comment = "editor.codeActionsOnSave runs code actions on save. rscode has no code action providers yet (dependency tree: refactor-code-actions)."
 source = ["core"]

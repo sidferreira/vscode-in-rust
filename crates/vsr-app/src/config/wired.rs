@@ -32,6 +32,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Welcome", &["workbench.startupEditor"]),
+    ("Settings editor", &["workbench.settings.settingsSearchTocBehavior", "workbench.settings.editor"]),
     ("Application", &["application.shellEnvironmentResolutionTimeout"]),
     (
         "Session",
@@ -241,6 +242,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.selectionHighlight",
             "editor.selectionHighlightMaxLength",
             "editor.occurrencesHighlight",
+            "editor.occurrencesHighlightDelay",
             "editor.roundedSelection",
             "editor.renderLineHighlightOnlyWhenFocus",
             "editor.fontLigatures",

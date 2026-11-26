@@ -1,0 +1,11 @@
+[package]
+name = "vsr-terminal"
+description = "The integrated terminal core: a PTY, a shell and a terminal emulator grid (ADR-0045)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+alacritty_terminal = "=0.25.1"
+portable-pty = "=0.9.0"

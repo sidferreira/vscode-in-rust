@@ -22,6 +22,14 @@ mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
 mod codelens; // Code lens: the providers' lenses of the active document (ADR-0155)
 mod hover; // Hover widget (ADR-0109)
+mod terminal_view; // the terminal view, commands and terminal.integrated.* (ADR-0045)
+mod panel; // the bottom panel: Problems, Output, Terminal (ADR-0111)
+#[cfg(test)]
+mod terminal_settings_e2e; // headless tests of terminal.integrated.* (ADR-0112)
+#[cfg(test)]
+mod terminal_e2e; // headless tests of the terminal (ADR-0045)
+#[cfg(test)]
+mod panel_e2e; // headless tests of the panel (ADR-0111)
 mod navigation; // Go to Definition, Declaration, Type Definition, Implementation (ADR-0108)
 mod outline; // the document outline: symbols per document, debounced (ADR-0086)
 mod suggest; // completion suggestions: requests to the worker, answers kept (ADR-0082)
@@ -266,6 +274,8 @@ struct Workbench {
     outline: outline::OutlineState,
     navigation: navigation::NavState,
     suggest: suggest::SuggestState,
+    /// The bottom panel (ADR-0111).
+    panel: panel::PanelState,
     branch: Option<String>,
     error: Option<String>,
 }
@@ -346,6 +356,7 @@ impl Workbench {
             outline: outline::OutlineState::with_focus(cx.focus_handle()),
             navigation: navigation::NavState::default(),
             suggest: Default::default(),
+            panel: Default::default(),
             branch: git_branch(&root),
             error: None,
         };
@@ -1477,6 +1488,7 @@ impl Render for Workbench {
         self.hover_sync();
         self.codelens_sync(cx);
         self.suggest_sync(cx);
+        self.panel_sync(window, cx);
         // The OS window title and the dirty dot (macOS shows it in the close button).
         let title = self.window_title(cx);
         let dirty = self.editors.active_editor().is_some_and(|e| e.is_dirty()) && self.editor_surface_active();
@@ -1563,7 +1575,7 @@ impl Render for Workbench {
             }
             None => {}
         }
-        middle = middle.child(self.editor_group(cx, layout.show_tabs)).children(right_group);
+        middle = middle.child(self.editor_area(cx, &layout)).children(right_group);
         if vertical_activity && right {
             middle = middle.child(self.activity_bar(cx, layout.side_bar, layout.activity_bar));
         }
@@ -1586,6 +1598,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &commands::GoToLine, window, cx| this.show_quick_access(":", window, cx)))
             .on_action(cx.listener(|this, _: &commands::GoToSymbol, window, cx| this.show_quick_access("@", window, cx)))
             .on_action(cx.listener(|this, _: &commands::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
+            .map(|root| Workbench::bind_panel_actions(root, cx))
             .on_action(cx.listener(|this, _: &theme_picker::SelectTheme, window, cx| this.show_theme_picker(window, cx)))
             .on_action(cx.listener(|this, _: &breadcrumbs::BreadcrumbsFocus, window, cx| this.focus_crumbs(false, window, cx)))
             .on_action(cx.listener(|this, _: &breadcrumbs::BreadcrumbsFocusAndSelect, window, cx| this.focus_crumbs(true, window, cx)))
@@ -1602,6 +1615,9 @@ impl Render for Workbench {
             .map(|root| Workbench::bind_explorer_actions(root, cx))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
                 this.sash_mouse_activity(cx);
+                if this.panel_drag_move(ev, window, cx) {
+                    return;
+                }
                 if this.resizing_sidebar {
                     if ev.pressed_button == Some(MouseButton::Left) {
                         let layout = this.layout(cx);
@@ -1620,6 +1636,7 @@ impl Render for Workbench {
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
+                    this.panel_drag_end(cx);
                     if this.resizing_sidebar {
                         this.resizing_sidebar = false;
                         cx.notify();

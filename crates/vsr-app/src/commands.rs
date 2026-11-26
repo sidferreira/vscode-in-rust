@@ -112,6 +112,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd--", ZoomOut, None),
         KeyBinding::new("cmd-0", ZoomReset, None),
     ]);
+    crate::panel::bind_keys(cx);
 }
 
 /// The key binding of `action` as the UI shows it: the first binding in the keymap (the
@@ -176,6 +177,7 @@ fn register_builtin(r: &mut CommandsRegistry<Handler>) {
             .f1(),
         action(ToggleSidebar, Workbench),
     );
+    crate::panel::register_commands(r);
     r.register(D::new("workbench.view.explorer", "Show Explorer").category("View").f1(), action(ShowExplorer, Workbench));
     r.register(D::new("workbench.view.search", "Show Search").category("View").f1(), action(sv::FocusSearch, Workbench));
     r.register(D::new("workbench.action.openSettings", "Open Settings (UI)").category("Preferences").f1(), action(OpenSettings, Workbench));

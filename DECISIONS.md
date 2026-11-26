@@ -1468,6 +1468,30 @@ would want.
 - `.gitignore` edits are seen when the folder is listed again. There is no watch on `.gitignore`
   files, and the global gitignore and `.git/info/exclude` are not read.
 
+## ADR-0045 — The integrated terminal: `vsr-terminal` on alacritty_terminal and portable-pty (2026-11-26)
+
+Context: ADR-0045 was reserved for the terminal while new crates could not be fetched. They can now, and the user
+prefers maintained crates over hand-rolled code (everything but VS Code-specific behaviour).
+
+Decision:
+- **Crates.** `alacritty_terminal =0.25.1` (the emulator: VT parser `vte`, grid, scrollback, selection, modes;
+  maintained by the Alacritty project, used by Zed and others; 0.26.0 exists but 0.25.1 is the API we know and
+  0.26 gains nothing we need) and `portable-pty =0.9.0` (PTY and child process; from wezterm, the one crate that
+  covers openpty, spawn on the slave, resize and kill on macOS without `unsafe` in our code). Both resolved
+  through the proxy; no version was quarantined. Nothing is hand-rolled except the xterm key encoding
+  (`keys.rs`), because alacritty_terminal has no input side.
+- **Crate `crates/vsr-terminal`** (no UI): `Terminal::spawn(config, on_event)` starts the user's login shell
+  (`$SHELL`, else `/bin/zsh`, with `-l`, as VS Code does on macOS) with `TERM=xterm-256color`, `COLORTERM=truecolor`,
+  `TERM_PROGRAM=vscode` in the workspace folder. A reader thread feeds the output into an `alacritty_terminal::Term`
+  and reports `Output`/`Title`/`Bell`/`Exit` to a callback; the emulator's `PtyWrite` events (cursor position and
+  device attribute queries) are answered on the PTY. `snapshot()` copies the visible grid, cursor, selection and
+  modes for drawing; `resize`, `scroll`, selection and `selection_text`, `paste` (bracketed when the shell asked),
+  `send_key` and `kill` complete it.
+- **Tests** run a real `/bin/sh -c ...` in a PTY, no window: output and colours in the grid, cursor, exit code, cwd,
+  input echo, resize (`stty size`), scrollback and scrolling, selection, kill, title; plus the key encoding.
+- Not yet: shell integration (OSC 633), links, mouse reporting, find in terminal, persistent sessions, `inheritEnv`
+  login-shell resolution (the process environment is inherited as is).
+
 ## ADR-0046 — Typing rules, comments and indentation: language configuration in the editor (2026-11-10)
 
 **Context.** The `editor` settings group had 51 todo settings, most of them the typing rules every
@@ -3338,6 +3362,67 @@ clamped to the text and scrolled into view, as a search result is (`Workbench::g
 
 Not done: a second `rode` starts a second process and window instead of handing the paths to the running
 instance (upstream's single-instance IPC; the design is in ADR-0160), and there is no `-n`/`-r`/`--diff`.
+
+## ADR-0111 — The bottom panel: one container for Problems, Output and the Terminal (2026-11-26)
+
+Context: the integrated terminal (issue #21, ADR-0045) lives in the panel, which did not exist.
+
+Decision (`crates/vsr-app/src/panel.rs`, tests in `panel_e2e.rs`; upstream `parts/panel/panelPart.ts`, `panelActions.ts`):
+- **Layout.** `Workbench::editor_area` puts the editor group and the panel in one box between the side bars: a column
+  for `bottom`/`top`, a row for `left`/`right`. A maximized panel takes the whole box and the editor group is not drawn.
+  The panel has a 35px title bar (uppercase tabs at 11px, `panelTitle.*` colours, `panel.background`/`panel.border`),
+  the maximize and close buttons, and a sash on the edge facing the editor (hit area `workbench.sash.size`).
+- **Sash.** A drag starts at the sash and moves with the mouse (delta based, so it needs no layout lookup); the size is
+  clamped to 77px (upstream's minimum) up to the window minus 200px. The root mouse-move handler calls
+  `panel_drag_move` first; this is the only change to the existing handlers.
+- **Views.** Problems, Output (placeholders for now) and Terminal (step 3), in upstream's order; Debug Console and
+  Ports come with their features. Commands use upstream's ids: `workbench.action.togglePanel` (Cmd+J),
+  `closePanel`, `focusPanel`, `toggleMaximizedPanel`, `nextPanelView`, `previousPanelView`,
+  `workbench.actions.view.problems` (Cmd+Shift+M), `workbench.action.output.toggleOutput` (Cmd+Shift+U).
+- **Settings wired:** `workbench.panel.showLabels` (off: icon-only tabs), `workbench.panel.defaultLocation`
+  (left, bottom, top, right; upstream reads it for a new workspace and then stores the position, rscode has no
+  move-panel commands yet so the setting is read live), `workbench.panel.opensMaximized` (always, never, preserve:
+  applied when a hidden panel is shown). `workbench.panel.output` stays open (needs the Output view).
+- Panel visibility and size are not saved in the session yet.
+
+## ADR-0112 — The terminal view in the panel and its settings (2026-11-26)
+
+Context: ADR-0045 gave the core crate (`vsr-terminal`), ADR-0111 the panel. This is the view that joins them.
+
+Decision (`crates/vsr-app/src/terminal_view.rs`; tests `terminal_e2e.rs`, `terminal_settings_e2e.rs`):
+- **Drawing.** One `TerminalView` entity per terminal. Each frame it takes `Terminal::snapshot()` and draws one
+  absolutely positioned `StyledText` row per grid row (runs per style: colour, background, weight, italic,
+  underline, strike-through), a cursor box (block, line, underline; hollow when unfocused) and the selection as a
+  run background. Cell width is the shaped advance of `m` (the editor's 0.602 estimate when the text system cannot
+  measure, as in tests), cell height `round(fontSize x lineHeight)`. The PTY is resized to the painted area (columns
+  and rows) in the canvas paint callback.
+- **Colours** come from the theme: `terminal.background` (else `panel.background`), `terminal.foreground`,
+  `terminalCursor.foreground`, `terminal.selectionBackground`/`inactiveSelectionBackground`. The 16 `terminal.ansi*`
+  colours are not in the generated colour registry (upstream registers them in a loop), so the view carries their
+  dark and light defaults from `terminalColorRegistry.ts` and reads the theme's own values first.
+- **Input.** `on_key_down` maps gpui keystrokes to `vsr_terminal::encode_key` (xterm sequences, application cursor
+  mode); typed text goes in as typed. Cmd keys are left to the workbench. The `Terminal` key context binds
+  Cmd+C/V/A, Cmd+Home/End, Shift+PageUp/Down, and unbinds Ctrl+G (a workbench key the shell wants). Mouse: drag, double
+  click (word, using `wordSeparators`), triple click (line), Alt-drag (block); wheel scrolls the history (arrow keys
+  on the alternate screen).
+- **Commands:** `workbench.action.terminal.toggleTerminal` (Ctrl+`), `.new` (Ctrl+Shift+`), `.kill`; the title bar
+  gets New and Kill buttons while the Terminal tab is active, and a tabs list on the right once there are two
+  terminals. A clean exit (code 0) closes the terminal like upstream; a failure keeps it with the message
+  "The terminal process ... terminated with exit code: N.". Hiding the panel with the keyboard focus in a terminal
+  returns the focus to the workbench (`panel_sync`), else the workbench keys would stop working.
+- **Output reaches the UI by polling** every 16 ms: the reader thread cannot wake a gpui task (gpui's test scheduler
+  aborts on a foreign-thread wake of a foreground task), so the callback fills an inbox that a timer task drains.
+  Idle cost is one wake-up per frame per terminal until it exits; follow-up: a platform-safe cross-thread wake.
+- **Settings wired (each has a headless test):** `terminal.integrated.fontSize`, `fontFamily` (empty: the editor
+  font), `lineHeight`, `fontWeight`, `fontWeightBold`, `cursorStyle`, `cursorWidth`, `scrollback`, `copyOnSelection`,
+  `macOptionIsMeta`, `drawBoldTextInBrightColors`, `mouseWheelScrollSensitivity`, `fastScrollSensitivity`,
+  `wordSeparators`, `ignoreBracketedPasteMode`, `hideOnLastClosed`, `cwd`, `defaultProfile.osx`, `profiles.osx`
+  (`path`, `args`, `env`), `env.osx`. The registry restricts `defaultProfile.osx` to the profiles upstream detects, so
+  the view reads the user's raw value (a profile the user defines is valid).
+- Not done: shell integration, links, find, split panes, profile picker command, terminal editors, persistent
+  sessions, bell, blinking cursor, `minimumContrastRatio`, `letterSpacing`, the `tabs.*` settings, inherited
+  login-shell environment (`inheritEnv`), mouse reporting to programs, IME composition, panel and terminal state in
+  the session.
 
 ## ADR-0125 — Timing tests: the budget runs on demand, the workload runs by default (2026-11-26)
 

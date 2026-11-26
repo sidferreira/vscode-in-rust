@@ -3735,7 +3735,9 @@ Reset Setting, Copy Setting ID, and the User / Workspace tabs.
   setting is named by `@id:`, or its key is in the query (upstream `shouldShowSetting`).
 
 **Not done (follow-ups).** `@lang:` is parsed and ignored (no `[language]` override settings view); `@feature:` is
-parsed and ignored; the menu has no Feature..., Tag..., Language..., Online services, Organization policies or ExP
+parsed and ignored. Until they are applied, neither counts as a filter: a query of only `@lang:` / `@feature:` lists no
+settings and shows the "No Settings Found" state (upstream lists the matching ones; rscode has no such settings yet).
+Text next to them still searches as usual. The menu has no Feature..., Tag..., Language..., Online services, Organization policies or ExP
 entries; the filters are not re-applied when settings change while a filter is active (the list stays stable while a
 value is edited); no Workspace/Folder scopes; no per-extension `@ext:` suggestions; no search suggestions; the
 `Modified` indicator is the left bar only (no "Also modified in" hints).

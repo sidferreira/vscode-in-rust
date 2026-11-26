@@ -273,12 +273,11 @@ impl SettingsView {
             registry.search(&q.text)
         };
         let show_advanced = self.show_advanced();
-        let query_lower = self.query.to_lowercase();
         base.into_iter()
             .filter(|s| {
-                let advanced = s.tags.iter().any(|t| t == "advanced");
-                // An advanced setting named by `@id:` or typed by key stays reachable.
-                let named = q.ids.iter().any(|f| query::id_matches(f, &s.key)) || query_lower.contains(&s.key.to_lowercase());
+                let advanced = s.tags.iter().any(|t| t.eq_ignore_ascii_case("advanced"));
+                // An advanced setting named by `@id:` or typed as a whole key stays reachable.
+                let named = q.ids.iter().any(|f| query::id_matches(f, &s.key)) || query::names_setting(&self.query, &s.key);
                 (!advanced || show_advanced || named) && self.passes_filters(s, &q)
             })
             .map(|s| s.key.clone())
@@ -295,7 +294,7 @@ impl SettingsView {
             if stable && (has_tag("preview") || has_tag("experimental")) {
                 return false;
             }
-            if !q.tags.iter().filter(|t| !(stable && *t == "stable")).all(|t| has_tag(&t.to_lowercase())) {
+            if !q.tags.iter().filter(|t| !(stable && t.eq_ignore_ascii_case("stable"))).all(|t| has_tag(&t.to_lowercase())) {
                 return false;
             }
         }
@@ -438,7 +437,7 @@ impl SettingsView {
     fn setting_as_json(&self, key: &str) -> Option<String> {
         let schema = self.registry.get(key)?;
         let value = serde_json::to_string_pretty(&self.current_value(schema)).ok()?;
-        Some(format!("\"{key}\": {value}"))
+        json_member(key, &value)
     }
 
     /// Apply a filter-menu action: set the search text and put the caret back in the search box.
@@ -1118,8 +1117,10 @@ impl SettingsView {
             .when(open, |d| d.bg(to_gpui(t.list_hover_bg)))
             .hover(|s| s.bg(to_gpui(t.list_hover_bg)))
             .child(icons::glyph(icons::FILTER))
-            .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
-                this.filter_menu = !this.filter_menu;
+            // Mouse down, not click: the open menu's mouse-down-out runs first and closes it, so
+            // this toggles from the state the menu was drawn with (closing it again when open).
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, _w, cx| {
+                this.filter_menu = !open;
                 cx.notify();
             }));
         let mut holder = div().relative().flex_none().child(button);
@@ -1414,6 +1415,12 @@ impl Render for SettingsView {
 }
 
 /// JSON value as input text: strings unquoted, integral numbers without ".0".
+/// `"key": value` for Copy Setting as JSON; the key is escaped like any JSON string.
+fn json_member(key: &str, value_json: &str) -> Option<String> {
+    let key_json = serde_json::to_string(key).ok()?;
+    Some(format!("{key_json}: {value_json}"))
+}
+
 fn value_text(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
@@ -1426,6 +1433,12 @@ fn value_text(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[core::prelude::v1::test]
+    fn json_member_escapes_the_key() {
+        assert_eq!(json_member("editor.tabSize", "2").as_deref(), Some("\"editor.tabSize\": 2"));
+        assert_eq!(json_member("a\"b\\c", "true").as_deref(), Some("\"a\\\"b\\\\c\": true"));
+    }
 
     #[core::prelude::v1::test]
     fn value_text_formats() {

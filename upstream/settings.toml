@@ -1024,3 +1024,21 @@ status = "blocked"
 reason = "needs snippet insertion in the editor (MainThreadTextEditors.$tryInsertSnippet)"
 comment = "html.autoClosingTags and html.autoCreateQuotes: the HTML client asks the server for the text to insert (html/autoInsert) and applies it with TextEditor.insertSnippet, which the main thread does not handle yet (ADR-0103)."
 match = ["html.autoClosingTags", "html.autoCreateQuotes"]
+
+[[rule]]
+status = "blocked"
+reason = "needs file drop onto the editor (OS drag and drop of files into the window)"
+comment = "dropIntoEditor.* controls dropping a file into the text editor with Shift held, and the widget that picks how the dropped content is inserted. The window does not take file drops yet, and the drop edit providers come from the extension host."
+match = ["editor.dropIntoEditor.*"]
+
+[[rule]]
+status = "blocked"
+reason = "needs multi-cursor editing (column selection creates a cursor per line)"
+comment = "multiCursorModifier, multiCursorMergeOverlapping, multiCursorPaste and multiCursorLimit tune several cursors (Alt or Cmd click adds one, overlapping cursors merge, a paste fills one line per cursor). vsr-editor has one cursor."
+match = ["editor.multiCursorModifier", "editor.multiCursorMergeOverlapping", "editor.multiCursorPaste", "editor.multiCursorLimit"]
+
+[[rule]]
+status = "blocked"
+reason = "needs document highlight providers (via the extension host)"
+comment = "occurrencesHighlightFromAllProviders merges the single-document highlights of every matching provider. The occurrences highlight is word based and no providers are run, so the setting has nothing to merge."
+match = ["editor.occurrencesHighlightFromAllProviders"]

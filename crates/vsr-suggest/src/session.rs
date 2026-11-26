@@ -76,7 +76,7 @@ impl SnippetSession {
     }
 
     /// Moves to the next stop. False when it is the last one already.
-    pub fn next(&mut self) -> bool {
+    pub fn next_stop(&mut self) -> bool {
         if self.has_next() {
             self.current += 1;
             true
@@ -86,7 +86,7 @@ impl SnippetSession {
     }
 
     /// Moves to the previous stop. False when it is the first one already.
-    pub fn prev(&mut self) -> bool {
+    pub fn prev_stop(&mut self) -> bool {
         if self.has_prev() {
             self.current -= 1;
             true
@@ -225,10 +225,10 @@ mod tests {
         let order: Vec<u32> = s.groups().iter().map(|g| g.index).collect();
         assert_eq!(order, vec![1, 2, 3, 0]);
         assert!(s.has_next() && !s.has_prev());
-        assert!(s.next() && s.next() && s.next());
+        assert!(s.next_stop() && s.next_stop() && s.next_stop());
         assert!(s.at_last());
-        assert!(!s.next(), "no stop after $0");
-        assert!(s.prev());
+        assert!(!s.next_stop(), "no stop after $0");
+        assert!(s.prev_stop());
         assert_eq!(s.current().index, 3);
     }
 
@@ -264,7 +264,7 @@ mod tests {
     fn a_stop_at_the_same_boundary_is_pushed_only_when_after() {
         // `$1${2:x}` : stop 1 empty at 0, stop 2 "x" at 0..1.
         let (mut s, _) = session("$1${2:x}");
-        s.next(); // current = stop 2 (index 2)
+        s.next_stop(); // current = stop 2 (index 2)
         // Typing at offset 0: the stop before (empty, at 0) stays before the text, the active one grows.
         s.apply_change(0, 0, 1);
         assert_eq!(s.groups()[0].ranges, vec![(0, 0)], "a stop before the active one stays at the edge");

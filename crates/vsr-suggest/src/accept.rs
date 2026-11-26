@@ -121,7 +121,7 @@ mod tests {
     }
 
     fn at(column: i64) -> Position {
-        Position { line: 1, column: column }
+        Position { line: 1, column }
     }
 
     #[test]

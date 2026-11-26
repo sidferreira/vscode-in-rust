@@ -92,6 +92,7 @@ pub const WIRED_KEYS: &[(&str, &[&str])] = &[
             "editor.hover.hidingDelay",
             "editor.hover.sticky",
             "editor.hover.above",
+            "editor.hover.showLongLineWarning",
         ],
     ),
     (

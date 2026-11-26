@@ -7,20 +7,25 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+use gpui_kit::{Entity, Modifiers, ScrollDelta, ScrollEvent, ScrollSource, TestAppContext, TouchPhase, VisualTestContext, point as gpoint, px};
 use vsr_exthost::language_features::dto::{Hover, MarkdownString, Range};
 
-use super::Point;
+use super::{LONG_LINE_WARNING, Point};
 use crate::Workbench;
 use crate::config::AppConfig;
 
-/// A workbench over `<tmp>/proj` (`src/main.rs`), with `settings` as the user settings file.
+/// A workbench over `<tmp>/proj` (`src/main.rs`, `fn main() {}`), with `settings` as the user settings file.
 fn workbench<'a>(cx: &'a mut TestAppContext, name: &str, settings: &str) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
+    workbench_text(cx, name, settings, "fn main() {}\n")
+}
+
+/// A workbench over `<tmp>/proj` (`src/main.rs` with `text`), with `settings` as the user settings file.
+fn workbench_text<'a>(cx: &'a mut TestAppContext, name: &str, settings: &str, text: &str) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let dir = std::env::temp_dir().join(format!("rscode-hover-e2e-{name}-{}-{nanos}", std::process::id()));
     let proj = dir.join("proj");
     fs::create_dir_all(proj.join("src")).unwrap();
-    fs::write(proj.join("src/main.rs"), "fn main() {}\n").unwrap();
+    fs::write(proj.join("src/main.rs"), text).unwrap();
     let settings_file = dir.join("settings.json");
     fs::write(&settings_file, settings).unwrap();
     cx.update(|cx| {
@@ -174,4 +179,168 @@ fn editor_hover_above_places_the_widget_above_or_below_the_word(cx: &mut TestApp
         let placed = wb.read_with(cx, |wb, _| wb.editor_view.hover.shown.as_ref().map(|s| s.above));
         assert_eq!(placed, Some(above), "editor.hover.above = {above}");
     }
+}
+
+/// The pointer rests on `line`, `column` at `at` (window coordinates) at `now`.
+fn rest_at(wb: &Entity<Workbench>, cx: &mut VisualTestContext, path: &Path, now: Instant, line: u32, column: u32, at: (f32, f32)) {
+    let point = Point { path: path.to_path_buf(), line, column };
+    wb.update(cx, |wb, cx| {
+        let s = crate::hover::settings(cx);
+        wb.editor_view.hover.pointer(now, Some((point, at)), s);
+    });
+}
+
+/// The word box `(x, top, bottom)` of `line`, `column` in the editor surface.
+fn char_box(wb: &Entity<Workbench>, cx: &mut VisualTestContext, line: usize, column: usize) -> (f32, f32, f32) {
+    wb.read_with(cx, |wb, _| {
+        let e = wb.editors.active_editor().unwrap();
+        wb.editor_view.anchor_at(e, line, column)
+    })
+}
+
+/// A window point on `line`, `column` (its row's middle), for real mouse events.
+fn window_point_at(wb: &Entity<Workbench>, cx: &mut VisualTestContext, line: usize, column: usize) -> gpui_kit::Point<gpui_kit::Pixels> {
+    let origin = wb.read_with(cx, |wb, _| wb.editor_view.bounds.get().origin);
+    let (x, top, _) = char_box(wb, cx, line, column);
+    gpoint(origin.x + px(x + 1.0), origin.y + px(top + 9.0))
+}
+
+fn hover_shown(wb: &Entity<Workbench>, cx: &mut VisualTestContext) -> bool {
+    wb.read_with(cx, |wb, _| wb.editor_view.hover.shown.is_some())
+}
+
+/// The widget is shown on `main` (line 1, column 5) after its delay, with the answer "fn main()".
+fn show_on_main(wb: &Entity<Workbench>, cx: &mut VisualTestContext, file: &Path) {
+    answer_with(wb, cx, "fn main()");
+    let t0 = Instant::now();
+    rest_on_word(wb, cx, file, t0);
+    frame_at(wb, cx, t0 + Duration::from_millis(300));
+    assert!(hover_shown(wb, cx), "shown before the event");
+}
+
+#[gpui::test]
+fn the_widget_is_anchored_at_the_word_not_the_pointer(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "anchor", "{}");
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    answer_with(&wb, cx, "fn main()");
+    let t0 = Instant::now();
+    // The pointer rests on the word's fifth column, but far to the right.
+    rest_at(&wb, cx, &file, t0, 1, 5, (200.0, 300.0));
+    frame_at(&wb, cx, t0 + Duration::from_millis(300));
+    let word = wb.read_with(cx, |wb, _| {
+        let e = wb.editors.active_editor().unwrap();
+        wb.editor_view.hover_word_box(e, wb.editor_view.hover_drawn().expect("shown"))
+    });
+    assert_eq!(word, char_box(&wb, cx, 1, 4), "anchored at the word's start (column 4)");
+    assert_ne!(word.0, 200.0, "not at the pointer");
+    let gutter = wb.read_with(cx, |wb, _| wb.editor_view.gutter);
+    let advance = char_box(&wb, cx, 1, 5).0 - char_box(&wb, cx, 1, 4).0;
+    assert!((word.0 - (gutter + 3.0 * advance)).abs() < 0.5, "gutter plus three character advances");
+}
+
+#[gpui::test]
+fn a_word_after_a_tab_is_anchored_after_the_tab_stop(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench_text(cx, "tab-anchor", "{}", "\tfn main() {}\n");
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    // The answer's range is `fn`, chars 2 to 4 of the line.
+    wb.update(cx, |wb, _| {
+        wb.editor_view.hover.fake = Some(Box::new(|_, _, _| vec![Hover { range: Some(Range::new(1, 2, 1, 4)), ..hover_of("fn") }]));
+    });
+    let t0 = Instant::now();
+    rest_at(&wb, cx, &file, t0, 1, 3, (10.0, 20.0));
+    frame_at(&wb, cx, t0 + Duration::from_millis(300));
+    let word = wb.read_with(cx, |wb, _| {
+        let e = wb.editors.active_editor().unwrap();
+        wb.editor_view.hover_word_box(e, wb.editor_view.hover_drawn().expect("shown"))
+    });
+    assert_eq!(word, char_box(&wb, cx, 1, 2), "the word's start is column 2");
+    // A tab is four cells (`editor.tabSize`): the word starts four advances after the tab's start.
+    let advance = char_box(&wb, cx, 1, 3).0 - char_box(&wb, cx, 1, 2).0;
+    let tab_start = char_box(&wb, cx, 1, 1).0;
+    assert!((word.0 - tab_start - 4.0 * advance).abs() < 0.5, "four cells after the tab");
+}
+
+#[gpui::test]
+fn a_mouse_down_dismisses_the_widget(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "mouse-dismiss", "{}");
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    show_on_main(&wb, cx, &file);
+    let at = window_point_at(&wb, cx, 1, 1);
+    cx.simulate_mouse_move(at, None, Modifiers::none());
+    cx.simulate_click(at, Modifiers::none());
+    cx.run_until_parked();
+    assert!(!hover_shown(&wb, cx), "a click dismisses the hover");
+}
+
+#[gpui::test]
+fn a_key_press_and_typing_dismiss_the_widget(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "key-dismiss", "{}");
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    show_on_main(&wb, cx, &file);
+    cx.simulate_keystrokes("right");
+    cx.run_until_parked();
+    assert!(!hover_shown(&wb, cx), "a bound key dismisses the hover");
+    show_on_main(&wb, cx, &file);
+    cx.simulate_input("x");
+    cx.run_until_parked();
+    assert!(!hover_shown(&wb, cx), "typed text dismisses the hover");
+}
+
+#[gpui::test]
+fn a_wheel_scroll_dismisses_the_widget(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench_text(cx, "wheel-dismiss", "{}", &"fn main() {}\n".repeat(300));
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    show_on_main(&wb, cx, &file);
+    let top_before = char_box(&wb, cx, 1, 4).1;
+    let at = window_point_at(&wb, cx, 5, 1);
+    cx.simulate_event(ScrollEvent {
+        position: at,
+        delta: ScrollDelta::Pixels(gpoint(px(0.0), px(-180.0))),
+        modifiers: Modifiers::none(),
+        touch_phase: TouchPhase::Moved,
+        source: ScrollSource::Pointer,
+    });
+    cx.run_until_parked();
+    assert_ne!(char_box(&wb, cx, 1, 4).1, top_before, "the wheel scrolled the document");
+    assert!(!hover_shown(&wb, cx), "the scroll dismissed the hover");
+}
+
+#[gpui::test]
+fn the_long_line_warning_is_shown_on_a_skipped_line_without_provider_hovers(cx: &mut TestAppContext) {
+    // `editor.maxTokenizationLineLength` 5: the 12-character line is one the tokenizer skips.
+    let (wb, cx, proj) = workbench(cx, "long-line", r#"{"editor.maxTokenizationLineLength": 5}"#);
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    let t0 = Instant::now();
+    // No provider answer: the warning alone is shown.
+    rest_on_word(&wb, cx, &file, t0);
+    frame_at(&wb, cx, t0 + Duration::from_millis(300));
+    assert_eq!(shown_lines(&wb, cx), Some(vec![LONG_LINE_WARNING.to_string()]));
+}
+
+#[gpui::test]
+fn editor_hover_show_long_line_warning_off_shows_no_warning(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "long-line-off", r#"{"editor.maxTokenizationLineLength": 5, "editor.hover.showLongLineWarning": false}"#);
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    let t0 = Instant::now();
+    rest_on_word(&wb, cx, &file, t0);
+    frame_at(&wb, cx, t0 + Duration::from_millis(300));
+    assert_eq!(shown_lines(&wb, cx), None, "editor.hover.showLongLineWarning = false shows nothing");
+}
+
+#[gpui::test]
+fn the_widget_is_not_drawn_while_the_suggest_list_is_open(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "suggest-overlap", "{}");
+    let file = proj.join("src/main.rs");
+    open(&wb, cx, &file);
+    show_on_main(&wb, cx, &file);
+    wb.update(cx, |wb, _| wb.editor_view.suggest_visible = true);
+    assert!(wb.read_with(cx, |wb, _| wb.editor_view.hover_drawn().is_none()), "the suggest list covers it");
+    assert!(hover_shown(&wb, cx), "the answer is kept for when the list closes");
 }

@@ -11,9 +11,14 @@
 //! [`HoverState::deliver`]; an answer to a request that is no longer awaited is dropped. Every
 //! time-based step takes the instant as an argument, so the tests drive the clock.
 //!
-//! Differences: the markdown is shown as plain lines (no code blocks, links or theme icons), the
-//! widget is anchored at the pointer rather than at the word's box, and there is no verbosity
-//! control or status bar.
+//! The widget is anchored at the word's box (its start, placed by the editor at paint, so a scroll
+//! moves it with the text). A mouse down, a key press or a scroll dismisses it and forgets the
+//! request in flight (upstream hides the content hover on those). A line the tokenizer skips
+//! shows the long line warning (`editor.hover.showLongLineWarning`) even without provider hovers.
+//!
+//! Differences: the markdown is shown as plain lines (no code blocks, links or theme icons), and
+//! there is no verbosity control or status bar. The warning has no "Don't Show Again" link, and
+//! `editor.stopRenderingLineAfter` (the other long line warning) is not wired.
 
 mod overlay;
 
@@ -47,6 +52,8 @@ pub struct Settings {
     pub sticky: bool,
     /// `editor.hover.above`: the widget shows above the word, else below.
     pub above: bool,
+    /// `editor.hover.showLongLineWarning`: a line the tokenizer skips shows a warning hover.
+    pub long_line_warning: bool,
 }
 
 impl Settings {
@@ -59,6 +66,7 @@ impl Settings {
             hiding_delay: ms("editor.hover.hidingDelay", 300),
             sticky: c.get_bool("editor.hover.sticky").unwrap_or(true),
             above: c.get_bool("editor.hover.above").unwrap_or(true),
+            long_line_warning: c.get_bool("editor.hover.showLongLineWarning").unwrap_or(true),
         }
     }
 }
@@ -81,6 +89,8 @@ pub struct Pending {
     pub id: u64,
     pub point: Point,
     pub at: (f32, f32),
+    /// Lines shown before the providers' (the long line warning), set before the request is sent.
+    pub warning: Vec<String>,
 }
 
 /// The widget on screen: its lines, the word's range (chars) and where it is anchored.
@@ -112,6 +122,8 @@ pub struct HoverState {
     hide_at: Option<Instant>,
     /// The pointer is over the widget itself.
     on_widget: bool,
+    /// The scroll offset the widget was last placed for: a change dismisses it.
+    scroll: Option<(f32, f32)>,
     /// The timer that wakes the editor when the delay ends.
     pub timer: Option<Task<()>>,
     /// Tests: the answer the providers give, instead of a running host.
@@ -181,17 +193,47 @@ impl HoverState {
         if self.armed.as_ref().is_some_and(|a| now >= a.due) {
             let a = self.armed.take()?;
             self.next_id += 1;
-            let p = Pending { id: self.next_id, point: a.point, at: a.at };
+            let p = Pending { id: self.next_id, point: a.point, at: a.at, warning: Vec::new() };
             self.awaited = Some(p.clone());
             return Some(p);
         }
         None
     }
 
+    /// Upstream hides the content hover on a mouse down, a key press and a scroll. The request in
+    /// flight is forgotten too, so its answer is dropped.
+    pub fn dismiss(&mut self) {
+        self.armed = None;
+        self.awaited = None;
+        self.shown = None;
+        self.hide_at = None;
+    }
+
+    /// The scroll offset of the editor at paint: a change since the last paint dismisses the widget.
+    pub fn scrolled_to(&mut self, top: (f32, f32)) {
+        if self.scroll.is_some_and(|s| s != top) {
+            self.dismiss();
+        }
+        self.scroll = Some(top);
+    }
+
+    /// `editor.hover.showLongLineWarning` (on until the settings are read).
+    pub fn long_line_warning(&self) -> bool {
+        self.settings.is_none_or(|s| s.long_line_warning)
+    }
+
+    /// The long line warning for request `id`, if it is the one awaited (set before it is sent).
+    pub fn warn_awaited(&mut self, id: u64, lines: Vec<String>) {
+        if let Some(p) = self.awaited.as_mut().filter(|p| p.id == id) {
+            p.warning = lines;
+        }
+    }
+
     /// The answer of request `id`. Returns false (and changes nothing) when it is not the one awaited.
     pub fn deliver(&mut self, id: u64, hovers: Vec<Hover>) -> bool {
         let Some(p) = self.awaited.take_if(|p| p.id == id) else { return false };
-        let lines: Vec<String> = hovers.iter().flat_map(|h| h.contents.iter()).flat_map(|m| plain_lines(&m.value)).collect();
+        let mut lines = p.warning.clone();
+        lines.extend(hovers.iter().flat_map(|h| h.contents.iter()).flat_map(|m| plain_lines(&m.value)));
         let range = hovers.iter().find_map(|h| h.range);
         self.shown = (!lines.is_empty()).then(|| Shown {
             above: self.settings.is_none_or(|s| s.above),
@@ -204,6 +246,17 @@ impl HoverState {
         true
     }
 }
+
+/// Where the widget's top left corner goes, given the word's box `(x, top, bottom)` in the editor
+/// surface: above the word (`n` lines up from its top) or below it.
+pub fn origin(word: (f32, f32, f32), above: bool, n: usize, line_height: f32) -> (f32, f32) {
+    let (x, top, bottom) = word;
+    let y = if above { (top - line_height * n as f32).max(0.0) } else { bottom };
+    (x.max(0.0), y)
+}
+
+/// The text of the long line warning (upstream `markdownHoverParticipant`, without its link).
+pub const LONG_LINE_WARNING: &str = "Tokenization is skipped for long lines for performance reasons. This can be configured via editor.maxTokenizationLineLength.";
 
 /// Whether the shown widget already covers the word at `p`.
 fn covers(sh: &Shown, p: &Point) -> bool {
@@ -235,12 +288,25 @@ impl Workbench {
 
     pub(crate) fn hover_sync_at(&mut self, now: Instant) {
         let Some(req) = self.editor_view.hover.tick(now) else { return };
+        let warning = self.long_line_warning(&req.point);
+        self.editor_view.hover.warn_awaited(req.id, warning);
         if self.ext.is_running() {
             let p = req.point;
             self.ext_send(ToHost::Hover { id: req.id, path: p.path, line: p.line, column: p.column });
         } else {
             self.hover_answer_in_process(&req);
         }
+    }
+
+    /// The long line warning for the word at `p`: a line at least `editor.maxTokenizationLineLength`
+    /// long (in UTF-16 units, as upstream counts) is one the tokenizer skips.
+    fn long_line_warning(&self, p: &Point) -> Vec<String> {
+        if !self.editor_view.hover.long_line_warning() {
+            return Vec::new();
+        }
+        let Some(e) = self.editors.open.iter().find(|e| e.path == p.path) else { return Vec::new() };
+        let line = e.buffer().line_content(p.line as usize);
+        if line.encode_utf16().count() >= self.editors.max_tokenization_line_length { vec![LONG_LINE_WARNING.to_string()] } else { Vec::new() }
     }
 
     #[cfg(test)]
@@ -270,7 +336,7 @@ mod tests {
     }
 
     fn on() -> Settings {
-        Settings { enabled: true, delay: Duration::from_millis(300), hiding_delay: Duration::from_millis(300), sticky: true, above: true }
+        Settings { enabled: true, delay: Duration::from_millis(300), hiding_delay: Duration::from_millis(300), sticky: true, above: true, long_line_warning: true }
     }
 
     fn doc(text: &str, range: Option<Range>) -> Hover {
@@ -378,7 +444,64 @@ mod tests {
     #[test]
     fn the_default_settings_are_the_upstream_defaults() {
         let s = Settings::read(&config("{}"));
-        assert_eq!(s, Settings { enabled: true, delay: Duration::from_millis(300), hiding_delay: Duration::from_millis(300), sticky: true, above: true });
+        assert_eq!(s, Settings { enabled: true, delay: Duration::from_millis(300), hiding_delay: Duration::from_millis(300), sticky: true, above: true, long_line_warning: true });
+    }
+
+    #[test]
+    fn editor_hover_show_long_line_warning_is_read_and_defaults_on() {
+        assert!(Settings::read(&config("{}")).long_line_warning);
+        assert!(!Settings::read(&config(r#"{"editor.hover.showLongLineWarning": false}"#)).long_line_warning);
+    }
+
+    #[test]
+    fn a_mouse_down_or_key_press_dismisses_and_the_answer_in_flight_is_dropped() {
+        let t0 = Instant::now();
+        let mut h = HoverState::default();
+        h.pointer(t0, Some((point(1, 2), (0.0, 0.0))), on());
+        let req = h.tick(t0 + Duration::from_millis(300)).unwrap();
+        h.deliver(req.id, vec![doc("shown", None)]);
+        assert!(h.shown.is_some());
+        h.dismiss();
+        assert!(h.shown.is_none(), "dismissed at once");
+        // A request sent before the dismissal: its answer must not show.
+        h.pointer(t0 + Duration::from_secs(1), Some((point(2, 2), (0.0, 0.0))), on());
+        let late = h.tick(t0 + Duration::from_secs(2)).unwrap();
+        h.dismiss();
+        assert!(!h.deliver(late.id, vec![doc("late", None)]), "the answer to a dismissed request is dropped");
+        assert!(h.shown.is_none());
+    }
+
+    #[test]
+    fn a_scroll_dismisses_the_widget_only_when_the_offset_changes() {
+        let t0 = Instant::now();
+        let mut h = HoverState::default();
+        h.scrolled_to((0.0, 0.0));
+        h.pointer(t0, Some((point(1, 2), (0.0, 0.0))), on());
+        let req = h.tick(t0 + Duration::from_millis(300)).unwrap();
+        h.deliver(req.id, vec![doc("shown", None)]);
+        h.scrolled_to((0.0, 0.0));
+        assert!(h.shown.is_some(), "the same offset keeps it");
+        h.scrolled_to((0.0, -18.0));
+        assert!(h.shown.is_none(), "a scroll dismisses it");
+    }
+
+    #[test]
+    fn the_long_line_warning_shows_even_without_provider_hovers() {
+        let t0 = Instant::now();
+        let mut h = HoverState::default();
+        h.pointer(t0, Some((point(1, 2), (0.0, 0.0))), on());
+        let req = h.tick(t0 + Duration::from_millis(300)).unwrap();
+        h.warn_awaited(req.id, vec![LONG_LINE_WARNING.to_string()]);
+        assert!(h.deliver(req.id, Vec::new()));
+        assert_eq!(h.shown.as_ref().unwrap().lines, vec![LONG_LINE_WARNING.to_string()]);
+    }
+
+    #[test]
+    fn the_widget_sits_at_the_word_box_above_or_below() {
+        let word = (40.0, 100.0, 118.0);
+        assert_eq!(origin(word, false, 2, 18.0), (40.0, 118.0), "below: the word's bottom");
+        assert_eq!(origin(word, true, 2, 18.0), (40.0, 64.0), "above: two lines up from the word's top");
+        assert_eq!(origin((-5.0, 4.0, 22.0), true, 3, 18.0), (0.0, 0.0), "never above the surface");
     }
 
     #[test]

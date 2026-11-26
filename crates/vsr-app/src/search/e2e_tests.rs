@@ -586,6 +586,26 @@ fn dismissing_a_folder_removes_its_files(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn folder_selection_follows_the_folder_not_its_row_index(cx: &mut TestAppContext) {
+    let (wb, cx, _dir) = start_with_settings(cx, "treedefault", r#"{ "search.defaultViewMode": "tree" }"#);
+    cx.simulate_keystrokes("cmd-shift-f");
+    cx.run_until_parked();
+    let v = view(&wb, cx);
+    cx.simulate_input("alpha");
+    settle(cx);
+    // Folder rows are ["docs/", "src/"]: select src by its row index, then fold docs above it
+    // without selecting it, so the rows that src's index points at change.
+    cx.update(|_, app| v.update(app, |v, cx| v.activate(Row::Folder(1), cx)));
+    assert_eq!(v.read_with(cx, |v, _| v.selected_dir.clone()).as_deref(), Some("src"));
+    cx.update(|_, app| v.update(app, |v, cx| {
+        v.results.toggle_dir("docs");
+        v.rebuild_rows();
+        cx.notify();
+    }));
+    assert_eq!(v.read_with(cx, |v, _| v.selected_dir.clone()).as_deref(), Some("src"), "the same folder stays selected");
+}
+
+#[gpui_kit::test]
 fn default_view_mode_setting_picks_the_first_layout(cx: &mut TestAppContext) {
     let (wb, cx, _dir) = start_with_settings(cx, "treedefault", r#"{ "search.defaultViewMode": "tree" }"#);
     cx.simulate_keystrokes("cmd-shift-f");

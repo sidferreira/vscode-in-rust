@@ -189,6 +189,9 @@ pub struct SearchView {
     scroll: UniformListScrollHandle,
     status: Status,
     selected: Option<Row>,
+    /// The selected folder, by its path: folder indices are renumbered as files stream in and
+    /// folders fold, so `Row::Folder` alone would follow a different folder.
+    selected_dir: Option<String>,
     /// The include/exclude text the shown results were searched with (for the message).
     searched_include: String,
     searched_exclude: String,
@@ -251,6 +254,7 @@ impl SearchView {
             scroll: UniformListScrollHandle::new(),
             status: Status::Idle,
             selected: None,
+            selected_dir: None,
             searched_include: String::new(),
             searched_exclude: String::new(),
             cancel: Arc::new(AtomicBool::new(false)),
@@ -410,6 +414,9 @@ impl SearchView {
         if self.selected.is_some_and(|s| !self.rows.contains(&s)) {
             self.selected = None;
         }
+        if self.selected_dir.as_ref().is_some_and(|d| !self.tree.folders.iter().any(|f| &f.path == d)) {
+            self.selected_dir = None;
+        }
     }
 
     /// Run the search now (Enter, a toggle, Refresh), cancelling a running one.
@@ -417,6 +424,7 @@ impl SearchView {
         self.cancel_running();
         self.results.clear();
         self.selected = None;
+        self.selected_dir = None;
         self.replace_enabled = false;
         self.confirm = None;
         self.after_replace = None;
@@ -571,6 +579,7 @@ impl SearchView {
         }
         self.tree_view = tree;
         self.selected = None;
+        self.selected_dir = None;
         self.rebuild_rows();
         cx.notify();
     }
@@ -600,7 +609,16 @@ impl SearchView {
 
     /// Click or Enter on a row: files fold, matches open in the editor.
     pub fn activate(&mut self, row: Row, cx: &mut Context<Self>) {
-        self.selected = Some(row);
+        match row {
+            Row::Folder(i) => {
+                self.selected = None;
+                self.selected_dir = self.tree.folders.get(i).map(|f| f.path.clone());
+            }
+            _ => {
+                self.selected = Some(row);
+                self.selected_dir = None;
+            }
+        }
         match row {
             Row::Folder(i) => {
                 if let Some(path) = self.tree.folders.get(i).map(|f| f.path.clone()) {
@@ -1187,7 +1205,10 @@ impl SearchView {
 
     fn render_row(&self, ix: usize, row: Row, cx: &mut Context<Self>) -> AnyElement {
         let t = &self.theme;
-        let selected = self.selected == Some(row);
+        let selected = match row {
+            Row::Folder(i) => self.tree.folders.get(i).is_some_and(|f| Some(&f.path) == self.selected_dir.as_ref()),
+            _ => self.selected == Some(row),
+        };
         let base = |id: (&'static str, usize)| {
             div()
                 .id(id)

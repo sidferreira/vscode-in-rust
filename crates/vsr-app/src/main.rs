@@ -6,6 +6,7 @@
 //! upstream: src/vs/workbench/browser/layout.ts @ 50e1350fc78d
 
 mod autosave; // files.autoSave triggers (ADR-0034)
+mod cli; // `rscode [folder] [file ...]` arguments (ADR-0110)
 mod breadcrumbs; // the path bar under the tab strip and its dropdown (ADR-0047)
 mod commands; // command registry + Command Palette (ADR-0030)
 mod config;
@@ -70,11 +71,15 @@ actions!(rscode, [Quit]);
 
 
 fn main() {
-    let root = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().expect("cwd"));
-    let root = root.canonicalize().unwrap_or(root);
+    let launch = cli::parse(std::env::args_os().skip(1), &std::env::current_dir().expect("cwd"));
+    for p in &launch.missing {
+        eprintln!("rscode: {}: no such file or folder", p.display());
+    }
+    for p in &launch.extra_folders {
+        eprintln!("rscode: {}: ignored (one folder per window)", p.display());
+    }
+    let root = launch.root;
+    let files = launch.files;
 
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
@@ -122,6 +127,8 @@ fn main() {
             });
             // The red window button: keep or ask about unsaved text, then close (and so quit).
             wb.update(cx, |wb, _| wb.ext.autostart = true); // the extension host starts on the first frame
+            // Files from the command line open after session restore, the last one active.
+            wb.update(cx, |wb, cx| wb.open_launch_files(&files, cx));
             let weak = wb.downgrade();
             window.on_window_should_close(cx, move |_, cx| weak.update(cx, |wb, cx| wb.request_quit(true, cx)).unwrap_or(true));
             wb
@@ -456,6 +463,17 @@ impl Workbench {
             }
         }
         cx.notify();
+    }
+
+    /// Files given on the command line (ADR-0110): opened pinned after session restore, in order,
+    /// so the last one is active; one already restored is activated, not opened twice.
+    fn open_launch_files(&mut self, files: &[PathBuf], cx: &mut Context<Self>) {
+        for f in files {
+            self.open(f);
+        }
+        if !files.is_empty() {
+            cx.notify();
+        }
     }
 
     /// Open `path` as a pinned editor (the default for opens without a source).

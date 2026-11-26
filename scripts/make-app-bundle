@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Wrap the rscode binary in a minimal macOS .app bundle (name and icon in the Dock and the app
+# switcher; a bare executable gets the generic icon). Used by scripts/code.sh (dev launcher) and
+# scripts/install-rode (the installed app behind `rode`, ADR-0110).
+#
+#   scripts/make-app-bundle [--no-sign] <binary> <dest.app>
+#
+# The bundle is ad-hoc signed (local only, no certificate) unless --no-sign: pass that when you
+# add more files to the bundle afterwards, then sign it yourself.
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+sign=1
+if [[ "${1:-}" = --no-sign ]]; then sign=0; shift; fi
+if [[ $# -ne 2 ]]; then
+  echo "usage: make-app-bundle [--no-sign] <binary> <dest.app>" >&2
+  exit 2
+fi
+raw_bin="$1"
+app="$2"
+bin_name="$(basename "$raw_bin")"
+[[ -f "$raw_bin" ]] || { echo "make-app-bundle: $raw_bin: no such file" >&2; exit 1; }
+
+version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO/Cargo.toml" | head -1)"
+
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+# Copy to a temp file and rename into place: overwriting the binary in place (cp -f) keeps the
+# same inode, and on Apple Silicon a running rscode using that file makes the next launch die
+# with SIGKILL "Code Signature Invalid". A rename gives a new inode.
+cp "$raw_bin" "$app/Contents/MacOS/.$bin_name.new"
+mv -f "$app/Contents/MacOS/.$bin_name.new" "$app/Contents/MacOS/$bin_name"
+icon_key=""
+if [[ -f "$REPO/resources/darwin/rscode.icns" ]]; then
+  cp -f "$REPO/resources/darwin/rscode.icns" "$app/Contents/Resources/rscode.icns"
+  icon_key="<key>CFBundleIconFile</key><string>rscode</string>"
+fi
+cat >"$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>rscode</string>
+  <key>CFBundleDisplayName</key><string>rscode</string>
+  <key>CFBundleIdentifier</key><string>dev.rscode.app</string>
+  <key>CFBundleExecutable</key><string>$bin_name</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>${version:-0.1.0}</string>
+  <key>NSHighResolutionCapable</key><true/>
+  $icon_key
+</dict></plist>
+PLIST
+if [[ $sign -eq 1 ]]; then
+  # The linker signs the bare executable, but inside a .app macOS validates the bundle.
+  codesign --force --sign - "$app" >/dev/null 2>&1 || echo "warning: ad-hoc codesign failed" >&2
+fi

@@ -12,7 +12,9 @@ Homebrew's rustup keeps `cargo` outside the default PATH; prefix commands with
 The first build takes a few minutes.
 
 ```sh
-scripts/rscode [folder]          # build if needed and open the window (like `code .`)
+scripts/install-rode             # install ~/Applications/rscode.app + `rode` on PATH (again to update)
+rode [folder] [file ...]         # open rscode like `code .` (rode --help)
+scripts/rscode [folder]          # dev: build debug if needed and open the window
 cargo test                       # all crates
 cargo run -p vsr-app -- [folder]  # open the window on a folder (default: cwd)
 scripts/upstream-sync status     # what changed upstream in code we ported

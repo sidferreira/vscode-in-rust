@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Install rscode as an app plus the `rode` command, like VS Code's "Install 'code' command in
+# PATH" (ADR-0110). Run it again to update after pulling changes.
+#
+#   scripts/install-rode [--debug] [--app-dir DIR] [--bin-dir DIR] [--binary PATH]
+#   scripts/install-rode --uninstall [--app-dir DIR] [--bin-dir DIR]
+#
+#   (default)       build the release binary, install DIR/rscode.app and link DIR/rode to it
+#   --debug         install the debug build instead (faster to build, slower to use)
+#   --app-dir DIR   where rscode.app goes (default ~/Applications)
+#   --bin-dir DIR   where the `rode` link goes (default ~/.local/bin; must be on your PATH)
+#   --binary PATH   install this binary instead of building (used by the script tests)
+#   --uninstall     remove the `rode` link and move rscode.app to the Trash
+#
+# What `rode` gets by default, written to rscode.app/Contents/Resources/rode.env:
+#   RSCODE_CODE_OSS        this repo's ../codeoss-exthost when it is built (extension host on)
+#   RSCODE_NODE            Node 24 from mise when installed, else `node` on PATH at install time
+#   RSCODE_EXTENSIONS_DIR  empty: your ~/.vscode/extensions are NOT loaded (issue #31); set it
+#                          in your shell to load them
+# A variable already set in your shell when you run `rode` wins over these.
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+for d in /opt/homebrew/opt/rustup/bin "$HOME/.cargo/bin"; do
+  [[ -d "$d" ]] && PATH="$d:$PATH"
+done
+export PATH
+
+app_dir="$HOME/Applications"
+bin_dir="$HOME/.local/bin"
+profile=release
+binary=""
+uninstall=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --debug) profile=debug ;;
+    --app-dir) app_dir="$2"; shift ;;
+    --bin-dir) bin_dir="$2"; shift ;;
+    --binary) binary="$2"; shift ;;
+    --uninstall) uninstall=1 ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "install-rode: unknown argument $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+app="$app_dir/rscode.app"
+link="$bin_dir/rode"
+
+if [[ $uninstall -eq 1 ]]; then
+  if [[ -L "$link" ]]; then rm "$link"; echo "removed $link"; fi
+  if [[ -d "$app" ]]; then
+    mkdir -p "$HOME/.Trash"
+    trash="$HOME/.Trash/rscode-$(date +%Y%m%d-%H%M%S).app"
+    mv "$app" "$trash"
+    echo "moved $app to $trash"
+  fi
+  exit 0
+fi
+
+if [[ -e "$link" && ! -L "$link" ]]; then
+  echo "install-rode: $link exists and is not a link; not touching it" >&2
+  exit 1
+fi
+
+if [[ -z "$binary" ]]; then
+  flags=(-p vsr-app --manifest-path "$REPO/Cargo.toml")
+  [[ "$profile" = release ]] && flags+=(--release)
+  echo "building rscode ($profile)..."
+  cargo build "${flags[@]}"
+  target_dir="$(cargo metadata --format-version 1 --no-deps --manifest-path "$REPO/Cargo.toml" \
+    | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+  binary="$target_dir/$profile/rscode"
+fi
+
+mkdir -p "$app_dir" "$bin_dir"
+"$REPO/scripts/make-app-bundle" --no-sign "$binary" "$app"
+
+# The CLI lives inside the bundle (like VS Code's Contents/Resources/app/bin/code).
+mkdir -p "$app/Contents/Resources/bin"
+cp "$REPO/scripts/rode" "$app/Contents/Resources/bin/.rode.new"
+chmod +x "$app/Contents/Resources/bin/.rode.new"
+mv -f "$app/Contents/Resources/bin/.rode.new" "$app/Contents/Resources/bin/rode"
+
+# Defaults for the launched app.
+code_oss="${RSCODE_CODE_OSS:-}"
+if [[ -z "$code_oss" && -f "$REPO/../codeoss-exthost/out/bootstrap-fork.js" ]]; then
+  code_oss="$(cd "$REPO/../codeoss-exthost" && pwd)"
+fi
+node="${RSCODE_NODE:-}"
+if [[ -z "$node" ]]; then
+  for n in "$HOME"/.local/share/mise/installs/node/24.*/bin/node; do
+    [[ -x "$n" ]] && node="$n" # glob order: the last (newest) 24.x wins
+  done
+fi
+if [[ -z "$node" ]]; then node="$(command -v node || true)"; fi
+version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO/Cargo.toml" | head -1)"
+sha="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+dirty=""
+if [[ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]]; then dirty="+local changes"; fi
+
+q() { printf "%q" "$1"; }
+{
+  echo "# Written by scripts/install-rode on $(date '+%Y-%m-%d %H:%M'). Sourced by rode."
+  echo "RODE_VERSION=$(q "${version:-0.1.0} ($sha$dirty, $profile)")"
+  if [[ -n "$code_oss" ]]; then echo ": \"\${RSCODE_CODE_OSS=$(q "$code_oss")}\"; export RSCODE_CODE_OSS"; fi
+  if [[ -n "$node" ]]; then echo ": \"\${RSCODE_NODE=$(q "$node")}\"; export RSCODE_NODE"; fi
+  echo ': "${RSCODE_EXTENSIONS_DIR=}"; export RSCODE_EXTENSIONS_DIR'
+} >"$app/Contents/Resources/rode.env"
+
+codesign --force --sign - "$app" >/dev/null 2>&1 || echo "warning: ad-hoc codesign failed" >&2
+ln -sfn "$app/Contents/Resources/bin/rode" "$link"
+
+echo "installed $app"
+echo "linked    $link -> $app/Contents/Resources/bin/rode"
+[[ -n "$code_oss" ]] || echo "note: no Code-OSS host build found; extensions are off (scripts/build-codeoss-exthost)"
+case ":$PATH:" in
+  *":$bin_dir:"*) ;;
+  *) echo "note: $bin_dir is not on your PATH; add it in ~/.zshrc: export PATH=\"$bin_dir:\$PATH\"" ;;
+esac
+echo "try: rode .   (rode --help for options)"

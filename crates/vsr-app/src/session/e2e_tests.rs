@@ -924,3 +924,22 @@ fn welcome_new_file_opens_an_untitled_text_as_cmd_n_does(cx: &mut TestAppContext
     let active = wb.read_with(vcx, |wb, _| wb.editors.active_editor().map(|e| e.path.clone()));
     assert_eq!(active, Some(crate::model::untitled_key("Untitled-1")));
 }
+
+/// `rscode folder file` (ADR-0110): the command-line files open after the restored tabs, the last
+/// one active; a file that was restored already is activated, not opened a second time.
+#[gpui_kit::test]
+fn command_line_files_open_after_session_restore_and_win_the_active_tab(cx: &mut TestAppContext) {
+    let env = env("launch-files", None);
+    let (wb, vcx) = start(cx, &env);
+    open(&wb, vcx, &env.root.join("a.txt"));
+    open(&wb, vcx, &env.root.join("b.txt"));
+    quit(&wb, vcx);
+
+    let (wb, vcx) = start(cx, &env);
+    assert_eq!(active_title(&wb, vcx).as_deref(), Some("b.txt"));
+    let files = [env.root.join("c.txt"), env.root.join("a.txt")];
+    wb.update(vcx, |wb, cx| wb.open_launch_files(&files, cx));
+    vcx.run_until_parked();
+    assert_eq!(titles(&wb, vcx), ["a.txt", "b.txt", "c.txt"]);
+    assert_eq!(active_title(&wb, vcx).as_deref(), Some("a.txt"));
+}

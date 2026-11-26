@@ -5,7 +5,8 @@
 > `TestAppContext` / `VisualTestContext`, plain unit tests, the real `AppleTextSystem` without a
 > window). Never launch rscode or any GUI binary (not even `--background`), never use
 > AppleScript / System Events UI scripting, never take screenshots, unless the user explicitly
-> asks at that moment. To let the user try a build, give them the command (`scripts/rscode`).
+> asks at that moment. To let the user try a build, give them the command (`rode .` after
+> `scripts/install-rode`, or `scripts/rscode` for a debug build).
 > See ADR-0026.
 
 How we test vscode-rust, and how upstream VS Code's tests get ported. Read this before writing

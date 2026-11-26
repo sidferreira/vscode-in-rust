@@ -3200,3 +3200,33 @@ additive messages in the extension host worker, the same job shape as Navigate.
     while a drag selects text.
   - Code lens and inlay hints (ADR-0108 steps 3 and 4) are not started, so `navigation-providers` stays `todo`
     in `docs/dependencies.toml`.
+
+## ADR-0110 — `rode`: an installed rscode.app and a `code`-style command on the PATH (2026-11-25)
+
+`scripts/rscode` (ADR-0011) rebuilds the debug binary on every launch and only runs from the repo.
+For day-to-day use there is now an installed copy and a command, the way VS Code's "Install 'code'
+command in PATH" works:
+
+- **`scripts/install-rode`** builds the release binary and assembles `~/Applications/rscode.app`
+  (`scripts/make-app-bundle`, now shared with `scripts/code.sh`). It copies `scripts/rode` into the bundle at
+  `Contents/Resources/bin/rode` (like VS Code's `Contents/Resources/app/bin/code`) and links
+  `~/.local/bin/rode` to it. Running it again updates the app; `--uninstall` removes the link and moves the
+  bundle to the Trash. The installed app is a snapshot: merges to `main` don't change it until you reinstall,
+  so a release rebuild never happens at launch time.
+- **`rode [-w] [folder] [file ...]`** follows its link back into the bundle and starts the binary detached
+  (log in `$TMPDIR/rscode/rode.log`); `--wait` stays attached. `--version` prints the version, commit and
+  profile written at install time. `--dry-run` prints the binary, arguments and environment and starts
+  nothing (the script tests use it; no test opens a window, ADR-0026).
+- **Environment.** `install-rode` writes `Contents/Resources/rode.env`: `RSCODE_CODE_OSS` (the repo's
+  `../codeoss-exthost` when built), `RSCODE_NODE` (Node 24 from mise, else `node` on PATH) and
+  `RSCODE_EXTENSIONS_DIR` empty. Each applies only when the variable is unset in the caller's shell. The user's
+  `~/.vscode/extensions` are therefore **not** loaded by `rode` until issue #31 decides the default
+  (`RSCODE_EXTENSIONS_DIR=~/.vscode/extensions rode .` loads them).
+- **Arguments in the binary** (`crates/vsr-app/src/cli.rs`): the first folder is the workspace root, files
+  open pinned after session restore (the last one active; one already restored is activated, not opened
+  twice), a file-only call uses the first file's folder as root, extra folders and missing paths are reported
+  on stderr and skipped. No clap (no new crates); options belong to the shell launcher.
+
+Not done: a second `rode` starts a second process and window instead of handing the paths to the running
+instance (upstream's single-instance IPC), and there is no `-n`/`-r`/`-g file:line:col`/`--diff`. A missing
+file is not created as a new file the way `code new.txt` does.

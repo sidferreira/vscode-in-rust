@@ -13,8 +13,8 @@
 # --background  open without stealing focus or coming to the front (RSCODE_BACKGROUND=1);
 #               for automated runs while you keep working
 #
-# `scripts/rscode` is the same script. Put it on your PATH, e.g. in ~/.zshrc:
-#   alias rscode="$HOME/dev/personal/vscode-in-rust/vscode-rust/scripts/rscode"
+# `scripts/rscode` is the same script. For a `code`-style command on your PATH that opens an
+# installed release build (no rebuild per launch), use `scripts/install-rode` and then `rode`.
 #
 # upstream: scripts/code.sh @ 50e1350fc78d   (same role: dev launcher)
 set -euo pipefail
@@ -60,37 +60,9 @@ b = next(t["name"] for t in app["targets"] if "bin" in t["kind"])
 print(m["target_directory"], b)')
 raw_bin="$target_dir/$profile/$bin_name"
 
-# Wrap the binary in a minimal .app bundle so macOS shows the rscode name and
-# icon in the Dock and app switcher (a bare executable gets the generic icon).
+# Wrap the binary in a minimal .app bundle so macOS shows the rscode name and icon.
 app="$target_dir/$profile/rscode.app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-# Copy to a temp file and rename into place: overwriting the binary in place (cp -f)
-# keeps the same inode, and on Apple Silicon a running rscode using that file makes the
-# next launch die with SIGKILL "Code Signature Invalid". A rename gives a new inode.
-cp "$raw_bin" "$app/Contents/MacOS/.$bin_name.new"
-mv -f "$app/Contents/MacOS/.$bin_name.new" "$app/Contents/MacOS/$bin_name"
-icon_key=""
-if [[ -f "$REPO/resources/darwin/rscode.icns" ]]; then
-  cp -f "$REPO/resources/darwin/rscode.icns" "$app/Contents/Resources/rscode.icns"
-  icon_key="<key>CFBundleIconFile</key><string>rscode</string>"
-fi
-cat >"$app/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleName</key><string>rscode</string>
-  <key>CFBundleDisplayName</key><string>rscode</string>
-  <key>CFBundleIdentifier</key><string>dev.rscode.app</string>
-  <key>CFBundleExecutable</key><string>$bin_name</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>NSHighResolutionCapable</key><true/>
-  $icon_key
-</dict></plist>
-PLIST
-# Ad-hoc sign the whole bundle (local only, no certificate). The linker signs the bare
-# executable, but inside a .app macOS validates the bundle (Info.plist, resources).
-codesign --force --sign - "$app" >/dev/null 2>&1 || echo "warning: ad-hoc codesign failed" >&2
+"$REPO/scripts/make-app-bundle" "$raw_bin" "$app"
 bin="$app/Contents/MacOS/$bin_name"
 
 if [[ $wait -eq 1 ]]; then

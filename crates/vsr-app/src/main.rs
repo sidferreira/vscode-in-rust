@@ -20,6 +20,7 @@ mod model;
 mod quick_access; // Command Palette, Go to Line, help on the Quick Pick (ADR-0030)
 mod quick_input; // Quick Pick component (ADR-0028)
 mod quick_open; // Quick Open, Cmd+P
+mod codelens; // Code lens: the providers' lenses of the active document (ADR-0111)
 mod hover; // Hover widget (ADR-0109)
 mod navigation; // Go to Definition, Declaration, Type Definition, Implementation (ADR-0108)
 mod outline; // the document outline: symbols per document, debounced (ADR-0086)
@@ -219,6 +220,8 @@ struct Workbench {
     children: HashMap<PathBuf, Vec<DirEntry>>,
     editors: Editors,
     editor_view: EditorView,
+    /// Code lens of the active document (ADR-0111).
+    codelens: codelens::CodeLensState,
     /// Settings editor tab (one instance) and whether it is the active tab.
     settings: Option<Entity<SettingsView>>,
     settings_active: bool,
@@ -315,6 +318,7 @@ impl Workbench {
             children: HashMap::new(),
             editors,
             editor_view: EditorView::default(),
+            codelens: codelens::CodeLensState::default(),
             settings: None,
             settings_active: false,
             welcome_open: false,
@@ -1374,6 +1378,7 @@ impl Render for Workbench {
         self.ext_render_hook(window, cx);
         self.outline_sync();
         self.hover_sync();
+        self.codelens_sync(cx);
         self.suggest_sync(cx);
         // The OS window title and the dirty dot (macOS shows it in the close button).
         let title = self.window_title(cx);

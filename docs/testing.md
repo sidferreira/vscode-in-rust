@@ -242,3 +242,17 @@ cargo test -p vsr-app perf_ -- --ignored --test-threads=1
 
 Budgets fail under parallel load (a load average above 100 gave 190 to 370 ms per key), so they are
 not part of `cargo test --workspace`. Shared helpers: `editor_view/perf_e2e.rs`.
+
+## Scratch files
+
+Tests never write to the system temp dir (`$TMPDIR` filled with tens of thousands of folders).
+
+- Rust tests take scratch dirs from the dev-dependency `vsr-test-scratch`: `vsr_test_scratch::dir!()`
+  is `<workspace>/target/test-scratch/<crate>`, so `cargo clean` removes everything. Join a unique name
+  onto it; there is no recursive-delete code.
+- Unix socket paths are limited to about 104 bytes on macOS. `vsr_test_scratch::socket_dir!()` returns
+  the scratch dir when it is short enough and otherwise the single fixed folder `/tmp/rscode-t`. The
+  extension host takes its socket dir from `BootParams::socket_dir` (`None` keeps the system temp dir
+  for the app); the host removes the socket file on shutdown.
+- Python tests clean their own temp dirs: use `scratch_dir(self, prefix)` from `scripts/tests/scratch.py`
+  (a `TemporaryDirectory` with `addCleanup`), never a bare `tempfile.mkdtemp()`.

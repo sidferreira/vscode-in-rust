@@ -24,7 +24,7 @@ fn handshake_and_one_request_against_the_node_stand_in() {
         }
     };
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_host.js");
-    let socket = std::env::temp_dir().join(format!("rscode-fake-{}.sock", std::process::id()));
+    let socket = vsr_test_scratch::socket_dir!().join(format!("rscode-fake-{}.sock", std::process::id()));
     let id = proxy_ids::main::MAIN_THREAD_COMMANDS.to_string();
     let mut host = Host::spawn(
         &node,

@@ -42,6 +42,7 @@ fn boot(name: &str, user_settings: Value) -> Option<(ExtensionHost, PathBuf)> {
         std::fs::write(p, "x").unwrap();
     }
     let mut host = ExtensionHost::boot(&BootParams {
+        socket_dir: Some(vsr_test_scratch::socket_dir!()),
         launch,
         version: "1.147.0".into(),
         storage_root: base.join("storage"),

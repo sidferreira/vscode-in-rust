@@ -18,7 +18,7 @@ const TEXT: &str = "alpha beta alpha\ngamma alpha\ndelta\nalpha ALPHA\n";
 
 fn unique_dir(name: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!("rscode-e2e-find-{name}-{}-{nanos}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-e2e-find-{name}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }

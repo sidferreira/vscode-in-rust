@@ -7448,6 +7448,7 @@ dependencies = [
  "vsr-suggest",
  "vsr-syntax",
  "vsr-terminal",
+ "vsr-test-scratch",
  "vsr-text",
  "vsr-textmate",
  "vsr-theme",
@@ -7476,6 +7477,7 @@ dependencies = [
  "vsr-rpc",
  "vsr-search",
  "vsr-settings",
+ "vsr-test-scratch",
 ]
 
 [[package]]
@@ -7495,6 +7497,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "vsr-test-scratch",
 ]
 
 [[package]]
@@ -7520,6 +7523,7 @@ name = "vsr-rpc"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "vsr-test-scratch",
 ]
 
 [[package]]
@@ -7533,6 +7537,7 @@ dependencies = [
  "ignore",
  "regex",
  "tempfile",
+ "vsr-test-scratch",
 ]
 
 [[package]]
@@ -7541,6 +7546,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "vsr-test-scratch",
 ]
 
 [[package]]
@@ -7567,7 +7573,12 @@ dependencies = [
  "alacritty_terminal",
  "libc",
  "portable-pty",
+ "vsr-test-scratch",
 ]
+
+[[package]]
+name = "vsr-test-scratch"
+version = "0.1.0"
 
 [[package]]
 name = "vsr-text"

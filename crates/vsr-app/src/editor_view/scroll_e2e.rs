@@ -15,7 +15,7 @@ use crate::config::AppConfig;
 
 fn workbench<'a>(cx: &'a mut TestAppContext, name: &str, settings: &str, text: &str) -> (Entity<Workbench>, &'a mut VisualTestContext) {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!("rscode-scroll-e2e-{name}-{}-{nanos}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-scroll-e2e-{name}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     let settings_path: PathBuf = dir.join("settings.json");
     fs::write(&settings_path, settings).unwrap();

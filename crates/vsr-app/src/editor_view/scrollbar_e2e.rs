@@ -26,7 +26,7 @@ pub(super) fn workbench<'a>(
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!(
+    let dir = vsr_test_scratch::dir!().join(format!(
         "rscode-scrollbar-e2e-{name}-{}-{nanos}",
         std::process::id()
     ));

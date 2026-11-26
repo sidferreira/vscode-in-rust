@@ -1,7 +1,7 @@
 """Tests for scripts/test-port. Run: python3 -I -m unittest discover -s scripts/tests -p 'test_test_port.py' -v
 
 Parser and matcher tests use inline fixtures. The CLI test builds a small throwaway git repo
-as a fake upstream in a fresh tempfile.mkdtemp() directory (never deleted, never reused).
+as a fake upstream in a a per-test temp directory (removed when the test ends).
 """
 
 import contextlib
@@ -13,6 +13,8 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+
+from scratch import scratch_dir
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(HERE), "test-port")
@@ -299,7 +301,7 @@ class MatcherTest(unittest.TestCase):
         self.assertEqual([o[2] for o in orphans], ["Renamed"])
 
     def test_scan_rust_finds_headers_and_refs(self):
-        root = tempfile.mkdtemp(prefix="test-port-scan-")
+        root = scratch_dir(self, prefix="test-port-scan-")
         d = os.path.join(root, "crates", "c", "tests")
         os.makedirs(d)
         with open(os.path.join(d, "t.rs"), "w", encoding="utf-8") as fh:
@@ -312,7 +314,7 @@ class MatcherTest(unittest.TestCase):
 
 class CliTest(unittest.TestCase):
     def _fake_upstream(self):
-        up = tempfile.mkdtemp(prefix="test-port-up-")
+        up = scratch_dir(self, prefix="test-port-up-")
         subprocess.run(["git", "init", "-q", up], check=True, env=GIT_ENV)
         files = {
             "src/vs/editor/test/common/model/m.test.ts": textwrap.dedent("""

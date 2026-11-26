@@ -42,7 +42,7 @@ fn rig(name: &str, auto_start: bool) -> Option<Rig> {
     let workspace = base.join("ws");
     std::fs::create_dir_all(&workspace).unwrap();
     std::fs::create_dir_all(&storage).unwrap();
-    let socket = std::env::temp_dir().join(format!("rscode-{name}-{}.sock", std::process::id()));
+    let socket = vsr_test_scratch::socket_dir!().join(format!("rscode-{name}-{}.sock", std::process::id()));
     let mut host = Host::spawn(
         &launch.node,
         &launch.code_oss.join("out/bootstrap-fork.js"),

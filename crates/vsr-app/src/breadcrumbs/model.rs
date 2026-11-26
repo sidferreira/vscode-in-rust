@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn list_children_applies_files_exclude() {
         // Only files this test creates are removed, one by one (no recursive delete).
-        let dir = std::env::temp_dir().join(format!("rscode-crumbs-test-{}", std::process::id()));
+        let dir = vsr_test_scratch::dir!().join(format!("rscode-crumbs-test-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::create_dir_all(dir.join("target")).unwrap();
         std::fs::write(dir.join("Cargo.toml"), "").unwrap();

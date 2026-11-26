@@ -15,7 +15,7 @@ use crate::quick_input::QuickPick;
 
 fn workspace(name: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!("rscode-e2e-palette-{name}-{}-{nanos}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-e2e-palette-{name}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(dir.join("src")).unwrap();
     fs::write(dir.join("src/main.rs"), "fn main() {}\n").unwrap();
     let hundred: String = (1..=100).map(|i| format!("line {i}\n")).collect();

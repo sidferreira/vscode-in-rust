@@ -279,7 +279,7 @@ mod tests {
     use std::fs;
 
     fn scratch(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("rscode-disc-{tag}-{}", std::process::id()));
+        let d = vsr_test_scratch::dir!().join(format!("rscode-disc-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir(&d); // only an empty leftover
         fs::create_dir_all(&d).unwrap();
         d

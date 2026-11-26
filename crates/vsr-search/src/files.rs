@@ -97,7 +97,7 @@ mod tests {
     use std::path::Path;
 
     fn tree(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("vsr-files-{name}-{}", std::process::id()));
+        let root = vsr_test_scratch::dir!().join(format!("vsr-files-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         for f in [
             "a.ts",

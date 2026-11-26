@@ -3,7 +3,7 @@
 Run: python3 -I -m unittest discover -s scripts/tests -p 'test_progress_report.py' -v
 
 Parsers and rendering use inline fixtures (no git, no subprocess). The test-port JSON test
-builds a synthetic inventory and a throwaway Rust tree in fresh tempfile.mkdtemp() directories
+builds a synthetic inventory and a throwaway Rust tree in a per-test temp directories (removed when the test ends)
 (never deleted, never reused).
 """
 
@@ -13,8 +13,9 @@ import io
 import json
 import os
 import contextlib
-import tempfile
 import unittest
+
+from scratch import scratch_dir
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(HERE)
@@ -336,7 +337,7 @@ class TestPortJsonTest(unittest.TestCase):
             ]}]}
 
     def test_status_json_matches_status_data(self):
-        root = tempfile.mkdtemp(prefix="progress-report-root-")
+        root = scratch_dir(self, prefix="progress-report-root-")
         rust_dir = os.path.join(root, "crates", "x", "tests")
         os.makedirs(rust_dir)
         with open(os.path.join(rust_dir, "a.rs"), "w", encoding="utf-8") as fh:
@@ -360,7 +361,7 @@ class TestPortJsonTest(unittest.TestCase):
         self.assertEqual(parsed["upstream"]["commit"], "c" * 40)
 
     def test_status_json_flag_prints_json_only(self):
-        root = tempfile.mkdtemp(prefix="progress-report-root-")
+        root = scratch_dir(self, prefix="progress-report-root-")
         inv = self._inv(root)
         out = io.StringIO()
         args = type("A", (), {"all_files": False, "json": True})()

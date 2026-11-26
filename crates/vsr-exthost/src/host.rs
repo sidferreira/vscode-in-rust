@@ -61,6 +61,9 @@ pub struct BootParams {
     pub user_settings: Value,
     /// Extra environment for the Node process.
     pub env: Vec<(String, String)>,
+    /// Where the bootstrap socket file goes; `None` is the system temp dir. Tests pass a dir under
+    /// `target/test-scratch` so nothing lands in `$TMPDIR`.
+    pub socket_dir: Option<PathBuf>,
 }
 
 static SOCKETS: AtomicU32 = AtomicU32::new(0);
@@ -133,7 +136,8 @@ impl ExtensionHost {
     pub fn boot(p: &BootParams) -> Result<ExtensionHost, HostError> {
         let io = |e: std::io::Error| HostError::Boot(HandshakeError::Io(e));
         std::fs::create_dir_all(&p.storage_root).map_err(io)?;
-        let socket = std::env::temp_dir().join(format!(
+        let socket_dir = p.socket_dir.clone().unwrap_or_else(std::env::temp_dir);
+        let socket = socket_dir.join(format!(
             "rscode-exthost-{}-{}.sock",
             std::process::id(),
             SOCKETS.fetch_add(1, Ordering::SeqCst)
@@ -638,7 +642,7 @@ mod tests {
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("rscode-host-{name}-{}", std::process::id()));
+        let dir = vsr_test_scratch::dir!().join(format!("rscode-host-{name}-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

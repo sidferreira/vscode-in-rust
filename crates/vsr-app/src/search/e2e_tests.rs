@@ -26,7 +26,7 @@ impl SearchView {
 }
 
 fn workspace(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("rscode-e2e-search-{name}-{}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-e2e-search-{name}-{}", std::process::id()));
     fs::create_dir_all(dir.join("src")).unwrap();
     fs::create_dir_all(dir.join("docs")).unwrap();
     fs::write(dir.join("a.txt"), "alpha beta\nAlpha\n").unwrap();
@@ -229,7 +229,7 @@ fn start_with_settings<'a>(
 ) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
     let dir = workspace(name);
     fs::write(dir.join("docs/c.md"), "alpha in docs\n").unwrap();
-    let settings_dir = std::env::temp_dir().join(format!("rscode-e2e-search-settings-{name}-{}", std::process::id()));
+    let settings_dir = vsr_test_scratch::dir!().join(format!("rscode-e2e-search-settings-{name}-{}", std::process::id()));
     fs::create_dir_all(&settings_dir).unwrap();
     let settings = settings_dir.join("settings.json");
     fs::write(&settings, initial).unwrap();

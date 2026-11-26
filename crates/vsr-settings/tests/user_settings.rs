@@ -46,7 +46,7 @@ fn set_reset_and_is_modified() {
 
 #[test]
 fn save_and_load_round_trip() {
-    let path: PathBuf = std::env::temp_dir().join(format!("vsr-settings-roundtrip-{}.json", std::process::id()));
+    let path: PathBuf = vsr_test_scratch::dir!().join(format!("vsr-settings-roundtrip-{}.json", std::process::id()));
     let mut settings = UserSettings::default();
     settings.set("editor.fontSize", json!(15));
     settings.set("editor.wordWrap", json!("on"));
@@ -59,7 +59,7 @@ fn save_and_load_round_trip() {
 
 #[test]
 fn missing_file_loads_as_empty() {
-    let path = std::env::temp_dir().join(format!("vsr-settings-missing-{}.json", std::process::id()));
+    let path = vsr_test_scratch::dir!().join(format!("vsr-settings-missing-{}.json", std::process::id()));
     assert!(UserSettings::load(&path).expect("missing is empty").is_empty());
 }
 

@@ -56,6 +56,7 @@ objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSP
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSString"] }
 
 [dev-dependencies]
+vsr-test-scratch = { path = "../vsr-test-scratch" }
 # Headless gpui tests (TestAppContext / VisualTestContext), docs/testing.md tier 2 (ADR-0017/0018).
 # gpui-kit's own `test-support` feature cannot be used: it makes the lockfile resolver pull the
 # gpui-fast stack, whose pins conflict with gpui-pre's (taffy, unicode-properties).

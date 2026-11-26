@@ -15,4 +15,5 @@ globset = "0.4"
 regex = "1"
 
 [dev-dependencies]
+vsr-test-scratch = { path = "../vsr-test-scratch" }
 tempfile = "3"

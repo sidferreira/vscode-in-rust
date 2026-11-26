@@ -222,7 +222,7 @@ mod tests {
     #[test]
     #[ignore]
     fn real_watcher_reports_a_created_file() {
-        let dir = std::env::temp_dir().join(format!("rscode-watch-{}", std::process::id()));
+        let dir = vsr_test_scratch::dir!().join(format!("rscode-watch-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut watcher = NotifyWatcher::default();
         let mut rx = watcher.watch(&dir).unwrap();

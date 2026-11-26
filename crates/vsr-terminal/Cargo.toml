@@ -10,3 +10,6 @@ publish.workspace = true
 alacritty_terminal = "=0.25.1"
 portable-pty = "=0.9.0"
 libc = "0.2"
+
+[dev-dependencies]
+vsr-test-scratch = { path = "../vsr-test-scratch" }

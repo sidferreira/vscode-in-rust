@@ -8,3 +8,6 @@ publish.workspace = true
 
 [dependencies]
 serde_json = "1"
+
+[dev-dependencies]
+vsr-test-scratch = { path = "../vsr-test-scratch" }

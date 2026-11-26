@@ -34,6 +34,7 @@ fn boot(name: &str) -> Option<(ExtensionHost, PathBuf)> {
     let ws = base.join("ws");
     std::fs::create_dir_all(&ws).unwrap();
     let mut host = ExtensionHost::boot(&BootParams {
+        socket_dir: Some(vsr_test_scratch::socket_dir!()),
         launch,
         version: "1.147.0".into(),
         storage_root: base.join("storage"),

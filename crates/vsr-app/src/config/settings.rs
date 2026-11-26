@@ -822,6 +822,57 @@ pub enum OpenPositioning {
     Last,
 }
 
+/// `workbench.editor.tabActionLocation`: which side of a tab the close button sits on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TabActionLocation {
+    Left,
+    #[default]
+    Right,
+}
+
+/// `workbench.editor.tabSizing`: how the tabs share the strip's width. `Fit` sizes each tab to its
+/// label; `Shrink` and `Fixed` let the tabs grow evenly into the strip (`Shrink` down to 80px,
+/// `Fixed` between `tabSizingFixedMinWidth` and `tabSizingFixedMaxWidth`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TabSizing {
+    #[default]
+    Fit,
+    Shrink,
+    Fixed,
+}
+
+/// How one tab draws its close action, from `workbench.editor.tabActionLocation` and
+/// `tabActionCloseVisibility`. Every tab kind (text editors, Welcome, Settings) uses this, so they
+/// agree (upstream `multiEditorTabsControl.ts`, `.tab-actions-left`, `.close-action-off`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TabActions {
+    /// The action is drawn (a dirty text tab keeps its dot even when the action is off).
+    pub shown: bool,
+    /// Clicking the action closes the tab.
+    pub clickable: bool,
+    /// The action sits left of the label.
+    pub left: bool,
+}
+
+impl TabActions {
+    /// `(left, right)` padding of the tab, in px: upstream has no left padding and 10px on the
+    /// right when the action is on the left, 12px and 8px otherwise.
+    pub fn padding(self) -> (f32, f32) {
+        if self.left { (0., 10.) } else { (12., 8.) }
+    }
+
+    /// Puts the action in the left or right slot of a tab (`None` when it is not shown).
+    pub fn place<T>(self, action: T) -> (Option<T>, Option<T>) {
+        match (self.shown, self.left) {
+            (false, _) => (None, None),
+            (true, true) => (Some(action), None),
+            (true, false) => (None, Some(action)),
+        }
+    }
+}
+
 /// `workbench.editor.labelFormat`: how a tab's label is built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -868,6 +919,15 @@ pub struct EditorGroupSettings {
     /// `workbench.editor.untitled.labelFormat`: the tab title of an untitled text (ADR-0059).
     pub untitled_label_format: vsr_editor::untitled::LabelFormat,
     pub scroll_to_switch_tabs: bool,
+    /// `workbench.editor.tabActionLocation`: the side of a tab the close button is on.
+    pub tab_action_location: TabActionLocation,
+    /// `workbench.editor.tabActionCloseVisibility`: whether a tab has a close button at all.
+    pub tab_action_close_visibility: bool,
+    /// `workbench.editor.tabSizing`.
+    pub tab_sizing: TabSizing,
+    /// `workbench.editor.tabSizingFixedMinWidth` and `...MaxWidth`, in px.
+    pub tab_sizing_fixed_min_width: u32,
+    pub tab_sizing_fixed_max_width: u32,
     /// `workbench.editor.empty.hint` is `text` (the hint is shown) rather than `hidden`.
     pub empty_hint: bool,
 }
@@ -889,6 +949,11 @@ impl Default for EditorGroupSettings {
             label_format: LabelFormat::Default,
             untitled_label_format: vsr_editor::untitled::LabelFormat::Content,
             scroll_to_switch_tabs: false,
+            tab_action_location: TabActionLocation::Right,
+            tab_action_close_visibility: true,
+            tab_sizing: TabSizing::Fit,
+            tab_sizing_fixed_min_width: 50,
+            tab_sizing_fixed_max_width: 160,
             empty_hint: true,
         }
     }
@@ -929,7 +994,29 @@ impl EditorGroupSettings {
                 .map(vsr_editor::untitled::LabelFormat::from_setting)
                 .unwrap_or(d.untitled_label_format),
             scroll_to_switch_tabs: c.get_bool("workbench.editor.scrollToSwitchTabs").unwrap_or(d.scroll_to_switch_tabs),
+            tab_action_location: c.get_enum("workbench.editor.tabActionLocation").unwrap_or(d.tab_action_location),
+            tab_action_close_visibility: c
+                .get_bool("workbench.editor.tabActionCloseVisibility")
+                .unwrap_or(d.tab_action_close_visibility),
+            tab_sizing: c.get_enum("workbench.editor.tabSizing").unwrap_or(d.tab_sizing),
+            tab_sizing_fixed_min_width: c
+                .get_f64("workbench.editor.tabSizingFixedMinWidth")
+                .map_or(d.tab_sizing_fixed_min_width, |n| n.round().max(0.) as u32),
+            tab_sizing_fixed_max_width: c
+                .get_f64("workbench.editor.tabSizingFixedMaxWidth")
+                .map_or(d.tab_sizing_fixed_max_width, |n| n.round().max(0.) as u32),
             empty_hint: c.get_str("workbench.editor.empty.hint") != Some("hidden"),
+        }
+    }
+
+    /// The close action of a tab. `multiple` is `showTabs: multiple` (the settings do nothing in
+    /// the other modes, as upstream); `dirty` is a modified text tab (its dot stays).
+    pub fn tab_actions(&self, multiple: bool, dirty: bool) -> TabActions {
+        let clickable = !multiple || self.tab_action_close_visibility;
+        TabActions {
+            shown: clickable || dirty,
+            clickable,
+            left: multiple && clickable && self.tab_action_location == TabActionLocation::Left,
         }
     }
 
@@ -1020,6 +1107,16 @@ mod tests {
         assert_eq!(tab_index_badge(true, ShowTabs::None, 0), None);
         assert!(!EditorGroupSettings::from_configuration(&config("")).show_tab_index);
         assert!(EditorGroupSettings::from_configuration(&config(r#"{"workbench.editor.showTabIndex": true}"#)).show_tab_index);
+    }
+
+    #[test]
+    fn tab_action_settings_read_their_values() {
+        let d = EditorGroupSettings::from_configuration(&config(""));
+        assert_eq!((d.tab_action_location, d.tab_action_close_visibility), (TabActionLocation::Right, true));
+        let e = EditorGroupSettings::from_configuration(&config(
+            r#"{"workbench.editor.tabActionLocation": "left", "workbench.editor.tabActionCloseVisibility": false}"#,
+        ));
+        assert_eq!((e.tab_action_location, e.tab_action_close_visibility), (TabActionLocation::Left, false));
     }
 
     #[test]

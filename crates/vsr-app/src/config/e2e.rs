@@ -686,6 +686,94 @@ fn compact_editor_tabs_are_shorter_and_apply_live(cx: &mut TestAppContext) {
     assert_eq!(bounds(cx, "tab-strip").size.height, gpui_kit::px(35.));
 }
 
+// ---- workbench.editor.tabAction* -----------------------------------------------------------------
+
+/// The gap between a tab's left edge and its close button's left edge (`left`), or between the
+/// close button's right edge and the tab's right edge (`right`), in pixels.
+fn close_gap(cx: &mut VisualTestContext, tab: &'static str, close: &'static str, left: bool) -> f32 {
+    let t = bounds(cx, tab);
+    let c = bounds(cx, close);
+    if left {
+        f32::from(c.origin.x - t.origin.x)
+    } else {
+        f32::from(t.origin.x + t.size.width - (c.origin.x + c.size.width))
+    }
+}
+
+#[gpui_kit::test]
+fn tab_action_settings_move_and_hide_the_close_button(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "tab-actions", None, &[("a.txt", "a"), ("b.txt", "b")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    open_file(&wb, cx, &f.dir.join("b.txt"));
+    assert!((close_gap(cx, "tab:0", "tab-close:0", false) - 8.).abs() < 1., "close on the right, 8px from the edge, by default");
+
+    set(cx, "workbench.editor.tabActionLocation", json!("left"));
+    assert!(close_gap(cx, "tab:0", "tab-close:0", true).abs() < 1., "tabActionLocation left: close at the left edge");
+
+    set(cx, "workbench.editor.tabActionCloseVisibility", json!(false));
+    assert!(cx.debug_bounds("tab-close:0").is_none(), "a clean tab has no close button");
+    assert!(cx.debug_bounds("tab:0").is_some(), "the tab itself stays");
+
+    // A dirty tab keeps its dot, on the right even with `left` (upstream `tab-actions-left` needs an
+    // action). The dot is not a button: a click falls through to the tab and activates it.
+    cx.simulate_keystrokes("x");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("tab-close:1").is_some(), "the dirty tab keeps its dot");
+    assert!((close_gap(cx, "tab:1", "tab-close:1", false) - 8.).abs() < 1., "the dot sits on the right");
+    let a = bounds(cx, "tab:0").center();
+    cx.simulate_mouse_move(a, None, Default::default());
+    cx.simulate_click(a, Default::default());
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.editors.active), Some(0), "tab a is active");
+    let dot = bounds(cx, "tab-close:1").center();
+    cx.simulate_mouse_move(dot, None, Default::default());
+    cx.simulate_click(dot, Default::default());
+    cx.run_until_parked();
+    assert_eq!(wb.read_with(cx, |wb, _| wb.editors.active), Some(1), "clicking the dot activates the dirty tab");
+}
+
+#[gpui_kit::test]
+fn tab_action_settings_apply_to_the_welcome_and_settings_tabs(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "tab-actions-chrome", None, &[("a.txt", "a")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    wb.update(cx, |wb, cx| wb.open_welcome(cx));
+    cx.run_until_parked();
+    wb.update_in(cx, |wb, window, cx| wb.open_settings(window, cx));
+    cx.run_until_parked();
+
+    // Welcome and Settings close like the text tabs: on the right, 8px from the edge, by default.
+    for (tab, close) in [("welcome-tab", "welcome-tab-close"), ("settings-tab", "settings-tab-close")] {
+        assert!((close_gap(cx, tab, close, false) - 8.).abs() < 1., "{tab}: close on the right by default");
+    }
+    set(cx, "workbench.editor.tabActionLocation", json!("left"));
+    for (tab, close) in [("welcome-tab", "welcome-tab-close"), ("settings-tab", "settings-tab-close")] {
+        assert!(close_gap(cx, tab, close, true).abs() < 1., "{tab}: tabActionLocation left moves the close button left");
+    }
+    set(cx, "workbench.editor.tabActionCloseVisibility", json!(false));
+    assert!(cx.debug_bounds("welcome-tab-close").is_none(), "tabActionCloseVisibility off: no Welcome close button");
+    assert!(cx.debug_bounds("settings-tab-close").is_none(), "tabActionCloseVisibility off: no Settings close button");
+    assert!(cx.debug_bounds("welcome-tab").is_some() && cx.debug_bounds("settings-tab").is_some(), "the tabs stay");
+}
+
+#[gpui_kit::test]
+fn tab_sizing_fixed_clamps_to_the_max_width_and_shrink_fills_the_strip(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "tab-sizing", None, &[("a.txt", "a"), ("b.txt", "b")]);
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    open_file(&wb, cx, &f.dir.join("b.txt"));
+    let width = |cx: &mut VisualTestContext, tab: &'static str| f32::from(bounds(cx, tab).size.width);
+
+    set(cx, "workbench.editor.tabSizing", json!("fixed"));
+    set(cx, "workbench.editor.tabSizingFixedMaxWidth", json!(100));
+    assert!((width(cx, "tab:0") - 100.).abs() < 1., "fixed: a tab grows to tabSizingFixedMaxWidth");
+    assert!((width(cx, "tab:1") - 100.).abs() < 1., "fixed: every tab gets the same width");
+
+    set(cx, "workbench.editor.tabSizing", json!("shrink"));
+    let (a, b) = (width(cx, "tab:0"), width(cx, "tab:1"));
+    assert!((a - b).abs() < 1., "shrink: the tabs share the width evenly");
+    assert!(a > 100. + 1., "shrink: the tabs ignore tabSizingFixedMaxWidth and grow into the strip");
+    assert!(a >= 80. - 1., "shrink: a tab is at least 80px wide");
+}
+
 // ---- window.commandCenter -------------------------------------------------------------------
 
 #[gpui_kit::test]

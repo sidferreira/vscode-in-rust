@@ -27,7 +27,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use crate::config::AppConfig;
-use crate::config::settings::{StartupEditor, startup_editor};
+use crate::config::settings::{StartupEditor, TabActions, startup_editor};
 use crate::theme::Rgba8;
 use crate::ui::to_gpui;
 use crate::{Workbench, icons};
@@ -86,7 +86,7 @@ impl Workbench {
     }
 
     /// The tab in the tab strip.
-    pub(crate) fn welcome_tab(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+    pub(crate) fn welcome_tab(&self, cx: &mut Context<Self>, actions: TabActions) -> Option<impl IntoElement> {
         if !self.welcome_open {
             return None;
         }
@@ -110,14 +110,18 @@ impl Workbench {
             .hover(|s| s.bg(to_gpui(t.list_hover_bg)))
             .child(icons::glyph(icons::CLOSE))
             .debug_selector(|| "welcome-tab-close".to_string())
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.close_welcome();
-                    cx.notify();
-                }),
-            );
+            .when(actions.clickable, |d| {
+                d.on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.close_welcome();
+                        cx.notify();
+                    }),
+                )
+            });
+        let (close_left, close_right) = actions.place(close);
+        let (pad_left, pad_right) = actions.padding();
         Some(
             div()
                 .id("welcome-tab")
@@ -129,16 +133,17 @@ impl Workbench {
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .pl(px(12.))
-                .pr(px(8.))
+                .pl(px(pad_left))
+                .pr(px(pad_right))
                 .cursor_pointer()
                 .text_size(px(13.))
                 .text_color(fg)
                 .bg(to_gpui(if active { t.tab_active_bg } else { t.tab_inactive_bg }))
                 .child(if active { line(div().top_0(), t.tab_active_border_top) } else { line(div().bottom_0(), t.tab_border) })
                 .child(div().absolute().right_0().top_0().h_full().w(px(1.)).bg(to_gpui(t.tab_border)))
+                .children(close_left)
                 .child("Welcome")
-                .child(close)
+                .children(close_right)
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| {

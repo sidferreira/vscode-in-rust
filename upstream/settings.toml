@@ -962,6 +962,13 @@ match = ["workbench.editor.split*"]
 
 [[rule]]
 status = "blocked"
+reason = "needs the modern UI layout (workbench.experimental.modernUI) and the Agents window"
+comment = "tabActionReserveSpace only changes the layout of the Modern UI tabs (`.modern-ui-tabs`); the classic tab strip ignores it (multiEditorTabsControl.ts, `tab-actions-reserve-space`)."
+source = ["core"]
+match = ["workbench.editor.tabActionReserveSpace"]
+
+[[rule]]
+status = "blocked"
 reason = "needs tab strip presentation (scrollbars, wrapping, pinned tabs, actions)"
 comment = "workbench.editor.tabSizing*, tabAction* control the sizing and the action buttons of the editor tabs (dependency tree: tab-strip-presentation)."
 source = ["core"]

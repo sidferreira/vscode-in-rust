@@ -56,7 +56,7 @@ use config::files::ReadonlyRules;
 use config::glob::ExcludeMatcher;
 use config::settings::{
     ActivityBarLocation, EditorGroupSettings, EditorSettings, LayoutSettings, OpenSource, ShowTabs, SideBarLocation,
-    tab_index_badge,
+    TabActions, TabSizing, tab_index_badge,
 };
 use config::AppConfig;
 use editor_view::{EditorHost, EditorView};
@@ -616,7 +616,7 @@ impl Workbench {
         self.settings_active = false;
     }
 
-    fn settings_tab(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+    fn settings_tab(&self, cx: &mut Context<Self>, actions: TabActions) -> Option<impl IntoElement> {
         self.settings.as_ref()?;
         let t = &self.theme;
         let active = self.settings_active;
@@ -624,6 +624,7 @@ impl Workbench {
         let line = |d: Div, c| d.absolute().left_0().w_full().h(px(1.)).bg(to_gpui(c));
         let close = div()
             .id("settings-tab-close")
+            .debug_selector(|| "settings-tab-close".to_string())
             .flex_none()
             .w(px(20.))
             .h(px(20.))
@@ -637,17 +638,22 @@ impl Workbench {
             .group_hover("settings-tab", |s| s.text_color(fg))
             .hover(|s| s.bg(to_gpui(t.list_hover_bg)))
             .child(icons::glyph(icons::CLOSE))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.close_settings();
-                    cx.notify();
-                }),
-            );
+            .when(actions.clickable, |d| {
+                d.on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.close_settings();
+                        cx.notify();
+                    }),
+                )
+            });
+        let (close_left, close_right) = actions.place(close);
+        let (pad_left, pad_right) = actions.padding();
         Some(
             div()
                 .id("settings-tab")
+                .debug_selector(|| "settings-tab".to_string())
                 .group("settings-tab")
                 .relative()
                 .flex_none()
@@ -655,17 +661,18 @@ impl Workbench {
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .pl(px(12.))
-                .pr(px(8.))
+                .pl(px(pad_left))
+                .pr(px(pad_right))
                 .cursor_pointer()
                 .text_size(px(13.))
                 .text_color(fg)
                 .bg(to_gpui(if active { t.tab_active_bg } else { t.tab_inactive_bg }))
                 .child(if active { line(div().top_0(), t.tab_active_border_top) } else { line(div().bottom_0(), t.tabs_border) })
                 .child(div().absolute().right_0().top_0().h_full().w(px(1.)).bg(to_gpui(t.tab_border)))
+                .children(close_left)
                 .child(div().font_family(icons::FAMILY).text_size(px(16.)).child(icons::glyph(icons::SETTINGS_GEAR)))
                 .child("Settings")
-                .child(close)
+                .children(close_right)
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| {
@@ -1142,8 +1149,10 @@ impl Workbench {
                     .bg(to_gpui(t.tabs_border)),
             );
         let single = show_tabs == ShowTabs::Single;
+        // The Welcome and Settings tabs close like the text tabs (never dirty).
+        let chrome_actions = self.editors.settings.tab_actions(show_tabs == ShowTabs::Multiple, false);
         if !single || self.welcome_showing() {
-            strip = strip.children(self.welcome_tab(cx));
+            strip = strip.children(self.welcome_tab(cx, chrome_actions));
         }
         let highlight = self.editors.settings.highlight_modified_tabs;
         let labels = self.editors.tab_labels(&self.root, self.editors.settings.label_format);
@@ -1181,6 +1190,12 @@ impl Workbench {
                     .justify_center()
                     .child(icons::glyph(c))
             };
+            // `workbench.editor.tabActionCloseVisibility` and `tabActionLocation`, ignored unless
+            // `showTabs` is `multiple`. With the close action off, a dirty tab still shows its dot
+            // (upstream `.tab.close-action-off:not(.dirty)` hides the actions only when clean).
+            // Off, a dirty tab keeps only its dot: upstream sets `pointer-events: none` on the actions.
+            let actions = self.editors.settings.tab_actions(show_tabs == ShowTabs::Multiple, dirty);
+            let close_clickable = actions.clickable;
             let close = div()
                 .id(("tab-close", i))
                 .debug_selector(|| format!("tab-close:{i}"))
@@ -1202,35 +1217,50 @@ impl Workbench {
                 .when(dirty, |d| {
                     d.child(
                         layer("tab-dot", icons::CIRCLE_FILLED)
-                            .group_hover(format!("tab-close-{i}"), |s| s.opacity(0.)),
+                            .when(close_clickable, |d| d.group_hover(format!("tab-close-{i}"), |s| s.opacity(0.))),
                     )
-                    .child(
-                        layer("tab-x", icons::CLOSE)
-                            .opacity(0.)
-                            .group_hover(format!("tab-close-{i}"), |s| s.opacity(1.)),
-                    )
+                    .when(close_clickable, |d| {
+                        d.child(
+                            layer("tab-x", icons::CLOSE)
+                                .opacity(0.)
+                                .group_hover(format!("tab-close-{i}"), |s| s.opacity(1.)),
+                        )
+                    })
                 })
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.request_close_tab(i, cx);
-                        cx.notify();
-                    }),
-                );
+                .when(close_clickable, |d| {
+                    d.on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.request_close_tab(i, cx);
+                            cx.notify();
+                        }),
+                    )
+                });
+            let (close_left_slot, close_right_slot) = actions.place(close);
+            let (pad_left, pad_right) = actions.padding();
+            let sizing = self.editors.settings.tab_sizing;
             let tab = div()
                 .id(("tab", i))
                 .debug_selector(|| format!("tab:{i}"))
                 .group(format!("tab-{i}"))
                 .when(self.editors.is_preview(i), |d| d.italic())
                 .relative()
-                .flex_none()
+                // `tabSizing`: fit keeps the label width; shrink and fixed grow evenly into the strip
+                // (upstream `.sizing-shrink` min-width 80px, `.sizing-fixed` clamped to the min/max).
+                .when(sizing == TabSizing::Fit, |d| d.flex_none())
+                .when(sizing == TabSizing::Shrink, |d| d.flex_1().min_w(px(80.)))
+                .when(sizing == TabSizing::Fixed, |d| {
+                    d.flex_1()
+                        .min_w(px(self.editors.settings.tab_sizing_fixed_min_width as f32))
+                        .max_w(px(self.editors.settings.tab_sizing_fixed_max_width as f32))
+                })
                 .h_full()
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .pl(px(12.))
-                .pr(px(8.))
+                .pl(px(pad_left))
+                .pr(px(pad_right))
                 .cursor_pointer()
                 .text_size(px(13.))
                 .text_color(fg)
@@ -1248,6 +1278,7 @@ impl Workbench {
                         .w(px(1.))
                         .bg(to_gpui(t.tab_border)),
                 )
+                .children(close_left_slot)
                 .when(self.editors.open[i].is_read_only(), |d| {
                     // `files.readonly*` (ADR-0034): a lock in front of the name, as upstream.
                     d.child(div().font_family(icons::FAMILY).text_size(px(12.)).child(icons::glyph(icons::LOCK)))
@@ -1258,7 +1289,7 @@ impl Workbench {
                 )
                 .child(labels[i].title.clone())
                 .children(labels[i].description.clone().map(|d| div().text_color(to_gpui(t.description_fg)).child(d)))
-                .child(close)
+                .children(close_right_slot)
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
@@ -1282,7 +1313,7 @@ impl Workbench {
             strip = strip.child(tab);
         }
         if !single || self.settings_active {
-            strip = strip.children(self.settings_tab(cx));
+            strip = strip.children(self.settings_tab(cx, chrome_actions));
         }
         strip
     }

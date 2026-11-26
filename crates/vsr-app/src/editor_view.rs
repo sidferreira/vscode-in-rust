@@ -168,6 +168,9 @@ pub struct EditorView {
     brackets: decorations::BracketCache,
     /// Alt+Z (`editor.action.toggleWordWrap`): per-document override of `editor.wordWrap`.
     wrap_override: HashMap<PathBuf, bool>,
+    /// Ctrl+Shift+M (`editor.action.toggleTabFocusMode`): the runtime tab focus mode once toggled.
+    /// It is independent of `editor.tabFocusMode`, as upstream's `TabFocus` is of its settings.
+    tab_focus: Option<bool>,
     /// View state of tabs closed in this run, for reopening them (`workbench.editor.restoreViewState`).
     closed_views: HashMap<PathBuf, crate::session::state::ViewState>,
     /// The editor whose save was refused because its file changed on disk; the workbench shows
@@ -319,6 +322,11 @@ impl EditorView {
         }
         let width = f32::from(self.bounds.get().size.width);
         (width > 0.0).then(|| wrap::viewport_columns(width - gutter, self.char_width()))
+    }
+
+    /// Tab moves focus: the toggle's state once Ctrl+Shift+M was pressed, else `editor.tabFocusMode`.
+    pub(crate) fn tab_focus_mode(&self) -> bool {
+        self.tab_focus.unwrap_or(self.cfg.tab_focus_mode)
     }
 
     fn rows_per_page(&self) -> usize {
@@ -592,9 +600,15 @@ fn run_command<T: EditorHost>(this: &mut T, cmd: Command, window: &mut Window, c
         }
         return;
     }
+    if matches!(cmd, Command::ToggleTabFocusMode) {
+        let view = this.editor_host().1;
+        view.tab_focus = Some(!view.tab_focus_mode());
+        cx.notify();
+        return;
+    }
     // `editor.tabFocusMode`: Tab moves focus instead of inserting a tab. rscode has no focus tab
     // stops outside the editor yet, so the focus stays where it is; the tab is not typed.
-    if matches!(cmd, Command::Tab) && this.editor_host().1.cfg.tab_focus_mode {
+    if matches!(cmd, Command::Tab) && this.editor_host().1.tab_focus_mode() {
         window.focus_next(cx);
         return;
     }
@@ -682,6 +696,7 @@ fn command_event<T: EditorHost>(this: &mut T, cmd: Command) -> Option<EditorEven
         | Command::Save
         | Command::CloseTab
         | Command::ToggleWordWrap
+        | Command::ToggleTabFocusMode
         | Command::Fold(_)
         | Command::TriggerSuggest
         | Command::HideSuggest

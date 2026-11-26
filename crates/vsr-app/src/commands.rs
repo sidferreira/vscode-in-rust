@@ -334,6 +334,7 @@ fn editor_command(cmd: Command) -> (&'static str, &'static str, bool) {
         Save => ("workbench.action.files.save", "Save", true),
         CloseTab => ("workbench.action.closeActiveEditor", "Close Editor", true),
         ToggleWordWrap => ("editor.action.toggleWordWrap", "Toggle Word Wrap", true),
+        ToggleTabFocusMode => ("editor.action.toggleTabFocusMode", "Toggle Tab Key Moves Focus", true),
         Fold(a) => fold_command(a),
         LineComment(vsr_editor::comments::CommentType::Toggle) => ("editor.action.commentLine", "Toggle Line Comment", true),
         LineComment(vsr_editor::comments::CommentType::ForceAdd) => ("editor.action.addCommentLine", "Add Line Comment", true),

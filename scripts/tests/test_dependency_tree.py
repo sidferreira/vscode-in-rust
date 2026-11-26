@@ -5,7 +5,7 @@
 Graph and counting tests use inline fixtures. The repo tests read the real files (settings.toml,
 the settings export, tests/e2e-scenarios, docs/dependencies.toml, extensions-compat.md) and fail
 when a blocker, an exthost source or a scenario label has no node, or when the generated doc is
-stale. Output goes to a fresh tempfile.mkdtemp() directory that is never deleted or reused.
+stale. Output goes to a per-test temp directory (removed when the test ends).
 """
 
 import collections
@@ -16,8 +16,9 @@ import contextlib
 import json
 import os
 import re
-import tempfile
 import unittest
+
+from scratch import scratch_dir
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -348,7 +349,7 @@ class RealRepoTest(unittest.TestCase):
 
 class CliTest(unittest.TestCase):
     def test_write_then_check(self):
-        out_dir = tempfile.mkdtemp(prefix="depcheck-")
+        out_dir = scratch_dir(self, prefix="depcheck-")
         out = os.path.join(out_dir, "tree.md")
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(dt.main(["--out", out]), 0)

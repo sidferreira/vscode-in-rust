@@ -62,6 +62,7 @@ pub fn boot_with(
     let workspace = base.join("ws");
     std::fs::create_dir_all(&workspace).unwrap();
     let mut host = ExtensionHost::boot(&BootParams {
+        socket_dir: Some(vsr_test_scratch::socket_dir!()),
         launch,
         version: "1.147.0".into(),
         storage_root: base.join("storage"),

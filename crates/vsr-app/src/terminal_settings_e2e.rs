@@ -221,7 +221,7 @@ fn ignore_bracketed_paste_mode_omits_the_markers(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn cwd_overrides_the_workspace_folder(cx: &mut TestAppContext) {
     let (wb, cx) = workbench(cx, "tset-cwd", None);
-    let dir = std::env::temp_dir().join(format!("rscode-term-cwd-{}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-term-cwd-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     set(cx, "terminal.integrated.cwd", json!(dir.to_str().unwrap()));
     open(cx, "pwd; cat");

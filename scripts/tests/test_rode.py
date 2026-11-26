@@ -10,8 +10,9 @@ so nothing is built and the real ~/Applications, ~/.local/bin and ~/.Trash are n
 import os
 import shutil
 import subprocess
-import tempfile
 import unittest
+
+from scratch import scratch_dir
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(HERE)
@@ -27,7 +28,7 @@ def fake_env(home, **extra):
 
 class Installed(unittest.TestCase):
     def setUp(self):
-        self.home = os.path.realpath(tempfile.mkdtemp(prefix="rode-test-"))
+        self.home = os.path.realpath(scratch_dir(self, prefix="rode-test-"))
         self.apps = os.path.join(self.home, "Applications")
         self.bin = os.path.join(self.home, "bin")
         self.fake = os.path.join(self.home, "rscode")
@@ -156,7 +157,7 @@ class CodeOssBuild(unittest.TestCase):
         open(os.path.join(base, name, "out", "bootstrap-fork.js"), "w").close()
 
     def test_the_lsp_build_wins_and_the_plain_one_is_the_fallback(self):
-        base = os.path.realpath(tempfile.mkdtemp(prefix="rode-test-"))
+        base = os.path.realpath(scratch_dir(self, prefix="rode-test-"))
         self.make_build(base, "codeoss-exthost")
         self.make_build(base, "codeoss-exthost-lsp")
         env = self.install(base, os.path.join(base, "apps"))
@@ -168,7 +169,7 @@ class CodeOssBuild(unittest.TestCase):
 
 class NotInstalled(unittest.TestCase):
     def test_rode_outside_a_bundle_says_how_to_install(self):
-        home = os.path.realpath(tempfile.mkdtemp(prefix="rode-test-"))
+        home = os.path.realpath(scratch_dir(self, prefix="rode-test-"))
         r = subprocess.run([os.path.join(SCRIPTS, "rode"), "."], capture_output=True, text=True,
                            env=fake_env(home, RODE_APP=os.path.join(home, "nope.app")))
         self.assertEqual(r.returncode, 1)

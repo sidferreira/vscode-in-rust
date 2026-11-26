@@ -941,7 +941,7 @@ mod tests {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
-        let dir = std::env::temp_dir().join(format!("vsr-model-{name}-{}-{nanos}", std::process::id()));
+        let dir = vsr_test_scratch::dir!().join(format!("vsr-model-{name}-{}-{nanos}", std::process::id()));
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::create_dir_all(dir.join(".git")).unwrap();
         fs::create_dir_all(dir.join("Docs")).unwrap();

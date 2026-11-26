@@ -13,7 +13,7 @@ pub struct TempWorkspace {
 impl TempWorkspace {
     pub fn new(tag: &str) -> Self {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("rscode-test-{tag}-{}-{n}", std::process::id()));
+        let dir = vsr_test_scratch::dir!().join(format!("rscode-test-{tag}-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create the test workspace");
         Self { dir }
     }

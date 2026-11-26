@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn destructive_operations_need_an_allowed_root() {
-        let base = std::env::temp_dir().join(format!("vsr-fs-guard-{}", std::process::id()));
+        let base = vsr_test_scratch::dir!().join(format!("vsr-fs-guard-{}", std::process::id()));
         let inside = base.join("allowed");
         let outside = base.join("other");
         fs::create_dir_all(inside.join("sub")).unwrap();

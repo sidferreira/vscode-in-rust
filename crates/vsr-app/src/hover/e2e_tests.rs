@@ -22,7 +22,7 @@ fn workbench<'a>(cx: &'a mut TestAppContext, name: &str, settings: &str) -> (Ent
 /// A workbench over `<tmp>/proj` (`src/main.rs` with `text`), with `settings` as the user settings file.
 fn workbench_text<'a>(cx: &'a mut TestAppContext, name: &str, settings: &str, text: &str) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!("rscode-hover-e2e-{name}-{}-{nanos}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-hover-e2e-{name}-{}-{nanos}", std::process::id()));
     let proj = dir.join("proj");
     fs::create_dir_all(proj.join("src")).unwrap();
     fs::write(proj.join("src/main.rs"), text).unwrap();

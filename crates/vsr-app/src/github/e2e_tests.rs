@@ -54,7 +54,7 @@ fn start<'a>(cx: &'a mut TestAppContext, name: &str, fake: FakeRunner) -> (Entit
 /// Like [`start`], with `setup` choosing how the workbench gets its runner (before anything can start the real gh).
 fn start_with<'a>(cx: &'a mut TestAppContext, name: &str, setup: impl FnOnce(&mut super::GithubState) + 'static) -> (Entity<Workbench>, &'a mut VisualTestContext) {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!("rscode-github-e2e-{name}-{}-{nanos}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-github-e2e-{name}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("a.txt"), "x").unwrap();
     cx.update(|cx| {

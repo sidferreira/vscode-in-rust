@@ -142,7 +142,7 @@ mod tests {
     use std::fs;
 
     fn tmp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("rscode-cli-{name}-{}", std::process::id()));
+        let dir = vsr_test_scratch::dir!().join(format!("rscode-cli-{name}-{}", std::process::id()));
         let _ = fs::create_dir_all(&dir);
         dir.canonicalize().unwrap()
     }

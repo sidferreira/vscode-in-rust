@@ -25,7 +25,7 @@ pub(crate) struct Scratch {
 
 fn scratch(name: &str, fixture: &str, activation: &[&str], files: &[(&str, &str)], patch: impl Fn(String) -> String) -> Scratch {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let base = std::env::temp_dir().join(format!("rscode-e2e-ext-{name}-{}-{nanos}", std::process::id()));
+    let base = vsr_test_scratch::dir!().join(format!("rscode-e2e-ext-{name}-{}-{nanos}", std::process::id()));
     let (ws, ext) = (base.join("ws"), base.join("exts/errorlens-fixture"));
     fs::create_dir_all(&ws).unwrap();
     fs::create_dir_all(&ext).unwrap();

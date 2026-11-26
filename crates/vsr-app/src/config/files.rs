@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn permissions_only_count_when_the_setting_is_on() {
-        let dir = std::env::temp_dir().join(format!("rscode-readonly-{}", std::process::id()));
+        let dir = vsr_test_scratch::dir!().join(format!("rscode-readonly-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("locked.txt");
         std::fs::write(&file, "x").unwrap();

@@ -14,7 +14,7 @@ use crate::quick_input::QuickPick;
 
 fn workspace(name: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!("rscode-e2e-quickopen-{name}-{}-{nanos}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-e2e-quickopen-{name}-{}-{nanos}", std::process::id()));
     for d in ["src", "notes", "target", "node_modules/pkg", "docs"] {
         fs::create_dir_all(dir.join(d)).unwrap();
     }

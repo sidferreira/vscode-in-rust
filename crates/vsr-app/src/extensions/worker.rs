@@ -166,6 +166,16 @@ fn host_version(code_oss: &Path) -> String {
         .unwrap_or_else(|| "1.147.0".to_string())
 }
 
+/// Production hosts use the system temp dir for the socket; unit tests route it under `target/test-scratch`.
+#[cfg(test)]
+fn worker_socket_dir() -> Option<PathBuf> {
+    Some(vsr_test_scratch::socket_dir!())
+}
+#[cfg(not(test))]
+fn worker_socket_dir() -> Option<PathBuf> {
+    None
+}
+
 fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
     let version = host_version(&config.launch.code_oss);
     let found = discovery::scan(&config.roots, &version, discovery::current_platform());
@@ -181,6 +191,7 @@ fn run(config: Config, rx: Receiver<ToHost>, out: UnboundedSender<FromHost>) {
     };
     env.extend(config.env.iter().cloned());
     let mut host = match ExtensionHost::boot(&BootParams {
+        socket_dir: worker_socket_dir(),
         launch: config.launch.clone(),
         version,
         storage_root: config.storage_root.clone(),
@@ -728,7 +739,7 @@ mod tests {
 
     #[test]
     fn workspace_contains_finds_plain_paths_and_globs() {
-        let dir = std::env::temp_dir().join(format!("rscode-wc-{}", std::process::id()));
+        let dir = vsr_test_scratch::dir!().join(format!("rscode-wc-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("a/b")).unwrap();
         std::fs::create_dir_all(dir.join("node_modules/x")).unwrap();
         std::fs::write(dir.join("Cargo.toml"), "").unwrap();

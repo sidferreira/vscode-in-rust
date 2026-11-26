@@ -609,7 +609,8 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             let s = t.snapshot();
-            if s.text().contains(text) {
+            // A long path (e.g. under target/test-scratch) wraps at the terminal width.
+            if s.text().replace('\n', "").contains(text) {
                 return s;
             }
             assert!(Instant::now() < deadline, "never saw {text:?}; screen: {:?}", s.text());
@@ -645,7 +646,7 @@ mod tests {
 
     #[test]
     fn the_working_directory_is_the_configured_one() {
-        let dir = std::env::temp_dir().join(format!("vsr-terminal-cwd-{}", std::process::id()));
+        let dir = vsr_test_scratch::dir!().join(format!("vsr-terminal-cwd-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let canonical = dir.canonicalize().unwrap();
         let (tx, _rx) = mpsc::channel();

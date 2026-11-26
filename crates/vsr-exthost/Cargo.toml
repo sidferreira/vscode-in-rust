@@ -13,3 +13,6 @@ vsr-search.workspace = true
 serde_json = "1"
 globset = "0.4"
 libc = "0.2"
+
+[dev-dependencies]
+vsr-test-scratch = { path = "../vsr-test-scratch" }

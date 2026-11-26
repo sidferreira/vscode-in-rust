@@ -36,7 +36,7 @@ fn real_extension_host_completes_the_handshake() {
     };
     let storage = scratch("exthost-storage");
     let workspace = scratch("exthost-workspace");
-    let socket = std::env::temp_dir().join(format!("rscode-rpc-{}.sock", std::process::id()));
+    let socket = vsr_test_scratch::socket_dir!().join(format!("rscode-rpc-{}.sock", std::process::id()));
     let script = launch.code_oss.join("out/bootstrap-fork.js");
 
     let mut host = Host::spawn(

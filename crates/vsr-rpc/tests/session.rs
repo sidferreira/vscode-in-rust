@@ -142,7 +142,7 @@ fn real_host_long_lived_session() {
     let base = scratch("session-real");
     let workspace = base.join("ws");
     std::fs::create_dir_all(&workspace).unwrap();
-    let socket = std::env::temp_dir().join(format!("rscode-session-{}.sock", std::process::id()));
+    let socket = vsr_test_scratch::socket_dir!().join(format!("rscode-session-{}.sock", std::process::id()));
     let mut host = Host::spawn(
         &launch.node,
         &launch.code_oss.join("out/bootstrap-fork.js"),

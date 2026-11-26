@@ -17,7 +17,7 @@ use crate::Workbench;
 use vsr_settings::{SettingsRegistry, TocNode};
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("rscode-e2e-{name}-{}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-e2e-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

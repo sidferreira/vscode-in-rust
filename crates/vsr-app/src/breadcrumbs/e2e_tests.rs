@@ -21,7 +21,7 @@ use crate::theme_service::ThemeService;
 /// temp file, so the real user settings are never touched.
 fn workbench<'a>(cx: &'a mut TestAppContext, name: &str) -> (Entity<Workbench>, &'a mut VisualTestContext, PathBuf) {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!("rscode-crumbs-e2e-{name}-{}-{nanos}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("rscode-crumbs-e2e-{name}-{}-{nanos}", std::process::id()));
     let proj = dir.join("proj");
     fs::create_dir_all(proj.join("src")).unwrap();
     fs::write(proj.join("src/main.rs"), "fn main() {}\n").unwrap();

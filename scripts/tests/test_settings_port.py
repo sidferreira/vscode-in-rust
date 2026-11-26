@@ -1,7 +1,7 @@
 """Tests for scripts/settings-port. Run: python3 -I -m unittest discover -s scripts/tests -p 'test_settings_port.py' -v
 
 Pure functions use inline fixtures. The consumer-index test builds a small throwaway git repo as a
-fake upstream in a fresh tempfile.mkdtemp() directory (never deleted, never reused).
+fake upstream in a a per-test temp directory (removed when the test ends).
 """
 
 import collections
@@ -10,8 +10,9 @@ import importlib.util
 import os
 import subprocess
 import sys
-import tempfile
 import unittest
+
+from scratch import scratch_dir
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(HERE), "settings-port")
@@ -73,7 +74,7 @@ class TomlTests(unittest.TestCase):
             sp.parse_toml("x = {a = 1}\n")
 
     def test_bad_rule_status_is_rejected(self):
-        path = os.path.join(tempfile.mkdtemp(prefix="settings-port-test-"), "settings.toml")
+        path = os.path.join(scratch_dir(self, prefix="settings-port-test-"), "settings.toml")
         with open(path, "w") as fh:
             fh.write('[[rule]]\nstatus = "wired"\nmatch = ["a.b"]\n')
         with self.assertRaises(sp.SettingsPortError):
@@ -205,7 +206,7 @@ class StatusTests(unittest.TestCase):
 
 class BlockedTests(unittest.TestCase):
     def _write_policy(self, body):
-        path = os.path.join(tempfile.mkdtemp(prefix="settings-port-test-"), "settings.toml")
+        path = os.path.join(scratch_dir(self, prefix="settings-port-test-"), "settings.toml")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(body)
         return path
@@ -278,7 +279,7 @@ class BlockedTests(unittest.TestCase):
 
 class WiredTests(unittest.TestCase):
     def test_parses_quoted_keys_and_ignores_missing_file(self):
-        d = tempfile.mkdtemp(prefix="settings-port-test-")
+        d = scratch_dir(self, prefix="settings-port-test-")
         path = os.path.join(d, "wired.rs")
         with open(path, "w") as fh:
             fh.write('pub const WIRED: &[&str] = &["editor.fontSize", "not a key", "files.exclude"];\n'
@@ -305,7 +306,7 @@ class TextTests(unittest.TestCase):
 
 class IndexTests(unittest.TestCase):
     def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="settings-port-upstream-")
+        self.root = scratch_dir(self, prefix="settings-port-upstream-")
         files = {
             "src/vs/editor/common/config/editorOptions.ts": (
                 "export const enum EditorOption {\n"

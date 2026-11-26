@@ -57,7 +57,11 @@ if [ -n "$features" ]; then
   done
 fi
 
-dest="${dest:-$(mktemp -d "${TMPDIR:-/tmp}/codeoss-exthost.XXXXXX")}"
+if [ -z "$dest" ]; then
+  # --plan must not touch the disk, so it names the directory a real run would create.
+  if [ "$plan_only" = 1 ]; then dest="${TMPDIR:-/tmp}/codeoss-exthost.<random>"
+  else dest="$(mktemp -d "${TMPDIR:-/tmp}/codeoss-exthost.XXXXXX")"; fi
+fi
 if [ -e "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then
   echo "build-codeoss-exthost: $dest exists and is not empty" >&2; exit 1
 fi

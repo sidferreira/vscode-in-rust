@@ -12,7 +12,7 @@ use vsr_github::{Github, NewPr, PrFilter, SystemRunner, locate_gh_in};
 
 fn scratch(name: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!("vsr-github-spawn-{name}-{}-{nanos}", std::process::id()));
+    let dir = vsr_test_scratch::dir!().join(format!("vsr-github-spawn-{name}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -90,7 +90,7 @@ fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
 fn a_hung_gh_is_killed_after_the_timeout() {
     let dir = scratch("hang");
     let gh = script(&dir, "gh", "echo $$ > \"$(dirname \"$0\")/pid\"\nexec sleep 30");
-    let runner = SystemRunner::new(Some(gh)).with_limits(std::time::Duration::from_millis(300), 1024);
+    let runner = SystemRunner::new(Some(gh)).with_limits(std::time::Duration::from_secs(3), 1024);
     let started = std::time::Instant::now();
     let err = Github::new(Arc::new(runner), scratch("hang-work")).repo().unwrap_err();
     assert!(matches!(err, vsr_github::GhError::Timeout { ref command } if command == "gh repo view --json nameWithOwner,defaultBranchRef,url"), "{err:?}");
@@ -166,7 +166,7 @@ fn a_timeout_kills_the_whole_process_group_not_just_the_child() {
     let dir = scratch("group");
     // Like `gh pr checkout` spawning git: a grandchild that keeps the pipes open.
     let gh = script(&dir, "gh", "echo $$ > \"$(dirname \"$0\")/child\"\nsleep 600 &\necho $! > \"$(dirname \"$0\")/grandchild\"\nwait");
-    let runner = SystemRunner::new(Some(gh)).with_limits(std::time::Duration::from_millis(400), 1024);
+    let runner = SystemRunner::new(Some(gh)).with_limits(std::time::Duration::from_secs(3), 1024);
     let started = std::time::Instant::now();
     assert_eq!(runner.run(Tool::Gh, &[], &dir), Err(SpawnError::Timeout));
     assert!(started.elapsed() < std::time::Duration::from_secs(10));

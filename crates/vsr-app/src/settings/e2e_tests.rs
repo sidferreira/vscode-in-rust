@@ -169,6 +169,33 @@ fn enum_dropdown_selects_a_value(cx: &mut TestAppContext) {
 }
 
 /// The TOC node that lists `key` directly, skipping "Commonly Used" (which repeats settings).
+#[gpui_kit::test]
+fn settings_search_toc_behavior_hide_empties_the_toc_while_searching(cx: &mut TestAppContext) {
+    let (wb, cx, _settings) = workbench(cx, "search-toc-hide");
+    cx.update(|_, cx| crate::config::AppConfig::set_value(cx, "workbench.settings.settingsSearchTocBehavior", Some(serde_json::json!("hide"))).unwrap());
+    cx.simulate_keystrokes("cmd-,");
+    cx.run_until_parked();
+    let view = view_of(&wb, cx);
+    cx.simulate_input("font size");
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.visible_toc().is_empty()), "hide: no TOC while searching");
+    assert!(view.read_with(cx, |v, _| v.result_count()) > 0, "the list still shows the matches");
+    // Back to the default (filter): the matching TOC nodes show again.
+    cx.update(|_, cx| crate::config::AppConfig::set_value(cx, "workbench.settings.settingsSearchTocBehavior", None).unwrap());
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| !v.visible_toc().is_empty()), "filter (default): the TOC narrows to matches");
+}
+
+#[gpui_kit::test]
+fn settings_editor_json_opens_settings_json_instead_of_the_ui(cx: &mut TestAppContext) {
+    let (wb, cx, settings) = workbench(cx, "editor-json");
+    cx.update(|_, cx| crate::config::AppConfig::set_value(cx, "workbench.settings.editor", Some(serde_json::json!("json"))).unwrap());
+    cx.simulate_keystrokes("cmd-,");
+    cx.run_until_parked();
+    assert!(wb.read_with(cx, |wb, _| wb.settings.is_none()), "json: the Settings editor is not opened");
+    assert!(wb.read_with(cx, |wb, _| wb.editors.open.iter().any(|e| e.path == settings)), "settings.json is opened as a tab");
+}
+
 fn group_of<'a>(toc: &'a [TocNode], key: &str) -> Option<&'a TocNode> {
     toc.iter().find_map(|n| {
         if n.id != "commonlyUsed" && n.settings.iter().any(|k| k == key) {

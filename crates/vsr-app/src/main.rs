@@ -587,6 +587,16 @@ impl Workbench {
     // ---- Settings editor tab (grouped: open / close / tab / surface) ---------
 
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // `workbench.settings.editor: json` opens settings.json instead of the Settings editor.
+        let json = AppConfig::get(cx).configuration().get_str("workbench.settings.editor") == Some("json");
+        if let Some(path) = json.then(|| AppConfig::get(cx).path().map(PathBuf::from)).flatten() {
+            if !path.exists() {
+                let _ = AppConfig::get(cx).user().save(&path);
+            }
+            self.open(&path);
+            cx.notify();
+            return;
+        }
         if self.settings.is_none() {
             let view = cx.new(|cx| SettingsView::new(None, window, cx));
             cx.subscribe(&view, |this, _, ev: &SettingsEvent, cx| match ev {

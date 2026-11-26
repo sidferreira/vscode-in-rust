@@ -3024,6 +3024,21 @@ returns to the typed text. This exercises `ToHost::Complete`, `ResolveCompletion
 end to end. Not covered against the host: that the host's cache is really empty after the release (the
 fixture exposes no probe).
 
+## ADR-0097 — Settings P2 batch 3: the occurrence delay, the Settings editor's search TOC and default editor; four keys blocked (2026-11-26)
+
+Wired: `editor.occurrencesHighlightDelay` (0..=2000 ms). The word's occurrences are drawn once the caret's word
+has stayed the same for the delay; the clock is the gpui executor's, so the E2E test advances it. The gate is
+`decorations::OccurrenceGate` (pure, unit-tested with explicit instants). The selection's own highlight is not
+delayed, as upstream. Difference: rscode hides the old occurrences while the wait runs, where upstream keeps
+them until it renders. `workbench.settings.settingsSearchTocBehavior` (`hide` empties the TOC while searching),
+`workbench.settings.editor` (`json` opens settings.json for Preferences: Open Settings). Each has an E2E test.
+
+Blocked, with the reason in `upstream/settings.toml`: `workbench.list.horizontalScrolling` (trees and lists clip
+rows, no horizontal scroll yet); `editor.unicodeHighlight.*` (no highlight pass, confusables table or workspace
+trust); `workbench.settings.openDefaultSettings`, `useSplitJSON` (no read-only defaults view beside
+settings.json); `openDefaultKeybindings` (no Keyboard Shortcuts editor). `alwaysShowAdvancedSettings` stays todo:
+the registry's TOC drops advanced settings at build time, so it needs a second TOC chosen at view time.
+
 ## ADR-0100 — The extension host's environment is the login shell's: `vsr-exthost::shell_env`, the timeout setting wired (2026-11-10)
 
 Context: ADR-0078 left one main-side duty for language servers: a Finder- or Dock-launched rscode

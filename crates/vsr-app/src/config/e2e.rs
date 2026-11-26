@@ -472,6 +472,32 @@ fn occurrences_and_selection_highlights_follow_the_settings(cx: &mut TestAppCont
 }
 
 #[gpui_kit::test]
+fn occurrences_highlight_delay_waits_for_the_caret_to_settle(cx: &mut TestAppContext) {
+    let (wb, cx, f) = workbench(cx, "occurrences-delay", None, &[("a.txt", "foo bar foo bar")]);
+    set(cx, "editor.occurrencesHighlightDelay", json!(300));
+    open_file(&wb, cx, &f.dir.join("a.txt"));
+    assert!(cx.debug_bounds("occurrence:1:1").is_some(), "the first sighting in a view is not delayed");
+    // Moving the caret from `foo` to `bar` starts the wait: `bar`'s copies are drawn after 300 ms.
+    cx.simulate_keystrokes("right right right right");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("occurrence:1:13").is_none(), "the caret moved to another word: wait");
+    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("occurrence:1:13").is_none(), "200 ms: still waiting");
+    cx.executor().advance_clock(std::time::Duration::from_millis(150));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("occurrence:1:13").is_some(), "after 300 ms the occurrences are drawn");
+    // Moving within the same word keeps them, with no new wait.
+    cx.simulate_keystrokes("right");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("occurrence:1:13").is_some(), "still inside `bar`: no wait");
+    set(cx, "editor.occurrencesHighlightDelay", json!(0));
+    cx.simulate_keystrokes("left left left");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("occurrence:1:1").is_some(), "delay 0: at once");
+}
+
+#[gpui_kit::test]
 fn selection_and_ligature_settings_apply_live(cx: &mut TestAppContext) {
     let (wb, cx, f) = workbench(cx, "typography", None, &[("a.txt", "foo bar")]);
     open_file(&wb, cx, &f.dir.join("a.txt"));

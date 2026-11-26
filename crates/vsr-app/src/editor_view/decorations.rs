@@ -9,8 +9,8 @@
 //! Columns are 1-based character columns of the model line; the view maps them to pixels.
 
 use std::ops::RangeInclusive;
-
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use vsr_editor::{Position, matching_brackets};
 use vsr_text::TextBuffer;
@@ -44,6 +44,40 @@ impl BracketCache {
             self.key = Some(key);
         }
         self.pair
+    }
+}
+
+/// `editor.occurrencesHighlightDelay`: the word's occurrences are drawn once the caret's word (its
+/// span, the document version and the path) has stayed the same for the delay. Upstream renders at
+/// `lastCursorPositionChangeTime + delay` (wordHighlighter.ts `_beginRenderDecorations`). Difference:
+/// rscode hides the old occurrences while the wait runs, where upstream keeps them. The first
+/// sighting in a view is not delayed, as upstream's clock starts at zero. The clock is an argument,
+/// so the tests drive it.
+#[derive(Default)]
+pub struct OccurrenceGate {
+    key: Option<(PathBuf, u64, Position, Position)>,
+    since: Option<Instant>,
+}
+
+impl OccurrenceGate {
+    /// Whether the word's occurrences may be drawn at `now`. `Err(wait)` is how long until they may.
+    pub fn check(
+        &mut self,
+        path: &Path,
+        version: u64,
+        selection: (Position, Position),
+        now: Instant,
+        delay: Duration,
+    ) -> Result<(), Duration> {
+        let key = (path.to_path_buf(), version, selection.0, selection.1);
+        match &self.key {
+            Some(k) if *k == key => {}
+            Some(_) => self.since = Some(now),
+            None => self.since = Some(now.checked_sub(delay).unwrap_or(now)),
+        }
+        self.key = Some(key);
+        let due = self.since.unwrap_or(now) + delay;
+        if now >= due { Ok(()) } else { Err(due - now) }
     }
 }
 
@@ -339,6 +373,34 @@ mod tests {
     use super::*;
 
     const SEP: &str = vsr_editor::USUAL_WORD_SEPARATORS;
+
+    #[test]
+    fn occurrence_gate_waits_for_the_caret_to_settle() {
+        let (p, t0) = (Path::new("a.txt"), Instant::now());
+        let at = |line, column| Position { line, column };
+        let sel = (at(1, 2), at(1, 2));
+        let ms = Duration::from_millis;
+        let mut g = OccurrenceGate::default();
+        // The first sighting of a document is not delayed.
+        assert_eq!(g.check(p, 1, sel, t0, ms(300)), Ok(()));
+        // The caret moves: the wait starts then, and repeated frames keep the same deadline.
+        let moved = (at(1, 3), at(1, 3));
+        assert_eq!(g.check(p, 1, moved, t0, ms(300)), Err(ms(300)));
+        assert_eq!(g.check(p, 1, moved, t0 + ms(120), ms(300)), Err(ms(180)));
+        assert_eq!(g.check(p, 1, moved, t0 + ms(300), ms(300)), Ok(()));
+        assert_eq!(g.check(p, 1, moved, t0 + ms(900), ms(300)), Ok(()), "stays due while the caret rests");
+        // An edit (a new version) starts the wait again.
+        assert_eq!(g.check(p, 2, moved, t0 + ms(900), ms(300)), Err(ms(300)));
+    }
+
+    #[test]
+    fn occurrence_gate_with_no_delay_never_waits() {
+        let (p, t0) = (Path::new("a.txt"), Instant::now());
+        let at = |column| Position { line: 1, column };
+        let mut g = OccurrenceGate::default();
+        assert_eq!(g.check(p, 1, (at(1), at(1)), t0, Duration::ZERO), Ok(()));
+        assert_eq!(g.check(p, 1, (at(2), at(2)), t0, Duration::ZERO), Ok(()));
+    }
 
     /// Lines of a test document; `Lines` over plain strings.
     struct Doc<'a>(Vec<&'a str>);

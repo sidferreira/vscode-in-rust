@@ -86,6 +86,9 @@ pub struct SettingsView {
     category: Option<String>,
     /// The TOC while searching: matching nodes with their counts.
     search_toc: Vec<TocEntry>,
+    /// `workbench.settings.settingsSearchTocBehavior`: `filter` (the default) keeps the TOC
+    /// while searching; `hide` leaves it empty.
+    toc_filters_on_search: bool,
     rows: Vec<Row>,
     header_ix: HashMap<String, usize>,
     list: ListState,
@@ -105,6 +108,12 @@ pub struct SettingsView {
 
 const TOC_DEFAULT_WIDTH: f32 = 200.0;
 
+/// `workbench.settings.settingsSearchTocBehavior`: whether the TOC is filtered (true) or hidden
+/// (`hide`) while a search runs.
+fn toc_filters_on_search(c: &vsr_settings::Configuration) -> bool {
+    c.get_str("workbench.settings.settingsSearchTocBehavior") != Some("hide")
+}
+
 impl SettingsView {
     /// The view edits the app's `AppConfig` (writes apply immediately and are saved to its
     /// settings.json). When no configuration is installed yet, `path` is loaded as the settings.json.
@@ -117,6 +126,7 @@ impl SettingsView {
         let user = app.user().clone();
         let save_error = app.error().map(str::to_string);
         let path = app.path().map(PathBuf::from);
+        let toc_filters = toc_filters_on_search(app.configuration());
         let rows = model::build_rows(registry.toc());
         let header_ix = model::header_indices(&rows);
         let list = ListState::new(rows.len(), ListAlignment::Top, px(600.));
@@ -133,6 +143,7 @@ impl SettingsView {
             let app = AppConfig::get(cx);
             this.user = app.user().clone();
             this.save_error = app.error().map(str::to_string);
+            this.toc_filters_on_search = toc_filters_on_search(app.configuration());
             cx.notify();
         }));
         let weak = cx.entity().downgrade();
@@ -151,6 +162,7 @@ impl SettingsView {
             search_keys: Vec::new(),
             category: None,
             search_toc: Vec::new(),
+            toc_filters_on_search: toc_filters,
             rows,
             header_ix,
             list,
@@ -264,7 +276,7 @@ impl SettingsView {
     /// The TOC lines to show: the matching nodes while searching, else the expandable full TOC.
     fn toc_entries(&self) -> Vec<TocEntry> {
         if self.searching() {
-            self.search_toc.clone()
+            if self.toc_filters_on_search { self.search_toc.clone() } else { Vec::new() }
         } else {
             model::flatten_toc(self.registry.toc(), &self.toc_expanded)
         }

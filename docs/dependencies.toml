@@ -1513,3 +1513,54 @@ external = "Environment: the scenarios need a stable VS Code install on the mach
 effort = "-"
 needs = []
 scenarios = ["cross-version state migration", "cross-version state migration (needs stable VS Code install)"]
+
+# Settings P2 batch 3 (ADR-0097): blocked settings reasons with no feature yet.
+
+[[node]]
+id = "keyboard-shortcuts-editor"
+title = "Keyboard Shortcuts editor (default keybindings view)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs a Keyboard Shortcuts editor (the default keybindings view)",
+]
+todo_globs = ["workbench.settings.openDefaultKeybindings*"]
+
+[[node]]
+id = "default-settings-view"
+title = "Read-only default settings beside settings.json (split JSON view)"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs a read-only default settings editor beside settings.json (the split JSON view)",
+]
+todo_globs = ["workbench.settings.openDefaultSettings", "workbench.settings.useSplitJSON"]
+
+[[node]]
+id = "list-horizontal-scrolling"
+title = "Horizontal scrolling in trees and lists"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = []
+reasons = [
+  "needs horizontal scrolling in the trees and lists (the Explorer clips rows at the panel edge)",
+]
+todo_globs = ["workbench.list.horizontalScrolling"]
+
+[[node]]
+id = "unicode-highlight"
+title = "Unicode highlight pass (invisible, ambiguous and non-ASCII characters)"
+status = "todo"
+effort = "L"
+effort_source = "guess"
+needs = ["workspace-trust"]
+reasons = [
+  "needs the unicode highlight pass in the editor (decorations, the confusables table and workspace trust)",
+]
+todo_globs = ["editor.unicodeHighlight.*"]
+note = "inferred: the confusables table is the bulk of the work; the trust keys need workspace-trust."

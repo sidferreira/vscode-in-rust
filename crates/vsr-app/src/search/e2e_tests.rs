@@ -563,9 +563,10 @@ fn view_as_tree_groups_files_under_folders_and_folders_fold(cx: &mut TestAppCont
     cx.update(|_, app| v.update(app, |v, cx| v.activate(Row::Folder(0), cx)));
     assert_eq!(row_texts(&v, cx), ["src/", "a.txt", ".", "."], "a folded folder hides its rows");
     cx.update(|_, app| v.update(app, |v, cx| v.toggle_collapse_all(cx)));
-    assert_eq!(row_texts(&v, cx).len(), 7, "no folder is unfolded: Expand All");
+    assert_eq!(row_texts(&v, cx), ["src/", "a.txt"], "a root-level file is unfolded: Collapse All folds every folder and file");
     cx.update(|_, app| v.update(app, |v, cx| v.toggle_collapse_all(cx)));
-    assert_eq!(row_texts(&v, cx), ["src/", "a.txt"], "a folder is unfolded: Collapse All folds every folder and file");
+    assert_eq!(row_texts(&v, cx).len(), 7, "nothing is unfolded: Expand All");
+    cx.update(|_, app| v.update(app, |v, cx| v.toggle_collapse_all(cx)));
 
     cx.update(|_, app| v.update(app, |v, cx| v.set_tree_view(false, cx)));
     assert_eq!(row_texts(&v, cx), ["a.txt", "b.rs"], "back to the list, its files still folded by Collapse All");

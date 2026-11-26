@@ -247,6 +247,7 @@ fn compare_files(order: ResultSortOrder, a: &FileResult, b: &FileResult) -> Orde
 impl Results {
     pub fn clear(&mut self) {
         self.files.clear();
+        self.collapsed_dirs.clear();
     }
 
     /// `search.sortOrder` changed: order the files that are already listed. Files added later
@@ -388,7 +389,11 @@ impl Results {
     /// Tree mode: something is unfolded (a shown folder, or a file when everything is in the root).
     pub fn any_expanded_tree(&self) -> bool {
         let layout = self.tree_layout();
-        if layout.folders.is_empty() { self.any_expanded() } else { layout.folders.iter().any(|f| f.expanded) }
+        if layout.folders.is_empty() {
+            return self.any_expanded();
+        }
+        let root_file_expanded = self.files.iter().any(|f| f.expanded && f.dir.split('/').all(|p| p.is_empty()));
+        root_file_expanded || layout.folders.iter().any(|f| f.expanded)
     }
 
     /// Dismiss a file (and all of its matches) from the results.
@@ -744,5 +749,27 @@ mod tests {
         assert_eq!(after_replace_all_message(1, 2, ""), "Replaced 1 occurrence across 2 files.");
         let long = (1..=12).map(|i| i.to_string()).collect::<Vec<_>>().join("\n");
         assert!(replace_all_confirmation_message(1, 1, &long).ends_with("10\n...'?"));
+    }
+
+    #[test]
+    fn clear_forgets_folded_folders() {
+        let root = Path::new("/ws");
+        let mut r = Results::default();
+        r.add_file(root, &fm(root, "a/x.rs", "xyz", &[(0, 1)]), true);
+        r.collapsed_dirs.insert("a".into());
+        r.clear();
+        assert!(r.collapsed_dirs.is_empty(), "a new search starts with every folder unfolded");
+    }
+
+    #[test]
+    fn any_expanded_tree_counts_root_level_files() {
+        let root = Path::new("/ws");
+        let mut r = Results::default();
+        r.add_file(root, &fm(root, "a/x.rs", "xyz", &[(0, 1)]), true);
+        r.add_file(root, &fm(root, "top.rs", "xyz", &[(0, 1)]), false);
+        r.collapsed_dirs.insert("a".into());
+        assert!(!r.any_expanded_tree(), "the only unfolded file is in a folded folder");
+        r.files.iter_mut().find(|f| f.name == "top.rs").unwrap().expanded = true;
+        assert!(r.any_expanded_tree(), "an unfolded root-level file counts");
     }
 }

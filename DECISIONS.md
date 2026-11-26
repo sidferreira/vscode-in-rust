@@ -3118,7 +3118,7 @@ methods seen on the way in: `MainThreadWindow.$getInitialState`, `MainThreadTerm
 `MainThreadLogger.$registerLogger`. The spdlog native binding is missing (ADR-0060): the host logs it and
 carries on.
 
-Not done (the open gap, recorded here rather than guessed): diagnostics for a JSON syntax error do
+Not done at the time (resolved by ADR-0102: the probe never showed an editor, so the pull client never asked): diagnostics for a JSON syntax error do
 not reach `MainThreadDiagnostics` (the store is empty after 15 s), so the end-to-end check
 (diagnostics, then completion with a schema) is not yet green. The next step is to find out
 whether the client sent `didOpen` to the server and whether the server's `initialize` completed. The
@@ -3134,6 +3134,82 @@ at startup: a second `.json` file opened after activation also gets no markers; 
 server may publish diagnostics that the host never receives, or the server never validates. The
 next check is the server's own `publishDiagnostics` on the wire (a tap on the host's stdio),
 not more main-thread shapes.
+
+## ADR-0102 — The JSON language server works end to end: diagnostics are pulled, and only for visible documents (2026-11-26)
+
+Context: ADR-0101 left `json-language-features` with no markers and no completions in the real host.
+
+Wire tap (a Node `--require` preload through `NODE_OPTIONS`, wrapping `process.send` and the `message`
+event on the host's side and in the server child; scratch only, not committed). The IPC traffic
+showed: `initialize` completes, `initialized`, `textDocument/didOpen` (with the text) and
+`workspace/didChangeConfiguration` (`json.validate.enable: true`) all reach the server. The server
+declares `diagnosticProvider` and never sends `publishDiagnostics`: JSON diagnostics are *pull*
+(`textDocument/diagnostic`). `vscode-languageclient` pulls only for documents it considers visible
+(`VisibleDocumentsImpl`: tab groups plus `window.visibleTextEditors`). The probe only opened a
+document and never showed an editor, so the client never asked and the store stayed empty. Nothing was
+missing on the server or in a main-thread `$method`.
+
+Decision:
+
+- No host change was needed: the app already calls `show_editor` for an open document (worker.rs).
+  `tests/json_real_host.rs` now shows the editor. With it: `{ "name" "x" }` yields the marker
+  "Colon expected" (severity 8, source json), a `$schema` file next to the document yields `red` and
+  `green` completions for an enum, and `json.validate.enable: false` yields no marker.
+- The unhandled main-thread methods listed in ADR-0101 (`MainThreadWindow.$getInitialState`, Storage,
+  Logger, Telemetry, ...) were not needed by this flow and stay unhandled (the host logs and carries
+  on). Left for when an extension depends on their results.
+- A document that has no editor gets no JSON diagnostics. That matches VS Code (closed tabs are not
+  validated by pull clients).
+- `lsp-client` is marked done in docs/dependencies.toml.
+- No new crates: the LSP client is the extension's own Node `vscode-languageclient`, so there was
+  nothing to hand-roll or fetch.
+
+## ADR-0103 — CSS, SCSS, LESS and HTML language features end to end; the `json.*`, `css.*`, `scss.*`, `less.*` and `html.*` settings (2026-11-26)
+
+Context: issue #2, and the settings follow-up to ADR-0102. The built-in `css-language-features`
+and `html-language-features` run in the real host the same way the JSON one does: the extension is
+Node, its server is a child process, diagnostics are pulled for documents that have an editor.
+
+Decision and findings:
+
+- `tests/css_html_real_host.rs` (24 tests) and `tests/json_real_host.rs` (7) run the real
+  extensions. Activation, markers for a syntax error (`a { color red }`: "semi-colon expected",
+  severity 8) and completion (CSS property names, HTML tag names) pass for css, scss, less, html.
+  HTML reports CSS errors inside `<style>`; it has no syntax diagnostics of its own.
+- The HTML server asks the client for the `css` configuration section (embedded styles). With only
+  the HTML extension loaded its answer was `null` and the server failed ("Cannot read properties of
+  null"), so HTML tests load both extensions, as VS Code has. Not a host bug.
+- Real gap fixed: `workspace.openTextDocument(uri)` for a file that is not open. The HTML client
+  reads `html.customData` files that way. `ExtensionHost::pump` now answers
+  `MainThreadDocuments.$tryOpenDocument` for an unopened file by reading it from disk, adding the
+  document and sending `$acceptDocumentsAndEditorsDelta` before the reply (same connection, so in
+  order). Language id by extension (json, css, scss, less, html, md, else plaintext).
+- The shared `codeoss-exthost` build had only json. Build css and html with
+  `scripts/build-codeoss-exthost --language-features json,css,html <new folder>`; the css and html
+  tests skip, saying why, when the build lacks them.
+
+Settings with a test (all read by the extension through the host's configuration; statuses stay
+`exthost`, which is what this port means by "works through the extension host"):
+
+- json: `validate.enable`, `schemas`, `format.enable`, `format.keepLines`.
+- css: `validate`, `lint.emptyRules` (default warning, `error`, `ignore`), `completion.completePropertyWithSemicolon`,
+  `format.enable`, `format.braceStyle`, `hover.documentation`, `customData`.
+- scss and less: `validate` (on and off), `format.enable`, and `scss.lint` independent of `css.lint`.
+- html: `suggest.html5`, `completion.attributeDefaultValue`, `validate.styles`, `format.enable`, `customData`.
+- The JSON client registers a range formatting provider only; the tests use the range query.
+
+Reclassified `blocked` (upstream/settings.toml, each with its reason): `json.trace.server`,
+`css.trace.server`, `html.trace.server` (need the Output panel, `MainThreadOutputService`);
+`html.autoClosingTags`, `html.autoCreateQuotes` (need `$tryInsertSnippet`).
+
+Still `exthost` without a dedicated test: the other `css/scss/less.lint.*`, `*.hover.references`,
+`*.completion.triggerPropertyValueCompletion`, `*.format.*` apart from the ones above,
+`html.format.*`, `html.validate.scripts`, `html.suggest.hideEndTagSuggestions`,
+`json.maxItemsComputed`, `json.schemaDownload.*` (needs network or a local HTTP server),
+`json.colorDecorators.enable` (deprecated, n/a). They go through the same configuration path as the
+tested ones. `lsp-client` was already done (ADR-0102); `builtin-lsp-css-html-json` is done.
+
+No new crates.
 
 ## ADR-0108 — Go to Definition, Declaration, Type Definition and Implementation (2026-11-10)
 

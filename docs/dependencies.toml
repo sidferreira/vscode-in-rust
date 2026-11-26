@@ -262,6 +262,30 @@ reasons = [
 note = "Done (ADR-0065, ADR-0067): MainThreadDiagnostics store, squiggles and status bar counts. The settings behind this reason can now be wired; the Problems view is its own node."
 
 [[node]]
+id = "ext-output-channels"
+title = "Output channels (MainThreadOutputService) and the Output panel"
+status = "todo"
+effort = "M"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+reasons = [
+  "needs the Output panel (MainThreadOutputService)",
+]
+note = "The language clients write their server trace to an output channel (ADR-0103); createOutputChannel is a stub today."
+
+[[node]]
+id = "ext-insert-snippet"
+title = "TextEditor.insertSnippet (MainThreadTextEditors.$tryInsertSnippet)"
+status = "todo"
+effort = "S"
+effort_source = "guess"
+needs = ["ext-host-p1"]
+reasons = [
+  "needs snippet insertion in the editor (MainThreadTextEditors.$tryInsertSnippet)",
+]
+note = "html.autoClosingTags and html.autoCreateQuotes apply the server's text with insertSnippet (ADR-0103)."
+
+[[node]]
 id = "file-participants"
 title = "File participants (create, rename, delete hooks from the ext host)"
 status = "todo"
@@ -285,7 +309,7 @@ note = "Roadmap P2 'LanguageFeatures shapes' (completion, hover, code action, co
 [[node]]
 id = "lsp-client"
 title = "LSP client over stdio (vscode-languageclient)"
-status = "todo"
+status = "done"
 effort = "L"
 effort_source = "extensions-compat §4 (P2)"
 needs = ["workspace-fs-api", "lang-providers-main"]
@@ -486,7 +510,7 @@ needs = ["lsp-client", "lang-providers-main", "debugger-dap"]
 [[node]]
 id = "builtin-lsp-css-html-json"
 title = "Built-in CSS, HTML and JSON language features"
-status = "todo"
+status = "done"
 kind = "extension"
 effort = "M"
 effort_source = "guess"

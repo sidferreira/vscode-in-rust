@@ -218,7 +218,9 @@ impl Compiled {
                 return;
             }
             pos = if end >= text.len() {
-                // Upstream's `Searcher`: a match that reaches the end of the text ends the search.
+                // Upstream's `Searcher.next` (textModelSearch.ts:518-521) returns null once the previous
+                // match ends at the text length, so no empty match follows a match that reaches the end:
+                // `b*` on "ab" gives "", "b" (the same as upstream's `_findMatchesInLine`, :255-288).
                 return;
             } else if end > start {
                 end

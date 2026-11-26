@@ -7471,6 +7471,7 @@ name = "vsr-exthost"
 version = "0.1.0"
 dependencies = [
  "globset",
+ "libc",
  "serde_json",
  "vsr-rpc",
  "vsr-search",

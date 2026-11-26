@@ -1489,8 +1489,20 @@ Decision:
   `send_key` and `kill` complete it.
 - **Tests** run a real `/bin/sh -c ...` in a PTY, no window: output and colours in the grid, cursor, exit code, cwd,
   input echo, resize (`stty size`), scrollback and scrolling, selection, kill, title; plus the key encoding.
+- **Amendment (review fixes).** All PTY writes go through a dedicated writer thread fed by a channel (`write`,
+  `paste` and the emulator's `PtyWrite` replies), so the UI thread never blocks on a full PTY input queue and the
+  reader never writes while holding the `term` lock. Emulator events (title, bell) are queued by the listener and
+  delivered by the reader after it released the lock, so callbacks may call back into the `Terminal`. Pasted text
+  has `ESC[200~` and `ESC[201~` removed before bracketing (as xterm.js). `kill` and drop send SIGHUP to the shell's
+  process group (`portable-pty` makes the shell a session leader, so its pid is the group id) and SIGKILL after a
+  ~500 ms grace if the reader has not seen EOF; drop does this even after the shell exited, because a background
+  job may still hold the slave open (otherwise the reader thread and fds leak). Signals are skipped once the
+  reader saw EOF (the pid may be reused). A residual race remains between `waitpid` returning and the `reaped`
+  flag being set, microseconds wide. `spawn` kills the child when a later step fails. Locks tolerate poisoning.
 - Not yet: shell integration (OSC 633), links, mouse reporting, find in terminal, persistent sessions, `inheritEnv`
   login-shell resolution (the process environment is inherited as is).
+
+Review amendment (2026-11-26): the bracketed-paste marker removal repeats until no marker is left, since removing one can join its neighbours into a new one (`ESC ESC[201~ [201~`); a child killed on a spawn error path is also waited for (no zombie). Known residual risk, accepted: after the shell is reaped, the process-group hangup still runs while the PTY is held, so a descendant that left the group with `setsid` keeps the reader alive; pid reuse inside the 500 ms grace is not guarded.
 
 ## ADR-0046 — Typing rules, comments and indentation: language configuration in the editor (2026-11-10)
 
@@ -3063,6 +3075,12 @@ trust); `workbench.settings.openDefaultSettings`, `useSplitJSON` (no read-only d
 settings.json); `openDefaultKeybindings` (no Keyboard Shortcuts editor). `alwaysShowAdvancedSettings` stays todo:
 the registry's TOC drops advanced settings at build time, so it needs a second TOC chosen at view time.
 
+**Review fixes (wip/fix-ui).** `occurrences_due` does nothing (no gate, no timer, no repaint) when
+`editor.occurrencesHighlight` is `off`, and `OccurrenceGate::check` copies its path only when it changes.
+`workbench.editor.tabSizingFixedMinWidth` and `...MaxWidth` are clamped to the schema minimum (38) and the
+maximum to at least the minimum (`tab_sizing_fixed_widths_are_clamped_to_the_schema_minimum_and_max_is_at_least_min`).
+
+
 ## ADR-0100 — The extension host's environment is the login shell's: `vsr-exthost::shell_env`, the timeout setting wired (2026-11-10)
 
 Context: ADR-0078 left one main-side duty for language servers: a Finder- or Dock-launched rscode
@@ -3235,6 +3253,17 @@ tested ones. `lsp-client` was already done (ADR-0102); `builtin-lsp-css-html-jso
 
 No new crates.
 
+- **Amendment (on-demand documents).** `open_on_demand` records the files it added (`on_demand`, oldest
+  first). `open_document` of such a file reuses the document: no second `addedDocuments`; the host gets one
+  `$acceptModelChanged` (version bumped) when the editor's text differs from the disk text, and when the
+  language differs the document is removed and added again. `close_document` removes an on-demand document
+  too, and the host keeps at most 32 of them (the oldest is removed beyond that). Files over 50 MB are not
+  read for `$tryOpenDocument` (upstream's large-file guard), so the extension gets the "not an open
+  document" error. Tests are unit tests on a host without a process (`host::tests`), which records what it
+  would send; the real-host tests are unchanged.
+
+Review amendment (2026-11-26): the cap on documents opened only for an extension (`openTextDocument` of a file not open in an editor) is 256, not 32, so an extension that keeps many such documents is not handed `onDidClose` for one it still uses.
+
 ## ADR-0108 — Go to Definition, Declaration, Type Definition and Implementation (2026-11-10)
 
 `vsr-app::navigation` (the app side) and two additive messages in the extension host worker, following
@@ -3320,6 +3349,13 @@ additive messages in the extension host worker, the same job shape as Navigate.
     scroll and a paint at a changed scroll offset (`HoverState::dismiss`, `scrolled_to`). A dismissal
     also forgets the request in flight, so a late answer is dropped. While a button is held, the pointer
     does not arm a hover. Gap: a scrollbar drag is caught only by the offset check at the next paint.
+  - Review fix (wip/fix-ui): `HoverState::sync_document`, called at paint, drops a widget for another document
+    (a tab switch), for a document whose version changed since the widget was first painted (an edit outside
+    the key, mouse and scroll paths: an extension's `applyEdit`, a revert, an undo from the palette) and for a
+    line past the end. `anchor_at` and `hover_word_box` clamp the line to the buffer, and the long line
+    warning checks the line, so a stale point can no longer index past the lines on the paint path.
+    Tests: `a_hover_on_a_line_removed_by_a_non_key_edit_is_dropped_and_paint_does_not_panic`,
+    `a_hover_is_dropped_when_another_tab_becomes_active`.
   - Code lens and inlay hints (ADR-0108 steps 3 and 4) are not started, so `navigation-providers` stays `todo`
     in `docs/dependencies.toml`.
 
@@ -3362,6 +3398,14 @@ clamped to the text and scrolled into view, as a search result is (`Workbench::g
 
 Not done: a second `rode` starts a second process and window instead of handing the paths to the running
 instance (upstream's single-instance IPC; the design is in ADR-0160), and there is no `-n`/`-r`/`--diff`.
+
+**`-g` argument parsing (amended 2026-11-26).** An argument that exists as given (file or folder) is used as it
+is, so `report:2024` opens that file. Otherwise only trailing all-digit segments are a position
+(`:line[:column]`; the colon elsewhere is part of the name, `a:1:b.txt` is a file name). A line or column of 0
+is clamped to 1 (`-g f.rs:0` is line 1). A last segment before the path that starts like a number but is not one
+(`main.rs:12x`, `f.rs:-3`, `f.rs:3:4x`) is reported on stderr like a missing path and nothing is created.
+
+Review amendment (2026-11-26): a malformed `-g` suffix (`f.rs:12x`, `f.rs:3:4x`) is reported only when the path in front of it is an existing file (a mistyped position); otherwise the whole argument is a plain new name (`log:2024-01-05.txt`, `meeting:10am.md`).
 
 ## ADR-0111 — The bottom panel: one container for Problems, Output and the Terminal (2026-11-26)
 
@@ -3419,10 +3463,33 @@ Decision (`crates/vsr-app/src/terminal_view.rs`; tests `terminal_e2e.rs`, `termi
   `wordSeparators`, `ignoreBracketedPasteMode`, `hideOnLastClosed`, `cwd`, `defaultProfile.osx`, `profiles.osx`
   (`path`, `args`, `env`), `env.osx`. The registry restricts `defaultProfile.osx` to the profiles upstream detects, so
   the view reads the user's raw value (a profile the user defines is valid).
+- **Amendment (review fixes).** The poll task checks that the view is alive on every tick (and is not started when
+  the shell failed to spawn). Mouse drag and release are tracked at the window level, so a release outside the grid
+  ends the selection (and copies on selection) and a drag past the grid extends it to the nearest cell; `cell_at`
+  clamps to the grid. Removing a terminal below the active index decrements it; if the removed terminal had the
+  focus, `panel_sync` moves it to the shown terminal, else to the workbench. The stored panel size is clamped to
+  the window at render time. Non-finite font weights are ignored.
 - Not done: shell integration, links, find, split panes, profile picker command, terminal editors, persistent
   sessions, bell, blinking cursor, `minimumContrastRatio`, `letterSpacing`, the `tabs.*` settings, inherited
   login-shell environment (`inheritEnv`), mouse reporting to programs, IME composition, panel and terminal state in
   the session.
+
+## ADR-0120 — The snippet session: tab stops followed through edits (2026-11-26)
+
+`vsr-suggest::session::SnippetSession` holds the UTF-16 offsets of every occurrence of each tab stop of an
+inserted snippet (`snippetSession.ts`, `OneSnippet`). The editor reports each change as `(offset, removed,
+inserted)` (the `TextBuffer` change log) and the session follows it; `mirror_edits` rewrites the other
+occurrences of the group typed into, as one undo step.
+
+- **Only the typed occurrence grows.** Of the current group, the occurrence that holds the edit (the placeholder
+  first, else the first in source order) grows at its edges; the other occurrences, mirrors included, shift: one
+  before it keeps its end at the edit, one after has its start pushed. `${1:a}$1` typed into at the boundary gives
+  `ax` + `ax`, not `aax`. At a boundary of two occurrences `mirror_edits` takes the caret as in the placeholder.
+- **The placeholder is not always the first occurrence.** `$1 ${1:x}` has its mirror first; `Tabstop::primary`
+  (and `Group::primary`) is the occurrence written with a default and is what gets selected.
+- **CRLF.** Snippets expand with `\n`; the buffer stores each break as its own EOL, so `AcceptPlan::with_eol`
+  converts the text and moves the selection and stop offsets before the edit is applied.
+- `insert_at_offset` / `delete_at_offset` of `vsr-text` record into the change log when tracking.
 
 ## ADR-0125 — Timing tests: the budget runs on demand, the workload runs by default (2026-11-26)
 
@@ -3482,6 +3549,14 @@ Tests: `closing_a_document_drops_its_outline_map`, `a_document_still_open_in_ano
 (view: `fbr` matches `fooBar` and keeps its parent, `MTL` matches `getMatchTypeLabel`, `bf` matches nothing).
 
 Not done: the worker's in-flight job of a closed document runs to its end (its answer is then ignored).
+
+**Review fixes (wip/fix-ui).** `sync_markers` clears the marked models with the markers when the snapshot
+generation changes, so documents that are not active no longer keep stale marks (test
+`a_new_generation_clears_the_marks_of_the_documents_that_are_not_active`). `retain_open_paths` prunes only
+when the hash of the open paths changed or an answer arrived, instead of building a `HashSet` per frame
+(`retain_open_paths_prunes_only_when_the_open_set_changes`). `filter_keep` caches the pattern chars per filter
+string and reuses two row buffers.
+
 
 ## ADR-0135 — Overview ruler follows the view lines; `ignoreHorizontalScrollbarInContentHeight` as a spacer row (2026-11-26)
 
@@ -3555,6 +3630,12 @@ and `explorer.fileNesting.patterns` was read in sorted key order, because `serde
   `file_nesting_patterns_keep_the_declaration_order` pins it. The order only matters when two parents claim
   the same child; the trie lists that child under each claiming parent, so declaration order decides which
   appears first.
+- Review fix (wip/fix-ui): `preserve_order` also changes `settings.json` on save, which now keeps the file's
+  key order and appends a new key last, where it used to sort by key. That matches upstream: the
+  configuration editing goes through jsonc `setProperty`, which changes an existing property in place and
+  appends a new one, and never sorts. Kept, not reverted. `UserSettings::reset` uses `shift_remove`
+  (`remove` is a swap-remove under `preserve_order` and moved the last key into the gap). Test:
+  `user_settings::tests::saving_keeps_the_order_of_the_file_with_new_keys_last`.
 - Dependencies: no new crate. The change is the `preserve_order` feature of `serde_json` 1.0.154 (already
   in the lock; it pulls in `indexmap`, which the lock already has).
 
@@ -3604,6 +3685,19 @@ with the lens rows in the layout, the click and the two font settings still to c
     are for the step that completes it.
   - Inlay hints (ADR-0108 step 4) are not started.
 
+- **Amendment (review fixes).** (1) A lens is resolved once per answer: `Doc.tried` remembers the
+  (provider, range) pairs asked, so a lens whose resolve returns no command is not asked every frame
+  (it used to block the worker up to the 2 s resolve timeout, about 60 times a second). A new answer
+  replaces the document and with it `tried`. (2) The worker's `ToHost::CodeLenses` arm cancels the old job
+  with `cancel_lens`, which first takes the lists the providers already answered and releases them (as
+  `cancel_completion` does). (3) `retain_open` runs every frame with the open editors' paths: a closed
+  document's lenses, resolves and pending request are dropped and its lists released. (4) `Pending` carries
+  the document version; an answer for a version that is no longer the latest observed is dropped and its
+  lists released, so a v1 answer arriving in the debounce of v2 is never applied to v2's text.
+  (5) `disable()` also forgets the awaited request. The `cancel_lens` release is covered by checking the ids
+  it releases (`a_replaced_lens_request_releases_the_lists_that_already_answered`); no test runs a host with
+  a code lens provider.
+
 ## ADR-0160 — `rode` single instance: a running rscode takes the paths over a Unix socket (proposed, 2026-11-26)
 
 Status: proposed, not implemented. Upstream's `code` hands its paths to the running instance over IPC
@@ -3636,4 +3730,3 @@ listener falling back (connect error). The gpui wiring is covered by an E2E that
 listener thread calls.
 
 Not in this ADR: the `--reuse-window` / `-r` flag, folders in a request, and the Windows named pipe.
-

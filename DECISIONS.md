@@ -3080,7 +3080,6 @@ the registry's TOC drops advanced settings at build time, so it needs a second T
 `workbench.editor.tabSizingFixedMinWidth` and `...MaxWidth` are clamped to the schema minimum (38) and the
 maximum to at least the minimum (`tab_sizing_fixed_widths_are_clamped_to_the_schema_minimum_and_max_is_at_least_min`).
 
-
 ## ADR-0100 — The extension host's environment is the login shell's: `vsr-exthost::shell_env`, the timeout setting wired (2026-11-10)
 
 Context: ADR-0078 left one main-side duty for language servers: a Finder- or Dock-launched rscode
@@ -3476,6 +3475,66 @@ Decision (`crates/vsr-app/src/terminal_view.rs`; tests `terminal_e2e.rs`, `termi
   login-shell environment (`inheritEnv`), mouse reporting to programs, IME composition, panel and terminal state in
   the session.
 
+## ADR-0113 — Pull requests on top of the `gh` CLI: the `vsr-github` crate (2026-11-26)
+
+Context: GitHub issue #40. The GitHub Pull Requests extension (`ext-pr-github`) is XXL and needs webviews, tree views and
+the authentication API; none exist yet. rscode wants pull requests now: list them, read one, check one out, create one.
+The `gh` CLI already does the authentication, the host selection and the API calls, and the user has it installed.
+
+Decision (`crates/vsr-github`, no gpui; the UI is ADR-0114):
+- **Own crate, process boundary.** Everything about `gh` (and the few `git` calls creating a pull request needs) lives in
+  `vsr-github`: locating the binary (`RSCODE_GH`, else `PATH`, else `/opt/homebrew/bin/gh` and `/usr/local/bin/gh`, because a
+  Finder launch has a short `PATH`; an override is taken as is so a wrong one is an error, not a silent fallback), typed
+  serde models of `--json` output, and a `Github` client with `snapshot`, `list_prs(filter)`, `pr_details`, `create_pr`,
+  `checkout`, `open_in_browser`, `branch_info`, `push_upstream`. Calls block; the app runs them on the background executor.
+- **`GhRunner` trait.** One method, `run(tool, args, cwd) -> Result<Output, SpawnError>`, for both `gh` and `git`. The real
+  `SystemRunner` spawns with `GH_PROMPT_DISABLED`, `GH_PAGER=cat`, `NO_COLOR` and `GIT_TERMINAL_PROMPT=0` so nothing waits on
+  a prompt nobody can answer. `fake::FakeRunner` (public, so the app's tests use it too) answers by argument prefix and
+  records every call.
+- **Errors in the terms the UI shows.** `GhError` is `GhMissing`, `NotSignedIn`, `NotGitHubRepo`, `Failed { command, code,
+  message }`, `Parse`, `Io`. A failed run is classified from gh's stderr; "not a git repository" and "none of the git remotes"
+  win over the `gh auth login` hint those messages also carry.
+- **Models tolerate change.** Unknown fields are ignored and optional ones default, so a newer gh does not break the parse.
+  Check runs and status contexts share one `Check` type with an `outcome()`.
+- **Crates.** No new crate: `serde` and `serde_json` are already in the workspace and lockfile (serde 1.0.229). No async
+  runtime and no `thiserror`: the error type is small enough to write by hand.
+- **Not used:** the GitHub REST/GraphQL API directly (would need token handling that `gh` already does), and `octocrab`
+  (a large dependency for six calls).
+
+Tests: unit tests with the fake runner and canned JSON in the shape of real gh output for every call and error path;
+`tests/spawn.rs` runs a fake `gh` shell script found on a `PATH` of its own (in a fresh temp folder) to prove spawning,
+the working directory and that a multi-line body arrives as one argument. The real `gh` is never started by a test.
+
+## ADR-0114 — The Pull Requests view, the PR tab and the `GitHub:` commands (2026-11-26)
+
+Context: ADR-0113 is the `gh` layer. This is what the user sees.
+
+Decision (`crates/vsr-app/src/github/`: `mod.rs` state and actions, `view.rs` drawing, `create.rs` the Quick Pick flows,
+`e2e_tests.rs`):
+- **View.** A "Pull Requests" activity-bar item (codicon `git-pull-request`) with a side-bar view of three sections: Open,
+  Created by me, Review requested, each with a count. A refresh button reloads them. Nothing is loaded (and `gh` is not
+  started) until the view is first shown. A failed load shows the reason instead of the sections: "Install GitHub CLI",
+  "Run `gh auth login`", or "This folder is not a GitHub repository", each with one line of what to do.
+- **PR tab.** Clicking a row opens one read-only detail tab (opening another pull request replaces it; the tab is not
+  restored on the next run, like the Welcome page): title and number, state and draft flag, author, `base <- head`, the body
+  as plain text (no Markdown rendering yet), a checks summary with each check, the files changed with their counts, and
+  Checkout and Open on GitHub buttons. It is a chrome tab like Settings and Welcome, so it sits beside the text editors, not in
+  `Editors`; the places that make another tab active also clear its flag.
+- **Commands** (Command Palette, category `GitHub`): Create Pull Request, Checkout Pull Request (a Quick Pick of the open
+  ones), Refresh Pull Requests; plus View: Show Pull Requests. They are gpui actions like every other command.
+- **Create flow.** Quick Pick steps over the existing picker (text steps show the typed text as their one row): when the
+  branch has no upstream, first "push it to origin?" with the two choices; only a Yes runs `git push -u origin HEAD`, an
+  Escape or No pushes nothing and creates nothing. Then the title (prefilled with the last commit subject), the body, the base
+  (prefilled with the repository's default branch) and draft yes/no, then `gh pr create`. A failed push stops the flow with the
+  error shown in the view.
+- **Threads.** Every `gh`/`git` call runs on the background executor; the answer comes back through `update`. A refresh
+  carries a generation so a slow answer does not overwrite a newer one.
+- **Tests.** `TestAppContext` with an injected `FakeRunner` (`Workbench.github.set_runner`): sections, empty, the three error
+  states, opening the tab, the buttons, the checkout command, the whole create flow, and that no push happens without a Yes.
+
+Left: Markdown for the body, reviews and comments in the tab, file diffs, a status-bar entry for the current branch's pull
+request, several PR tabs, and a periodic refresh.
+
 ## ADR-0120 — The snippet session: tab stops followed through edits (2026-11-26)
 
 `vsr-suggest::session::SnippetSession` holds the UTF-16 offsets of every occurrence of each tab stop of an
@@ -3558,7 +3617,6 @@ generation changes, so documents that are not active no longer keep stale marks 
 when the hash of the open paths changed or an answer arrived, instead of building a `HashSet` per frame
 (`retain_open_paths_prunes_only_when_the_open_set_changes`). `filter_keep` caches the pattern chars per filter
 string and reuses two row buffers.
-
 
 ## ADR-0135 — Overview ruler follows the view lines; `ignoreHorizontalScrollbarInContentHeight` as a spacer row (2026-11-26)
 
@@ -3733,62 +3791,68 @@ listener thread calls.
 
 Not in this ADR: the `--reuse-window` / `-r` flag, folders in a request, and the Windows named pipe.
 
-## ADR-0113 — Pull requests on top of the `gh` CLI: the `vsr-github` crate (2026-11-26)
+## ADR-0161 — UI snapshots render offscreen through gpui's headless Metal renderer; no window, no fallback needed (2026-11-26)
 
-Context: GitHub issue #40. The GitHub Pull Requests extension (`ext-pr-github`) is XXL and needs webviews, tree views and
-the authentication API; none exist yet. rscode wants pull requests now: list them, read one, check one out, create one.
-The `gh` CLI already does the authentication, the host selection and the API calls, and the user has it installed.
+Question: can gpui (gpui-pre 0.3.11, the version gpui-kit 0.9.0 pins) render the workbench to an image
+without an OS window, so that pixel snapshots never touch window focus (ADR-0024, ADR-0026)?
 
-Decision (`crates/vsr-github`, no gpui; the UI is ADR-0114):
-- **Own crate, process boundary.** Everything about `gh` (and the few `git` calls creating a pull request needs) lives in
-  `vsr-github`: locating the binary (`RSCODE_GH`, else `PATH`, else `/opt/homebrew/bin/gh` and `/usr/local/bin/gh`, because a
-  Finder launch has a short `PATH`; an override is taken as is so a wrong one is an error, not a silent fallback), typed
-  serde models of `--json` output, and a `Github` client with `snapshot`, `list_prs(filter)`, `pr_details`, `create_pr`,
-  `checkout`, `open_in_browser`, `branch_info`, `push_upstream`. Calls block; the app runs them on the background executor.
-- **`GhRunner` trait.** One method, `run(tool, args, cwd) -> Result<Output, SpawnError>`, for both `gh` and `git`. The real
-  `SystemRunner` spawns with `GH_PROMPT_DISABLED`, `GH_PAGER=cat`, `NO_COLOR` and `GIT_TERMINAL_PROMPT=0` so nothing waits on
-  a prompt nobody can answer. `fake::FakeRunner` (public, so the app's tests use it too) answers by argument prefix and
-  records every call.
-- **Errors in the terms the UI shows.** `GhError` is `GhMissing`, `NotSignedIn`, `NotGitHubRepo`, `Failed { command, code,
-  message }`, `Parse`, `Io`. A failed run is classified from gh's stderr; "not a git repository" and "none of the git remotes"
-  win over the `gh auth login` hint those messages also carry.
-- **Models tolerate change.** Unknown fields are ignored and optional ones default, so a newer gh does not break the parse.
-  Check runs and status contexts share one `Check` type with an `outcome()`.
-- **Crates.** No new crate: `serde` and `serde_json` are already in the workspace and lockfile (serde 1.0.229). No async
-  runtime and no `thiserror`: the error type is small enough to write by hand.
-- **Not used:** the GitHub REST/GraphQL API directly (would need token handling that `gh` already does), and `octocrab`
-  (a large dependency for six calls).
+Findings (sources in `~/.cargo/registry/src/*/gpui-pre-0.3.11`, `gpui-pre-apple-0.3.11`):
 
-Tests: unit tests with the fake runner and canned JSON in the shape of real gh output for every call and error path;
-`tests/spawn.rs` runs a fake `gh` shell script found on a `PATH` of its own (in a fresh temp folder) to prove spawning,
-the working directory and that a multi-line body arrives as one argument. The real `gh` is never started by a test.
+- `Window::render_to_image` (`window.rs`, behind `test`/`test-support`) rasterizes the last drawn
+  frame's `Scene` through `PlatformWindow::render_to_image`. The test platform's window forwards it
+  to a `PlatformHeadlessRenderer` if one was supplied.
+- `gpui_apple::metal_renderer::MetalHeadlessRenderer` (feature `test-support` of `gpui-pre-apple`)
+  renders a scene into an offscreen Metal texture and reads it back as an `image::RgbaImage`. No
+  `CAMetalLayer`, no `NSWindow`, no Screen Recording permission.
+- `HeadlessAppContext::with_platform(text_system, assets, renderer_factory)` builds an app on the
+  test platform with a real text system (`gpui_apple::AppleTextSystem`, CoreText) and that renderer.
+  `capture_screenshot(window)` returns the image.
+- `TestAppContext` cannot take a renderer (`build_with_platform` is private), so the existing
+  `VisualTestContext` helpers (`simulate_keystrokes`, `debug_bounds`) are unavailable for snapshots.
+  The harness dispatches keystrokes with `Window::dispatch_keystroke` and draws with `Window::draw`
+  itself. `VisualTestAppContext` (real `MacPlatform`) was rejected: it opens a real window off-screen.
 
-## ADR-0114 — The Pull Requests view, the PR tab and the `GitHub:` commands (2026-11-26)
+Decision: build on that path. There is no background-window fallback script (`scripts/ui-snapshots`
+was not written; the plan's step 2 is not needed). Every snapshot test is `#[ignore]` (needs the GPU,
+and the output depends on installed fonts and the macOS version); run them with
+`cargo test -p vsr-app ui_snapshots -- --ignored --test-threads=1`.
 
-Context: ADR-0113 is the `gh` layer. This is what the user sees.
+Caveats: the test window has scale factor 2, so a 1100x700 point window gives 2200x1400 pixels. Text
+comes from CoreText with the machine's fonts, so references are per macOS version (see ADR-0163). The
+asset source is empty (no SVG icons; the workbench uses the codicon font, which is installed). The
+terminal scenario starts a real `/bin/sh` on a PTY with a fixed `printf`; the clock is faked and the
+cursor is `solid`, so frames are deterministic (two consecutive runs gave identical results).
 
-Decision (`crates/vsr-app/src/github/`: `mod.rs` state and actions, `view.rs` drawing, `create.rs` the Quick Pick flows,
-`e2e_tests.rs`):
-- **View.** A "Pull Requests" activity-bar item (codicon `git-pull-request`) with a side-bar view of three sections: Open,
-  Created by me, Review requested, each with a count. A refresh button reloads them. Nothing is loaded (and `gh` is not
-  started) until the view is first shown. A failed load shows the reason instead of the sections: "Install GitHub CLI",
-  "Run `gh auth login`", or "This folder is not a GitHub repository", each with one line of what to do.
-- **PR tab.** Clicking a row opens one read-only detail tab (opening another pull request replaces it; the tab is not
-  restored on the next run, like the Welcome page): title and number, state and draft flag, author, `base <- head`, the body
-  as plain text (no Markdown rendering yet), a checks summary with each check, the files changed with their counts, and
-  Checkout and Open on GitHub buttons. It is a chrome tab like Settings and Welcome, so it sits beside the text editors, not in
-  `Editors`; the places that make another tab active also clear its flag.
-- **Commands** (Command Palette, category `GitHub`): Create Pull Request, Checkout Pull Request (a Quick Pick of the open
-  ones), Refresh Pull Requests; plus View: Show Pull Requests. They are gpui actions like every other command.
-- **Create flow.** Quick Pick steps over the existing picker (text steps show the typed text as their one row): when the
-  branch has no upstream, first "push it to origin?" with the two choices; only a Yes runs `git push -u origin HEAD`, an
-  Escape or No pushes nothing and creates nothing. Then the title (prefilled with the last commit subject), the body, the base
-  (prefilled with the repository's default branch) and draft yes/no, then `gh pr create`. A failed push stops the flow with the
-  error shown in the view.
-- **Threads.** Every `gh`/`git` call runs on the background executor; the answer comes back through `update`. A refresh
-  carries a generation so a slow answer does not overwrite a newer one.
-- **Tests.** `TestAppContext` with an injected `FakeRunner` (`Workbench.github.set_runner`): sections, empty, the three error
-  states, opening the tab, the buttons, the checkout command, the whole create flow, and that no push happens without a Yes.
+## ADR-0162 — UI snapshot harness and scenarios (2026-11-26)
 
-Left: Markdown for the body, reviews and comments in the tab, file diffs, a status-bar entry for the current branch's pull
-request, several PR tabs, and a periodic refresh.
+`crates/vsr-app/src/ui_snapshots/` (`#[cfg(test)]`): `Harness` owns a `HeadlessAppContext`, opens a
+`Workbench` over a fresh temp workspace with a fresh settings.json (the real one is never read), and
+offers `keys("cmd-p")`, `type_text`, `advance`, `wait_until` (real-time wait for background work, with
+parking allowed), `workbench(|wb, cx| ..)`, `capture()` and `snapshot(name)`. `settle()` runs the
+executors and draws three times.
+
+Scenarios (each in a dark and a light theme, `Default Dark Modern` / `Default Light Modern`):
+`editor_rust` (a Rust file with syntax colours), `settings_editor` (Cmd+,), `search_results`
+(Shift+Cmd+F, "alpha", waited until the summary exists), `find_widget` (Cmd+F, "point"),
+`quick_open` (Cmd+P, "a"), `terminal_panel` (Ctrl+`, a static `/bin/sh -c printf ...; cat` profile).
+`renders_are_real_and_themes_differ` is a reference-free guard: size 2200x1400, many colours, saturated
+syntax-coloured pixels in the editor area, light brighter than dark.
+
+## ADR-0163 — UI snapshot comparison, update flow and crates (2026-11-26)
+
+References live in `tests/ui-snapshots/<scenario>.png`. A pixel differs when any RGBA channel differs by
+more than 2; the snapshot fails when more than 1% of the pixels differ (Zed's visual-test numbers); a
+size change always fails. On failure `target/ui-snapshots/<name>.actual.png` and `<name>.diff.png`
+(differing pixels red over a dimmed copy) are written. `UPDATE_SNAPSHOTS=1` writes the references
+instead of comparing. A missing reference fails with the path of a candidate image.
+
+Crates: no new crate. `image@0.25.10` (already in the lockfile through gpui; dev-dependency with the
+`png` feature, `png@0.18.1` also already present) encodes and decodes PNGs. `image-compare` was not
+added: the agent environment has no proxy token for crate downloads (memory: cargo proxy token), and
+a per-channel threshold plus a differing-pixel ratio is about 15 lines. Revisit `image-compare@<previous
+release>` (SSIM) if the threshold approach proves too noisy. `gpui-apple` (already a dev-dependency)
+now enables its `test-support` feature for `MetalHeadlessRenderer`.
+
+Policy note: `docs/testing.md` keeps baselines of the old tier (c) outside git until the user approves
+committing images. The references of this tier were generated but are left untracked for the user's
+decision; they total about 4 MB (about 330 KB each).

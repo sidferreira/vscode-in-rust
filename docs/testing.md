@@ -20,6 +20,7 @@ regression options), `UPSTREAM.md` (sync workflow), `DECISIONS.md`.
 | (a) unit | ported upstream unit tests, pure logic | `crates/<crate>/tests/upstream_*.rs`, `#[cfg(test)]` modules | `cargo test` |
 | (b) headless E2E | user flows through the real workbench model, no window | `tests/e2e-scenarios/<area>.md` (the spec), Rust tests in `crates/vsr-app/tests/e2e_*.rs` | `cargo test`, gpui `TestAppContext` |
 | (c) visual regression | the app window still looks the same | `tests/visual/` (harness), baselines outside git | `cargo test --test visual` |
+| (d) UI snapshots (offscreen) | pixels of real workbench states, dark and light, no window | `crates/vsr-app/src/ui_snapshots/`, references `tests/ui-snapshots/*.png` | `cargo test -p vsr-app ui_snapshots -- --ignored --test-threads=1` (`UPDATE_SNAPSHOTS=1` refreshes) |
 
 - **Unit** tests are a port: each file ports one upstream `*.test.ts`. Count and status come from
   `scripts/test-port`. Headline numbers today: 58,065 upstream unit tests in scope (3,080 files,
@@ -159,6 +160,16 @@ and zero orphans again.
 
 Dynamic titles (generated names) are not tracked. A change to one of those files still shows up
 in the `CHANGED` line.
+
+## UI snapshots (tier d, ADR-0161..0163)
+
+Offscreen pixel snapshots through gpui's `HeadlessAppContext`, the real CoreText text system and
+`MetalHeadlessRenderer`: no OS window, no focus, no activation, so it respects the rule at the top.
+Scenarios: editor with Rust syntax colours, Settings editor, Search results, Find widget, Quick Open,
+terminal panel, each in a dark and a light theme. Tests are `#[ignore]` (GPU and machine fonts);
+references are per macOS/font set, so refresh them with `UPDATE_SNAPSHOTS=1` after an OS update or
+an intended UI change. Failures write `target/ui-snapshots/<name>.{actual,diff}.png`. Tolerance: 2 per
+channel, 1% of pixels. Reference images: see the policy note in ADR-0163.
 
 ## Image policy (visual baselines)
 

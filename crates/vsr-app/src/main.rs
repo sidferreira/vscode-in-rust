@@ -46,6 +46,8 @@ mod untitled_editors; // File: New Untitled Text File, Save As of untitled texts
 mod untitled_e2e; // headless tests of untitled texts (ADR-0058)
 #[cfg(test)]
 mod theme_e2e;
+#[cfg(test)]
+mod ui_snapshots; // offscreen pixel snapshots of workbench states (ADR-0161)
 mod ui;
 mod welcome; // the Welcome page tab (ADR-0040)
 mod window_title; // window.title and window.titleSeparator (the title bar and the OS window title)

@@ -29,7 +29,7 @@ What depends on what in rscode, and how much each open feature would unblock. Bu
 | smoke scenarios: pending | 9 | not attributed (free-text notes) |
 | smoke scenarios: blocked | 111 | 110 name a feature that has a node; 1 names no feature (a settings-rule check) |
 | unit-test rows in scenario files | 5 | not smoke scenarios; not counted |
-| ADR headings in DECISIONS.md | 107 | every ADR cited by a node exists (latest ADR-0160) |
+| ADR headings in DECISIONS.md | 110 | every ADR cited by a node exists (latest ADR-0163) |
 | upstream/ports.toml entries | 59 | not nodes (file ports, not features): partial 56, planned 1, ported 2 |
 
 Settings in the export: 2062. Scenario rows: 198.

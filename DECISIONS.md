@@ -3730,3 +3730,69 @@ listener falling back (connect error). The gpui wiring is covered by an E2E that
 listener thread calls.
 
 Not in this ADR: the `--reuse-window` / `-r` flag, folders in a request, and the Windows named pipe.
+
+## ADR-0161 — UI snapshots render offscreen through gpui's headless Metal renderer; no window, no fallback needed (2026-11-26)
+
+Question: can gpui (gpui-pre 0.3.11, the version gpui-kit 0.9.0 pins) render the workbench to an image
+without an OS window, so that pixel snapshots never touch window focus (ADR-0024, ADR-0026)?
+
+Findings (sources in `~/.cargo/registry/src/*/gpui-pre-0.3.11`, `gpui-pre-apple-0.3.11`):
+
+- `Window::render_to_image` (`window.rs`, behind `test`/`test-support`) rasterizes the last drawn
+  frame's `Scene` through `PlatformWindow::render_to_image`. The test platform's window forwards it
+  to a `PlatformHeadlessRenderer` if one was supplied.
+- `gpui_apple::metal_renderer::MetalHeadlessRenderer` (feature `test-support` of `gpui-pre-apple`)
+  renders a scene into an offscreen Metal texture and reads it back as an `image::RgbaImage`. No
+  `CAMetalLayer`, no `NSWindow`, no Screen Recording permission.
+- `HeadlessAppContext::with_platform(text_system, assets, renderer_factory)` builds an app on the
+  test platform with a real text system (`gpui_apple::AppleTextSystem`, CoreText) and that renderer.
+  `capture_screenshot(window)` returns the image.
+- `TestAppContext` cannot take a renderer (`build_with_platform` is private), so the existing
+  `VisualTestContext` helpers (`simulate_keystrokes`, `debug_bounds`) are unavailable for snapshots.
+  The harness dispatches keystrokes with `Window::dispatch_keystroke` and draws with `Window::draw`
+  itself. `VisualTestAppContext` (real `MacPlatform`) was rejected: it opens a real window off-screen.
+
+Decision: build on that path. There is no background-window fallback script (`scripts/ui-snapshots`
+was not written; the plan's step 2 is not needed). Every snapshot test is `#[ignore]` (needs the GPU,
+and the output depends on installed fonts and the macOS version); run them with
+`cargo test -p vsr-app ui_snapshots -- --ignored --test-threads=1`.
+
+Caveats: the test window has scale factor 2, so a 1100x700 point window gives 2200x1400 pixels. Text
+comes from CoreText with the machine's fonts, so references are per macOS version (see ADR-0163). The
+asset source is empty (no SVG icons; the workbench uses the codicon font, which is installed). The
+terminal scenario starts a real `/bin/sh` on a PTY with a fixed `printf`; the clock is faked and the
+cursor is `solid`, so frames are deterministic (two consecutive runs gave identical results).
+
+## ADR-0162 — UI snapshot harness and scenarios (2026-11-26)
+
+`crates/vsr-app/src/ui_snapshots/` (`#[cfg(test)]`): `Harness` owns a `HeadlessAppContext`, opens a
+`Workbench` over a fresh temp workspace with a fresh settings.json (the real one is never read), and
+offers `keys("cmd-p")`, `type_text`, `advance`, `wait_until` (real-time wait for background work, with
+parking allowed), `workbench(|wb, cx| ..)`, `capture()` and `snapshot(name)`. `settle()` runs the
+executors and draws three times.
+
+Scenarios (each in a dark and a light theme, `Default Dark Modern` / `Default Light Modern`):
+`editor_rust` (a Rust file with syntax colours), `settings_editor` (Cmd+,), `search_results`
+(Shift+Cmd+F, "alpha", waited until the summary exists), `find_widget` (Cmd+F, "point"),
+`quick_open` (Cmd+P, "a"), `terminal_panel` (Ctrl+`, a static `/bin/sh -c printf ...; cat` profile).
+`renders_are_real_and_themes_differ` is a reference-free guard: size 2200x1400, many colours, saturated
+syntax-coloured pixels in the editor area, light brighter than dark.
+
+## ADR-0163 — UI snapshot comparison, update flow and crates (2026-11-26)
+
+References live in `tests/ui-snapshots/<scenario>.png`. A pixel differs when any RGBA channel differs by
+more than 2; the snapshot fails when more than 1% of the pixels differ (Zed's visual-test numbers); a
+size change always fails. On failure `target/ui-snapshots/<name>.actual.png` and `<name>.diff.png`
+(differing pixels red over a dimmed copy) are written. `UPDATE_SNAPSHOTS=1` writes the references
+instead of comparing. A missing reference fails with the path of a candidate image.
+
+Crates: no new crate. `image@0.25.10` (already in the lockfile through gpui; dev-dependency with the
+`png` feature, `png@0.18.1` also already present) encodes and decodes PNGs. `image-compare` was not
+added: the agent environment has no proxy token for crate downloads (memory: cargo proxy token), and
+a per-channel threshold plus a differing-pixel ratio is about 15 lines. Revisit `image-compare@<previous
+release>` (SSIM) if the threshold approach proves too noisy. `gpui-apple` (already a dev-dependency)
+now enables its `test-support` feature for `MetalHeadlessRenderer`.
+
+Policy note: `docs/testing.md` keeps baselines of the old tier (c) outside git until the user approves
+committing images. The references of this tier were generated but are left untracked for the user's
+decision; they total about 4 MB (about 330 KB each).

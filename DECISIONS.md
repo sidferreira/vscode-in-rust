@@ -3501,6 +3501,25 @@ Decision (`crates/vsr-github`, no gpui; the UI is ADR-0114):
 - **Not used:** the GitHub REST/GraphQL API directly (would need token handling that `gh` already does), and `octocrab`
   (a large dependency for six calls).
 
+Review fixes (same day):
+- **Sign-in is judged per host.** `gh auth status` exits non-zero when *any* configured host is broken and prints
+  `gh auth login -h <host>` for it, so that hint alone no longer means "not signed in". `NotSignedIn` is: no host logged in
+  ("not logged into any GitHub hosts"), the default host (`GH_HOST`, else github.com) has an invalid token, or no host has a
+  good login and gh points at `gh auth login`. A broken *other* host is `Failed` with gh's text, and `snapshot` carries on
+  past that `Failed` (the repository call then says whether the host in use works). Other commands keep the hint matching.
+- **Locating tools.** Only absolute `PATH` entries are searched (an empty or relative entry means the current directory, where a
+  repository could plant a `gh`/`git`), and the runner always spawns the absolute path it found, never a bare name. `git` is
+  found like `gh` (`PATH`, `/usr/bin/git`, `/opt/homebrew/bin/git`, `/usr/local/bin/git`). A relative `RSCODE_GH` is ignored.
+- **Limits.** `SystemRunner::run` polls the child and kills it after 60 s (10 min for `gh pr checkout` and `git push`, which move
+  data), giving `GhError::Timeout`; stdout and stderr are each capped at 16 MB (the rest is read and dropped so the child never
+  blocks). `gh pr view --web` goes through `GhRunner::spawn_detached`: spawn, report a failure within 1.5 s, else let it go.
+  No new crate: `std::process` plus reader threads and a channel.
+- **Messages.** A missing `git` is `GitMissing` ("Install Git"), not `GhMissing`. `NotGitHubRepo` says "Could not find this
+  repository on GitHub (not a GitHub repository, or no access)" because gh's "could not resolve to a repository" also means a
+  wrong owner or no access.
+- **Checks.** A `COMPLETED` run with an empty or missing conclusion is neutral, not failed; only FAILURE, TIMED_OUT, CANCELLED,
+  ACTION_REQUIRED and STARTUP_FAILURE fail; STALE, SKIPPED and NEUTRAL are neutral.
+
 Tests: unit tests with the fake runner and canned JSON in the shape of real gh output for every call and error path;
 `tests/spawn.rs` runs a fake `gh` shell script found on a `PATH` of its own (in a fresh temp folder) to prove spawning,
 the working directory and that a multi-line body arrives as one argument. The real `gh` is never started by a test.

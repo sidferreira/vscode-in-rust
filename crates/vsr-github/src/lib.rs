@@ -18,7 +18,9 @@ pub use error::GhError;
 pub use models::{
     Author, Check, CheckOutcome, ChecksSummary, NewPr, PrDetails, PrFile, PrFilter, PrState, PrSummary, Repo, Review,
 };
-pub use runner::{FALLBACK_GH_PATHS, GhRunner, Output, SpawnError, SystemRunner, Tool, locate_gh, locate_gh_in};
+pub use runner::{
+    FALLBACK_GH_PATHS, FALLBACK_GIT_PATHS, GhRunner, Output, SpawnError, SystemRunner, Tool, locate_gh, locate_gh_in, locate_git, locate_git_in,
+};
 
 const LIST_FIELDS: &str = "number,title,author,headRefName,baseRefName,state,isDraft,url,updatedAt,reviewDecision";
 const VIEW_FIELDS: &str = "number,title,body,author,state,isDraft,headRefName,baseRefName,url,files,statusCheckRollup,reviews,comments,mergeable";
@@ -57,7 +59,7 @@ impl Github {
     fn exec(&self, tool: Tool, args: &[&str]) -> Result<String, GhError> {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let command = format!("{} {}", if tool == Tool::Gh { "gh" } else { "git" }, args.join(" "));
-        let out = self.runner.run(tool, &args, &self.cwd)?;
+        let out = self.runner.run(tool, &args, &self.cwd).map_err(|e| spawn_error(tool, &command, e))?;
         if out.success { Ok(out.stdout) } else { Err(error::classify(&command, &out)) }
     }
 
@@ -67,7 +69,8 @@ impl Github {
             .map_err(|e| GhError::Parse { command: format!("gh {}", args.join(" ")), message: e.to_string() })
     }
 
-    /// `gh auth status`: `Ok` when signed in to a host.
+    /// `gh auth status`: `Ok` when signed in to the host in use. A broken *other* host is `Failed`
+    /// (gh exits non-zero for it too), not `NotSignedIn`.
     pub fn auth_status(&self) -> Result<(), GhError> {
         self.exec(Tool::Gh, &["auth", "status"]).map(|_| ())
     }
@@ -108,15 +111,20 @@ impl Github {
         self.exec(Tool::Gh, &["pr", "checkout", &n]).map(|_| ())
     }
 
-    /// `gh pr view N --web`: gh opens the browser.
+    /// `gh pr view N --web`: gh opens the browser. Does not wait for gh to finish.
     pub fn open_in_browser(&self, number: u64) -> Result<(), GhError> {
-        let n = number.to_string();
-        self.exec(Tool::Gh, &["pr", "view", &n, "--web"]).map(|_| ())
+        let args: Vec<String> = ["pr", "view", &number.to_string(), "--web"].iter().map(|s| s.to_string()).collect();
+        let command = format!("gh {}", args.join(" "));
+        self.runner.spawn_detached(Tool::Gh, &args, &self.cwd).map_err(|e| spawn_error(Tool::Gh, &command, e))
     }
 
     /// Signed in, then the repository and the three lists. The first failure is the answer.
     pub fn snapshot(&self) -> Result<Snapshot, GhError> {
-        self.auth_status()?;
+        match self.auth_status() {
+            // Only another host is broken: the repository call says whether this one works.
+            Ok(()) | Err(GhError::Failed { .. }) => {}
+            Err(e) => return Err(e),
+        }
         let repo = self.repo()?;
         Ok(Snapshot {
             repo,
@@ -139,6 +147,15 @@ impl Github {
     /// `git push -u origin HEAD`. Only ever called after the user confirmed.
     pub fn push_upstream(&self) -> Result<(), GhError> {
         self.exec(Tool::Git, &["push", "-u", "origin", "HEAD"]).map(|_| ())
+    }
+}
+
+/// A spawn failure in the terms of the tool that failed to start.
+fn spawn_error(tool: Tool, command: &str, e: SpawnError) -> GhError {
+    match (e, tool) {
+        (SpawnError::NotFound, Tool::Git) => GhError::GitMissing,
+        (SpawnError::Timeout, _) => GhError::Timeout { command: command.to_string() },
+        (e, _) => e.into(),
     }
 }
 

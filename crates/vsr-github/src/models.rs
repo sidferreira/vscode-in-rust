@@ -139,8 +139,9 @@ impl Check {
         }
         match word(&self.conclusion).as_str() {
             "SUCCESS" => CheckOutcome::Passed,
-            "NEUTRAL" | "SKIPPED" => CheckOutcome::Skipped,
-            _ => CheckOutcome::Failed,
+            "FAILURE" | "TIMED_OUT" | "CANCELLED" | "ACTION_REQUIRED" | "STARTUP_FAILURE" => CheckOutcome::Failed,
+            // NEUTRAL, SKIPPED, STALE, and a completed run that reports no conclusion (yet).
+            _ => CheckOutcome::Skipped,
         }
     }
 }

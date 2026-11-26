@@ -104,16 +104,25 @@ fn on_demand_language(path: &Path) -> &'static str {
 
 /// The text of a file for an on-demand document; `None` when it is not a regular file (a FIFO, a
 /// device: their length is 0 and a read may block forever), cannot be read as UTF-8, or is bigger
-/// than [`MAX_ON_DEMAND_BYTES`]. `metadata` follows symlinks, so a link to a regular file still works.
+/// than [`MAX_ON_DEMAND_BYTES`]. Symlinks are followed, so a link to a regular file still works.
 fn read_on_demand(path: &Path) -> Option<String> {
     use std::io::Read;
-    let meta = std::fs::metadata(path).ok()?;
+    use std::os::unix::fs::OpenOptionsExt;
+    // Open non-blocking first: a path swapped for a FIFO between a `metadata` check and `open` would
+    // otherwise block in `open` until a writer appears. The type and size are checked on the handle
+    // that is actually read, so nothing can change between the check and the read.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    let meta = file.metadata().ok()?;
     if !meta.is_file() || meta.len() > MAX_ON_DEMAND_BYTES {
         return None;
     }
     // Bounded even if the file grows after the check: one byte past the cap is enough to refuse it.
     let mut text = String::new();
-    std::fs::File::open(path).ok()?.take(MAX_ON_DEMAND_BYTES + 1).read_to_string(&mut text).ok()?;
+    file.take(MAX_ON_DEMAND_BYTES + 1).read_to_string(&mut text).ok()?;
     (text.len() as u64 <= MAX_ON_DEMAND_BYTES).then_some(text)
 }
 

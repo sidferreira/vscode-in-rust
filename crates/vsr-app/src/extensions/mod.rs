@@ -150,9 +150,11 @@ mod builtin_roots_tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    /// A fresh folder for one test, named for this process so parallel runs do not collide.
+    /// A fresh folder for one test under the workspace target dir (removed by `cargo clean`), named
+    /// for this process so parallel runs do not collide.
     fn scratch(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("rscode-builtin-{tag}-{}", std::process::id()));
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/test-scratch/builtin-roots");
+        let d = PathBuf::from(root).join(format!("rscode-builtin-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d

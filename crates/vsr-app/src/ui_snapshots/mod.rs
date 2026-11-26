@@ -30,10 +30,11 @@ pub struct Harness {
     pub dir: PathBuf,
 }
 
-/// A fresh scratch directory under the system temp dir (never deleted recursively by tests).
+/// A fresh scratch directory under the workspace target dir, so `cargo clean` removes it.
 pub fn scratch(name: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let dir = std::env::temp_dir().join(format!("rscode-ui-snap-{name}-{}-{nanos}", std::process::id()));
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/test-scratch/ui-snapshots");
+    let dir = PathBuf::from(root).join(format!("rscode-ui-snap-{name}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -76,8 +77,8 @@ impl Harness {
                             origin: gpui::point(px(0.), px(0.)),
                             size: size(px(WINDOW.0), px(WINDOW.1)),
                         })),
-                        focus: true,
-                        show: true,
+                        focus: false,
+                        show: false,
                         ..Default::default()
                     },
                     |_, cx| cx.new(|cx| Workbench::new(root, cx)),

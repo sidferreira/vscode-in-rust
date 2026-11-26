@@ -539,9 +539,36 @@ fn main_error() -> serde_json::Value {
 /// Puts the extension host's diagnostics of `path` in place, as the host would publish them.
 fn set_diagnostics(wb: &Entity<Workbench>, cx: &mut VisualTestContext, path: &Path, markers: Vec<serde_json::Value>) {
     let key = crate::extensions::snapshot::resource_key(path);
-    wb.update(cx, |wb, _| {
+    wb.update(cx, |wb, cx| {
         wb.ext.snapshot.diagnostics.insert(key, markers);
+        // A new snapshot is what the host sends on a change (ADR-0094: the markers are parsed per change).
+        wb.ext.generation += 1;
+        cx.notify();
     });
+}
+
+#[gpui::test]
+fn diagnostics_are_parsed_once_per_change_not_once_per_frame(cx: &mut TestAppContext) {
+    let (wb, cx, proj) = workbench(cx, "parse-count");
+    let main_file = proj.join("src/main.rs");
+    open(&wb, cx, &main_file);
+    wb.update(cx, |wb, _| wb.outline.fake = Some(Box::new(|_| nested_symbols())));
+    set_diagnostics(&wb, cx, &main_file, vec![main_error()]);
+    ask(&wb, cx);
+    let parses = |cx: &mut VisualTestContext| wb.read_with(cx, |wb, _| wb.outline.parses);
+    // The first frames ran before the diagnostics were set (one parse for the empty snapshot).
+    let first = parses(cx);
+    for _ in 0..5 {
+        wb.update(cx, |wb, _| wb.outline_sync_at(Instant::now()));
+        cx.run_until_parked();
+    }
+    assert_eq!(parses(cx), first, "the frames do not parse them again");
+
+    set_diagnostics(&wb, cx, &main_file, vec![main_error(), main_error()]);
+    cx.run_until_parked();
+    assert_eq!(parses(cx), first + 1, "a change parses them once more, on the next frame");
+    cx.run_until_parked();
+    assert_eq!(parses(cx), first + 1, "and the frames after it do not");
 }
 
 #[gpui::test]

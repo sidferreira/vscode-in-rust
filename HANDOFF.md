@@ -17,7 +17,7 @@ Where rscode stands, what is blocked on you, and how the next session picks up.
 - Settings (2,062): **wired 330** · blocked 325 · todo 428 (rest exthost / n/a).
 - `rode` loads your `~/.vscode/extensions` by default (#31, decided 2026-11-26). Built-in json/css/html extensions still need `RSCODE_EXTENSIONS_DEV` until #39.
 - Installed app: `rode` (ADR-0110) → `~/Applications/rscode.app`, release build of `main`, pointed at `../codeoss-exthost-lsp`. Rerun `scripts/install-rode` after merges.
-- Code-OSS host builds: `../codeoss-exthost-lsp` has json, css and html language features compiled (use this one); `../codeoss-exthost` has only json compiled.
+- Code-OSS host build: `../codeoss-exthost-lsp` (json, css and html language features compiled). The older json-only `../codeoss-exthost` was moved to the Trash on 2026-11-26; `scripts/build-codeoss-exthost --language-features json,css,html <dest>` rebuilds one.
 - Work items are GitHub issues (#1–#38). Close the ones below once `main` is pushed.
 
 What landed (ADRs in `DECISIONS.md`):

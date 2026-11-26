@@ -405,6 +405,8 @@ impl EditorView {
         // The bars and the overview ruler: the viewport and extents come from the last paint, before the
         // list's closure takes `cfg` and `theme`.
         let (vertical_in, horizontal_in) = scrollbar::inputs(&scroll, self.bounds.get().size, &bar_settings);
+        // The marks follow the view lines (folding and wrapping, ADR-0036, ADR-0042), as the rows do.
+        let view_lines = editor.editor.view_lines();
         let lane = overview_ruler::Lane {
             marks: overview_ruler::marks(
                 overview_ruler::zones_for(
@@ -415,6 +417,7 @@ impl EditorView {
                 cfg.line_height,
                 vertical_in.viewport,
                 vertical_in.content,
+                |line| overview_ruler::view_line_of(view_lines.as_deref(), line),
                 |name| match name {
                     overview_ruler::CURSOR => theme.overview_cursor_fg,
                     overview_ruler::SELECTION => theme.overview_selection_fg,
